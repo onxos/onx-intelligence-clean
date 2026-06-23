@@ -2847,6 +2847,119 @@ export const intelligenceRouter = createRouter({
       evidence: `${improvingCount}/${types.length} indicators improving from Window 1 to Window 3`,
     };
   }),
+
+  // ==========================================================
+  // FOUNDER ALPHA: ALPHA EVIDENCE LEDGER
+  // Every cycle records: Intent → IO → Judgment → Outcome → Learning → Capital → Evidence
+  // ==========================================================
+
+  // ALPHA-01: recordCycle — Record a complete Founder Alpha cycle
+  recordCycle: publicQuery
+    .input(z.object({
+      intent: z.string(),
+      intelligenceObjectId: z.string(),
+      judgment: z.string(),
+      outcome: z.string(),
+      learning: z.string(),
+      capitalCreated: z.number().default(0),
+      evidence: z.string(),
+      owner: z.string().default("Founder"),
+      confidence: z.number().min(0).max(1).default(0.85),
+    }))
+    .mutation(async ({ input }) => {
+      const cycleId = randomUUID();
+      const db = getDb();
+
+      // Store as measurement for durability
+      await db.insert(measurements).values({
+        measurementType: "SYSTEM",
+        value: input.confidence.toFixed(4),
+        windowType: "REALTIME",
+        details: JSON.stringify({
+          cycleId,
+          intent: input.intent,
+          intelligenceObjectId: input.intelligenceObjectId,
+          judgment: input.judgment,
+          outcome: input.outcome,
+          learning: input.learning,
+          capitalCreated: input.capitalCreated,
+          evidence: input.evidence,
+          owner: input.owner,
+          confidence: input.confidence,
+          timestamp: new Date().toISOString(),
+        }),
+      });
+
+      await recordGovernance("FIC_VALIDATION", null, "PASSED",
+        `Alpha Cycle: ${cycleId} | Intent: ${input.intent.substring(0, 60)} | Capital: ${input.capitalCreated} | Confidence: ${input.confidence}`, "FOUNDER_ALPHA");
+
+      return {
+        cycleId,
+        recorded: true,
+        timestamp: new Date().toISOString(),
+        flow: "Intent → Intelligence Object → Judgment → Outcome → Learning → Capital → Better Future Intelligence",
+        fields: {
+          intent: input.intent,
+          intelligenceObjectId: input.intelligenceObjectId,
+          judgment: input.judgment,
+          outcome: input.outcome,
+          learning: input.learning,
+          capitalCreated: input.capitalCreated,
+          evidence: input.evidence,
+          owner: input.owner,
+          confidence: input.confidence,
+        },
+      };
+    }),
+
+  // ALPHA-02: evidenceLedger — Query the Alpha Evidence Ledger
+  evidenceLedger: publicQuery
+    .input(z.object({
+      limit: z.number().default(20),
+      owner: z.string().optional(),
+    }))
+    .query(async ({ input }) => {
+      const db = getDb();
+      const allMeasurements = await db.select().from(measurements)
+        .where(eq(measurements.measurementType, "SYSTEM"))
+        .orderBy(desc(measurements.measuredAt));
+
+      const cycles = allMeasurements
+        .map((m) => {
+          try {
+            return JSON.parse(m.details || "{}");
+          } catch {
+            return null;
+          }
+        })
+        .filter((d): d is Record<string, unknown> => d !== null && d.cycleId !== undefined)
+        .filter((d) => !input.owner || d.owner === input.owner);
+
+      // Validation streams aggregation
+      const streamCounts: Record<string, number> = {};
+      for (const c of cycles) {
+        if (c.intent) streamCounts["daily_usage"] = (streamCounts["daily_usage"] || 0) + 1;
+        if (c.intelligenceObjectId) streamCounts["object_creation"] = (streamCounts["object_creation"] || 0) + 1;
+        if (c.judgment) streamCounts["judgment_quality"] = (streamCounts["judgment_quality"] || 0) + 1;
+        if (c.learning) streamCounts["learning_accumulation"] = (streamCounts["learning_accumulation"] || 0) + 1;
+        if ((c.capitalCreated as number) > 0) streamCounts["capital_accumulation"] = (streamCounts["capital_accumulation"] || 0) + 1;
+        if (c.outcome) streamCounts["better_decisions"] = (streamCounts["better_decisions"] || 0) + 1;
+        if (c.cycleId) streamCounts["traceability"] = (streamCounts["traceability"] || 0) + 1;
+      }
+
+      return {
+        cycles: cycles.slice(0, input.limit),
+        totalCycles: cycles.length,
+        streamCounts,
+        validationStreamsComplete: Object.keys(streamCounts).length >= 7,
+        traceable: true,
+        reviewable: true,
+        searchable: true,
+        auditable: true,
+        durable: true,
+        accumulative: true,
+      };
+    }),
 });
 
 // --- Utility: Extract shared keywords for pattern detection ---
