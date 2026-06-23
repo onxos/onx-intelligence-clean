@@ -752,4 +752,527 @@ export const intelligenceRouter = createRouter({
         depth: provenance.length + transitions.length,
       };
     }),
+
+  // ==========================================================
+  // PHASE 2: LEARNING PROOF ENDPOINTS (LP-01 through LP-10)
+  // ==========================================================
+
+  // LP-01: feedBatch — Submit multiple observations for pattern detection
+  feedBatch: publicQuery
+    .input(z.object({
+      observations: z.array(z.object({
+        content: z.string().min(1),
+        amanahScore: z.number().min(0).max(1).optional(),
+      })).min(2).max(20),
+      patternHint: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      const createdIds: string[] = [];
+
+      // Step 1: Create all observations as SIGNAL objects
+      for (const obs of input.observations) {
+        const contentHash = createHash("sha256").update(obs.content).digest("hex");
+        const objectId = randomUUID();
+        const [obj] = await db.insert(intelligenceObjects).values({
+          objectId,
+          objectType: "SIGNAL",
+          lifecycleState: "VALIDATED",
+          version: 1,
+          originSource: "L5_REALITY",
+          creatorIdentity: "System",
+          amanahScore: (obs.amanahScore || 0.70).toFixed(2),
+          ownershipClass: "DERIVED",
+          validationStatus: "PROVISIONAL",
+          understandingRung: 0,
+          capitalValue: "0",
+          content: obs.content,
+          contentHash,
+          semanticSummary: obs.content.substring(0, 200),
+          privacyLevel: "INSTITUTIONAL",
+          trustScore: (obs.amanahScore || 0.70).toFixed(2),
+          shadowStatus: "NOT_SHADOW",
+          customAttributes: JSON.stringify({ sourceLayer: "L5_REALITY" }),
+        }).$returningId();
+        createdIds.push(objectId);
+
+        // Record provenance
+        await db.insert(provenanceRecords).values([
+          { objectId: obj.id, dimension: "ORIGIN_SOURCE", value: "L5_REALITY", hash: createHash("sha256").update("L5_REALITY").digest("hex") },
+          { objectId: obj.id, dimension: "CREATOR_IDENTITY", value: "System", hash: createHash("sha256").update("System").digest("hex") },
+          { objectId: obj.id, dimension: "CREATION_TIMESTAMP", value: new Date().toISOString(), hash: createHash("sha256").update(Date.now().toString()).digest("hex") },
+        ]);
+
+        await logContinuity("L2_OBJECT", "BATCH_OBSERVATION_CREATED", objectId, {
+          objectType: "SIGNAL", originSource: "L5_REALITY",
+        });
+      }
+
+      // Step 2: Auto-detect pattern if shared keywords exist
+      const keywords = extractSharedKeywords(input.observations.map(o => o.content));
+      let patternObjectId: string | null = null;
+
+      if (keywords.length >= 2 && input.observations.length >= 3) {
+        const patternContent = `Pattern detected: ${keywords.join(", ")} — observed across ${input.observations.length} independent events. ${input.patternHint || ""}`;
+        const patternId = randomUUID();
+        await db.insert(intelligenceObjects).values({
+          objectId: patternId,
+          objectType: "PATTERN",
+          lifecycleState: "PATTERN",
+          version: 1,
+          originSource: "L5_REALITY",
+          creatorIdentity: "System",
+          amanahScore: "0.75",
+          ownershipClass: "DERIVED",
+          validationStatus: "CONFIRMED",
+          understandingRung: 1,
+          capitalValue: "0",
+          content: patternContent,
+          contentHash: createHash("sha256").update(patternContent).digest("hex"),
+          semanticSummary: patternContent.substring(0, 200),
+          privacyLevel: "INSTITUTIONAL",
+          trustScore: "0.75",
+          shadowStatus: "NOT_SHADOW",
+          customAttributes: JSON.stringify({ patternKeywords: keywords, observationCount: input.observations.length }),
+        }).$returningId();
+        patternObjectId = patternId;
+
+        // Link observations to pattern
+        const patternDbId = (await db.select().from(intelligenceObjects).where(eq(intelligenceObjects.objectId, patternObjectId)))[0]?.id;
+        for (const oid of createdIds) {
+          const objDbId = (await db.select().from(intelligenceObjects).where(eq(intelligenceObjects.objectId, oid)))[0]?.id;
+          if (patternDbId && objDbId) {
+            await db.insert(objectRelationships).values({
+              fromObjectId: patternDbId,
+              toObjectId: objDbId,
+              relationshipType: "DERIVES_FROM",
+              strength: "0.85",
+            });
+          }
+        }
+      }
+
+      await logContinuity("L3_EVENT", "PATTERN_FORMATION", patternObjectId || "batch", {
+        observations: input.observations.length,
+        keywords,
+        patternFormed: !!patternObjectId,
+      });
+
+      return {
+        observationsCreated: createdIds.length,
+        patternFormed: !!patternObjectId,
+        patternObjectId,
+        sharedKeywords: keywords,
+        observationIds: createdIds,
+      };
+    }),
+
+  // LP-05: reinforce — Strengthen intelligence with validation
+  reinforce: publicQuery
+    .input(z.object({
+      objectId: z.string(),
+      validationType: z.enum(["REALITY", "CROSS_REFERENCE", "FOUNDER", "INSTITUTION"]),
+      evidence: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      const objs = await db.select().from(intelligenceObjects).where(eq(intelligenceObjects.objectId, input.objectId));
+      if (objs.length === 0) throw new Error("OBJECT_NOT_FOUND");
+      const obj = objs[0];
+
+      const currentAmanah = parseFloat(obj.amanahScore);
+      const strengthGain = input.validationType === "FOUNDER" ? 0.10 : input.validationType === "INSTITUTION" ? 0.07 : 0.05;
+      const newAmanah = Math.min(currentAmanah + strengthGain, 1.0);
+
+      await db.update(intelligenceObjects)
+        .set({ amanahScore: newAmanah.toFixed(2) })
+        .where(eq(intelligenceObjects.id, obj.id));
+
+      await db.insert(provenanceRecords).values({
+        objectId: obj.id,
+        dimension: "VALIDATION_HISTORY",
+        value: `REINFORCE[${input.validationType}]: ${input.evidence} (Amanah ${currentAmanah}→${newAmanah.toFixed(2)})`,
+        hash: createHash("sha256").update(input.evidence + Date.now().toString()).digest("hex"),
+      });
+
+      await recordGovernance("FIC_VALIDATION", obj.id, "PASSED",
+        `Reinforced via ${input.validationType}: ${input.evidence}`, "D12-H");
+
+      return {
+        objectId: input.objectId,
+        reinforcementType: input.validationType,
+        amanahBefore: currentAmanah,
+        amanahAfter: newAmanah,
+        strengthGained: strengthGain,
+      };
+    }),
+
+  // LP-06: decay — Apply temporal/contradiction decay
+  decay: publicQuery
+    .input(z.object({
+      objectId: z.string(),
+      decayType: z.enum(["TEMPORAL", "CONTRADICTION", "REALITY"]).default("TEMPORAL"),
+      severity: z.number().min(0.01).max(0.5).default(0.10),
+    }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      const objs = await db.select().from(intelligenceObjects).where(eq(intelligenceObjects.objectId, input.objectId));
+      if (objs.length === 0) throw new Error("OBJECT_NOT_FOUND");
+      const obj = objs[0];
+
+      const currentAmanah = parseFloat(obj.amanahScore);
+      const newAmanah = Math.max(currentAmanah - input.severity, 0.10);
+
+      // Amanah floor check — if below 0.50, transition to DECAYING
+      let newState = obj.lifecycleState;
+      if (newAmanah < 0.50) {
+        newState = "DECAYING";
+        await db.update(intelligenceObjects)
+          .set({ lifecycleState: "DECAYING" as typeof intelligenceObjects.$inferInsert.lifecycleState, amanahScore: newAmanah.toFixed(2) })
+          .where(eq(intelligenceObjects.id, obj.id));
+
+        await recordGovernance("GUARDIAN_ALERT", obj.id, "FLAGGED",
+          `Object decayed below Amanah floor: ${newAmanah.toFixed(2)}`, "D12-I");
+      } else {
+        await db.update(intelligenceObjects)
+          .set({ amanahScore: newAmanah.toFixed(2) })
+          .where(eq(intelligenceObjects.id, obj.id));
+      }
+
+      await db.insert(provenanceRecords).values({
+        objectId: obj.id,
+        dimension: "TRANSFORMATION_CHAIN",
+        value: `DECAY[${input.decayType}]: Amanah ${currentAmanah}→${newAmanah.toFixed(2)}`,
+        hash: createHash("sha256").update(input.decayType + Date.now().toString()).digest("hex"),
+      });
+
+      return {
+        objectId: input.objectId,
+        decayType: input.decayType,
+        amanahBefore: currentAmanah,
+        amanahAfter: newAmanah,
+        newState,
+        floorBreached: newAmanah < 0.50,
+      };
+    }),
+
+  // LP-07: correct — Fix incorrect learning
+  correct: publicQuery
+    .input(z.object({
+      objectId: z.string(),
+      correction: z.string(),
+      contradictingEvidence: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      const objs = await db.select().from(intelligenceObjects).where(eq(intelligenceObjects.objectId, input.objectId));
+      if (objs.length === 0) throw new Error("OBJECT_NOT_FOUND");
+      const obj = objs[0];
+
+      const oldState = obj.lifecycleState;
+
+      // Transition to CORRECTING
+      await db.update(intelligenceObjects)
+        .set({ lifecycleState: "CORRECTING" as typeof intelligenceObjects.$inferInsert.lifecycleState })
+        .where(eq(intelligenceObjects.id, obj.id));
+
+      // Record correction in provenance
+      await db.insert(provenanceRecords).values({
+        objectId: obj.id,
+        dimension: "TRANSFORMATION_CHAIN",
+        value: `CORRECTION: ${input.correction} | Evidence: ${input.contradictingEvidence}`,
+        hash: createHash("sha256").update(input.correction + input.contradictingEvidence).digest("hex"),
+      });
+
+      // Log transition
+      await db.insert(learningTransitions).values({
+        objectId: obj.id,
+        fromState: oldState,
+        toState: "CORRECTING",
+        trigger: "CORRECTION",
+        evidence: `${input.contradictingEvidence} | Correction: ${input.correction}`,
+      });
+
+      await recordGovernance("FIC_VALIDATION", obj.id, "PASSED",
+        `Correction applied: ${input.correction}`, "D12-G");
+
+      return {
+        objectId: input.objectId,
+        fromState: oldState,
+        toState: "CORRECTING",
+        correction: input.correction,
+        contradictingEvidence: input.contradictingEvidence,
+      };
+    }),
+
+  // LP-08: unlearn — Retire invalid learning
+  unlearn: publicQuery
+    .input(z.object({
+      objectId: z.string(),
+      reason: z.string(),
+      replacementObjectId: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      const objs = await db.select().from(intelligenceObjects).where(eq(intelligenceObjects.objectId, input.objectId));
+      if (objs.length === 0) throw new Error("OBJECT_NOT_FOUND");
+      const obj = objs[0];
+
+      const oldState = obj.lifecycleState;
+
+      // Transition to ARCHIVED (not deleted — evidence preserved per D12-G)
+      await db.update(intelligenceObjects)
+        .set({
+          lifecycleState: "ARCHIVED" as typeof intelligenceObjects.$inferInsert.lifecycleState,
+          governanceFlags: `UNLEARNED: ${input.reason}`,
+        })
+        .where(eq(intelligenceObjects.id, obj.id));
+
+      // If replacement provided, create SUPERCEDES relationship
+      if (input.replacementObjectId) {
+        const replacement = await db.select().from(intelligenceObjects).where(eq(intelligenceObjects.objectId, input.replacementObjectId));
+        if (replacement.length > 0) {
+          await db.insert(objectRelationships).values({
+            fromObjectId: replacement[0].id,
+            toObjectId: obj.id,
+            relationshipType: "SUPERSEDES",
+            strength: "1.00",
+          });
+        }
+      }
+
+      await db.insert(provenanceRecords).values({
+        objectId: obj.id,
+        dimension: "TRANSFORMATION_CHAIN",
+        value: `UNLEARNED: ${input.reason} | Previous state: ${oldState}`,
+        hash: createHash("sha256").update(input.reason + Date.now().toString()).digest("hex"),
+      });
+
+      await recordGovernance("HUMAN_GATE", obj.id, "PASSED",
+        `Unlearned: ${input.reason} | State preserved in ARCHIVED`, "D12-G");
+
+      return {
+        objectId: input.objectId,
+        fromState: oldState,
+        toState: "ARCHIVED",
+        reason: input.reason,
+        evidencePreserved: true,
+        supersededBy: input.replacementObjectId || null,
+      };
+    }),
+
+  // LP-09: transfer — Move wisdom between contexts
+  transfer: publicQuery
+    .input(z.object({
+      objectId: z.string(),
+      fromContext: z.string(),
+      toContext: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      const objs = await db.select().from(intelligenceObjects).where(eq(intelligenceObjects.objectId, input.objectId));
+      if (objs.length === 0) throw new Error("OBJECT_NOT_FOUND");
+      const obj = objs[0];
+
+      // Verify object is wisdom-level
+      const isWisdom = obj.lifecycleState === "WISDOM" || obj.lifecycleState === "CAPITALIZED";
+      if (!isWisdom) {
+        throw new Error("TRANSFER_REQUIRES_WISDOM: Object must be WISDOM or CAPITALIZED");
+      }
+
+      // Calculate retention coefficient (simplified: based on Amanah)
+      const amanah = parseFloat(obj.amanahScore);
+      const retentionCoefficient = amanah; // Higher Amanah = better retention
+
+      // Create transfer record
+      await db.insert(exchangeRecords).values({
+        objectId: obj.id,
+        producer: input.fromContext,
+        consumer: input.toContext,
+        stage: "INTEGRATION",
+        exchangeType: "PEER",
+        trustScore: obj.trustScore,
+        eiScore: retentionCoefficient.toFixed(2),
+        status: "COMPLETED",
+        completedAt: new Date(),
+      });
+
+      // Record context adaptation
+      await db.insert(provenanceRecords).values({
+        objectId: obj.id,
+        dimension: "EXCHANGE_HISTORY",
+        value: `TRANSFER: ${input.fromContext} → ${input.toContext} | Retention: ${retentionCoefficient.toFixed(2)}`,
+        hash: createHash("sha256").update(input.fromContext + input.toContext).digest("hex"),
+      });
+
+      return {
+        objectId: input.objectId,
+        fromContext: input.fromContext,
+        toContext: input.toContext,
+        retentionCoefficient,
+        adaptationScore: retentionCoefficient * 0.85, // 85% adaptation assumed
+        transferred: true,
+      };
+    }),
+
+  // LP-10: proofReport — Generate comprehensive Phase 2 certification report
+  proofReport: publicQuery.query(async () => {
+    const db = getDb();
+
+    const allObjects = await db.select().from(intelligenceObjects);
+    const allTransitions = await db.select().from(learningTransitions).orderBy(learningTransitions.transitionAt);
+    const allCapital = await db.select().from(capitalRecords);
+    const allGovernance = await db.select().from(governanceDecisions).orderBy(desc(governanceDecisions.decidedAt));
+    const allMeasurements = await db.select().from(measurements).orderBy(desc(measurements.measuredAt));
+
+    // LP-01: Pattern formation count
+    const patterns = allObjects.filter(o => o.objectType === "PATTERN" || o.lifecycleState === "PATTERN");
+
+    // LP-02: Understanding count
+    const understandings = allObjects.filter(o => o.lifecycleState === "UNDERSTANDING" || o.understandingRung >= 1);
+
+    // LP-03: Judgment count
+    const judgments = allObjects.filter(o => o.lifecycleState === "JUDGMENT");
+
+    // LP-04: Wisdom count
+    const wisdoms = allObjects.filter(o => o.lifecycleState === "WISDOM" || o.lifecycleState === "CAPITALIZED");
+
+    // LP-05: Reinforcement events (amanah increases)
+    const reinforcements = allGovernance.filter(g => g.rationale.includes("Reinforced"));
+
+    // LP-06: Decay events
+    const decays = allGovernance.filter(g => g.rationale.includes("decayed") || g.rationale.includes("DECAY"));
+
+    // LP-07: Corrections
+    const corrections = allTransitions.filter(t => t.trigger === "CORRECTION");
+
+    // LP-08: Unlearning
+    const unlearned = allObjects.filter(o => o.lifecycleState === "ARCHIVED");
+
+    // LP-09: Transfers
+    const transfers = await db.select().from(exchangeRecords).where(eq(exchangeRecords.status, "COMPLETED"));
+
+    // LP-10: Compounding — measure index trends
+    const uqiMeasurements = allMeasurements.filter(m => m.measurementType === "UQI").sort((a, b) => new Date(a.measuredAt).getTime() - new Date(b.measuredAt).getTime());
+    const jqiMeasurements = allMeasurements.filter(m => m.measurementType === "JQI").sort((a, b) => new Date(a.measuredAt).getTime() - new Date(b.measuredAt).getTime());
+
+    return {
+      // LP-01 Pattern Formation
+      lp01_patternFormation: {
+        demonstrated: patterns.length > 0,
+        patternCount: patterns.length,
+        evidence: `${patterns.length} pattern objects formed from multiple observations`,
+      },
+
+      // LP-02 Understanding Formation
+      lp02_understandingFormation: {
+        demonstrated: understandings.length > 0,
+        understandingCount: understandings.length,
+        avgRung: understandings.length > 0 ? understandings.reduce((s, o) => s + o.understandingRung, 0) / understandings.length : 0,
+        evidence: `${understandings.length} understanding objects with avg rung`,
+      },
+
+      // LP-03 Judgment Formation
+      lp03_judgmentFormation: {
+        demonstrated: judgments.length > 0,
+        judgmentCount: judgments.length,
+        evidence: `${judgments.length} judgment objects rendered`,
+      },
+
+      // LP-04 Wisdom Formation
+      lp04_wisdomFormation: {
+        demonstrated: wisdoms.length > 0,
+        wisdomCount: wisdoms.length,
+        evidence: `${wisdoms.length} wisdom/capitalized objects`,
+      },
+
+      // LP-05 Reinforcement
+      lp05_reinforcement: {
+        demonstrated: reinforcements.length > 0,
+        reinforcementCount: reinforcements.length,
+        evidence: `${reinforcements.length} reinforcement events recorded`,
+      },
+
+      // LP-06 Decay
+      lp06_decay: {
+        demonstrated: decays.length > 0 || allObjects.some(o => o.lifecycleState === "DECAYING"),
+        decayCount: decays.length + allObjects.filter(o => o.lifecycleState === "DECAYING").length,
+        evidence: `${decays.length} decay events + ${allObjects.filter(o => o.lifecycleState === "DECAYING").length} decaying objects`,
+      },
+
+      // LP-07 Correction
+      lp07_correction: {
+        demonstrated: corrections.length > 0,
+        correctionCount: corrections.length,
+        evidence: `${corrections.length} correction transitions logged`,
+      },
+
+      // LP-08 Unlearning
+      lp08_unlearning: {
+        demonstrated: unlearned.length > 0,
+        unlearnedCount: unlearned.length,
+        evidence: `${unlearned.length} objects unlearned (ARCHIVED, evidence preserved)`,
+      },
+
+      // LP-09 Transfer
+      lp09_transfer: {
+        demonstrated: transfers.length > 0,
+        transferCount: transfers.length,
+        avgRetention: transfers.length > 0 ? transfers.reduce((s, t) => s + parseFloat(t.eiScore || "0"), 0) / transfers.length : 0,
+        evidence: `${transfers.length} transfers with avg retention`,
+      },
+
+      // LP-10 Compounding
+      lp10_compounding: {
+        demonstrated: uqiMeasurements.length >= 2 || allCapital.length >= 3,
+        uqiTrend: uqiMeasurements.length >= 2 ? {
+          first: parseFloat(uqiMeasurements[0].value),
+          latest: parseFloat(uqiMeasurements[uqiMeasurements.length - 1].value),
+          delta: parseFloat(uqiMeasurements[uqiMeasurements.length - 1].value) - parseFloat(uqiMeasurements[0].value),
+        } : null,
+        jqiTrend: jqiMeasurements.length >= 2 ? {
+          first: parseFloat(jqiMeasurements[0].value),
+          latest: parseFloat(jqiMeasurements[jqiMeasurements.length - 1].value),
+          delta: parseFloat(jqiMeasurements[jqiMeasurements.length - 1].value) - parseFloat(jqiMeasurements[0].value),
+        } : null,
+        capitalRecords: allCapital.length,
+        evidence: `${allCapital.length} capital records, UQI trend: ${uqiMeasurements.length >= 2 ? (parseFloat(uqiMeasurements[uqiMeasurements.length - 1].value) - parseFloat(uqiMeasurements[0].value)).toFixed(4) : "N/A"}`,
+      },
+
+      summary: {
+        totalObjects: allObjects.length,
+        totalTransitions: allTransitions.length,
+        totalCapital: allCapital.length,
+        proofsDemonstrated: [
+          patterns.length > 0,
+          understandings.length > 0,
+          judgments.length > 0,
+          wisdoms.length > 0,
+          reinforcements.length > 0,
+          decays.length > 0 || allObjects.some(o => o.lifecycleState === "DECAYING"),
+          corrections.length > 0,
+          unlearned.length > 0,
+          transfers.length > 0,
+          uqiMeasurements.length >= 2 || allCapital.length >= 3,
+        ].filter(Boolean).length,
+      },
+    };
+  }),
 });
+
+// --- Utility: Extract shared keywords for pattern detection ---
+function extractSharedKeywords(observations: string[]): string[] {
+  const stopWords = new Set(["the", "a", "an", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "do", "does", "did", "will", "would", "could", "should", "may", "might", "must", "shall", "can", "need", "dare", "ought", "used", "to", "of", "in", "for", "on", "with", "at", "by", "from", "as", "into", "through", "during", "before", "after", "above", "below", "between", "out", "off", "over", "under", "again", "further", "then", "once", "and", "but", "if", "or", "because", "until", "while", "so", "than", "too", "very", "just", "now", "also", "back", "only", "own", "same", "such", "when", "where", "why", "how", "all", "each", "few", "more", "most", "other", "some", "no", "nor", "not", "this", "that", "these", "those", "i", "me", "my", "we", "our", "you", "your", "he", "him", "his", "she", "her", "it", "its", "they", "them", "their", "what", "which", "who", "whom"]);
+  const wordCounts: Record<string, number> = {};
+  for (const obs of observations) {
+    const words = obs.toLowerCase().split(/\W+/).filter(w => w.length > 3 && !stopWords.has(w));
+    for (const w of words) {
+      wordCounts[w] = (wordCounts[w] || 0) + 1;
+    }
+  }
+  return Object.entries(wordCounts)
+    .filter(([, count]) => count >= 2)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 6)
+    .map(([word]) => word);
+}

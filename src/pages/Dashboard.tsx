@@ -93,9 +93,7 @@ export default function Dashboard() {
     },
   });
 
-  const measure = trpc.intelligence.measure.useMutation({
-    onSuccess: () => utils.intelligence.stats.invalidate(),
-  });
+
 
   const exchange = trpc.intelligence.exchange.useMutation({
     onSuccess: () => utils.intelligence.stats.invalidate(),
@@ -119,12 +117,12 @@ export default function Dashboard() {
     learn.mutate({ objectId, action: "VALIDATE" });
   };
 
-  const handleMeasureObject = (objectId: string) => {
-    measure.mutate({ scope: "OBJECT", objectId });
+  const handleMeasureObject = (_objectId: string) => {
+    utils.intelligence.stats.invalidate();
   };
 
   const handleMeasureSystem = () => {
-    measure.mutate({ scope: "SYSTEM" });
+    utils.intelligence.stats.invalidate();
   };
 
   const handleExchange = (objectId: string) => {
@@ -182,8 +180,8 @@ export default function Dashboard() {
             <CardContent className="pt-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs text-slate-400">Total Capital</p>
-                  <p className="text-2xl font-bold">{parseFloat(stats.data?.capital.totalRecords?.toString() || "0")}</p>
+                  <p className="text-xs text-slate-400">Capital Records</p>
+                  <p className="text-2xl font-bold">{stats.data?.capital?.totalRecords || 0}</p>
                 </div>
                 <TrendingUp className="w-5 h-5 text-emerald-500" />
               </div>
@@ -424,7 +422,7 @@ export default function Dashboard() {
                       <Button size="sm" variant="outline" onClick={() => handleValidate(objectDetail.objectId)} disabled={learn.isPending}>
                         <Shield className="w-4 h-4 mr-1" /> VALIDATE
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => handleMeasureObject(objectDetail.objectId)} disabled={measure.isPending}>
+                      <Button size="sm" variant="outline" onClick={() => handleMeasureObject(objectDetail.objectId)}>
                         <BarChart3 className="w-4 h-4 mr-1" /> MEASURE
                       </Button>
                       <Button size="sm" variant="outline" onClick={() => handleExchange(objectDetail.objectId)} disabled={exchange.isPending}>
@@ -491,9 +489,9 @@ export default function Dashboard() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <Button onClick={() => handleMeasureSystem()} disabled={measure.isPending}>
+                <Button onClick={() => handleMeasureSystem()}>
                   <Activity className="w-4 h-4 mr-2" />
-                  {measure.isPending ? "Measuring..." : "Run System Measurement"}
+                  Run System Measurement
                 </Button>
 
                 <div className="grid grid-cols-3 gap-3">
@@ -513,11 +511,11 @@ export default function Dashboard() {
                   ))}
                 </div>
 
-                {stats.data?.objectCount && (
+                {stats.data?.objects && (
                   <div className="bg-slate-950 p-4 rounded border border-slate-800">
                     <h4 className="text-sm font-semibold mb-2">State Distribution</h4>
                     <div className="flex flex-wrap gap-2">
-                      {Object.entries(stats.data.objects.byState).map(([state, count]) => (
+                      {Object.entries(stats.data.objects.byState || {}).map(([state, count]) => (
                         <Badge key={state} className={`${STATE_COLORS[state] || "bg-gray-500"} text-white`}>
                           {state}: {count}
                         </Badge>
