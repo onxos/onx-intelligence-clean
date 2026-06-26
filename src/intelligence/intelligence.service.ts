@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { AuditService } from '../common/audit.service';
-import { IntelligenceObjectType, Prisma } from '@prisma/client';
+import { IntelligenceObjectType } from '@prisma/client';
 import * as crypto from 'crypto';
 
 @Injectable()

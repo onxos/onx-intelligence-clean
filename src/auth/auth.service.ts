@@ -106,12 +106,7 @@ export class AuthService {
     };
   }
 
-  private signToken(
-    userId: string,
-    email: string,
-    workspaceId: string,
-    tenantId: string,
-  ) {
+  private signToken(userId: string, email: string, workspaceId: string, tenantId: string) {
     return this.jwt.sign({ sub: userId, email, workspaceId, tenantId });
   }
 }

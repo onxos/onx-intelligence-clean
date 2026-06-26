@@ -12,11 +12,7 @@ export class ProviderService {
     });
   }
 
-  async evaluate(data: {
-    providerId: string;
-    intent: string;
-    context?: string;
-  }) {
+  async evaluate(data: { providerId: string; intent: string; context?: string }) {
     const provider = await this.prisma.providerProfile.findUnique({
       where: { providerId: data.providerId },
     });
@@ -37,10 +33,7 @@ export class ProviderService {
       ownershipCompatibility: { score: provider.ownershipCompatibility, weight: 0.09 },
     };
 
-    const iseScore = Object.values(dimensions).reduce(
-      (sum, d) => sum + d.score * d.weight,
-      0,
-    );
+    const iseScore = Object.values(dimensions).reduce((sum, d) => sum + d.score * d.weight, 0);
 
     await this.prisma.providerEvaluation.create({
       data: {
@@ -56,7 +49,12 @@ export class ProviderService {
       providerId: data.providerId,
       iseScore: Math.round(iseScore * 100) / 100,
       dimensions,
-      rankTier: iseScore >= 85 ? 'TIER_1_PREFERRED' : iseScore >= 70 ? 'TIER_2_STANDARD' : 'TIER_3_FALLBACK',
+      rankTier:
+        iseScore >= 85
+          ? 'TIER_1_PREFERRED'
+          : iseScore >= 70
+            ? 'TIER_2_STANDARD'
+            : 'TIER_3_FALLBACK',
     };
   }
 }
