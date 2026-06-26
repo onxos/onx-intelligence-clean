@@ -1,0 +1,164 @@
+name: Render Inventory
+
+on:
+  workflow_dispatch:
+
+jobs:
+  render-inventory:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_OWNER_ID: ${{ secrets.RENDER_OWNER_ID }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify Render authentication and inventory resources
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${RENDER_API_KEY:-}" || -z "${RENDER_OWNER_ID:-}" ]]; then
+            echo "::error::Missing required GitHub Actions secrets: RENDER_API_KEY and/or RENDER_OWNER_ID."
+            exit 1
+          fi
+
+          echo "Verifying Render API authentication..."
+          auth_code=$(curl -sS -o /tmp/render-owner.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Accept: application/json" \
+            "https://api.render.com/v1/owners")
+
+          if [[ "$auth_code" =~ ^2 ]]; then
+            echo "Authentication successful."
+          else
+            echo "::error::Render authentication failed. Verify that the GitHub Actions secret RENDER_API_KEY is valid and has access to the owner identified by RENDER_OWNER_ID."
+            cat /tmp/render-owner.json
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import os
+          import json
+          import sys
+          import urllib.request
+          import urllib.error
+
+          api_key = os.environ.get("RENDER_API_KEY", "")
+          owner_id = os.environ.get("RENDER_OWNER_ID", "")
+          headers = {
+              "Authorization": f"Bearer {api_key}",
+              "Accept": "application/json",
+          }
+
+          def fetch_json(url: str):
+              req = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  return resp.status, json.loads(resp.read().decode("utf-8"))
+
+          def fetch_with_fallback(label: str, candidates):
+              last_error = None
+              for url in candidates:
+                  try:
+                      status, payload = fetch_json(url)
+                      return status, payload
+                  except urllib.error.HTTPError as exc:
+                      last_error = f"{url} -> HTTP {exc.code}"
+                      if exc.code not in (404, 405):
+                          raise
+                  except Exception as exc:
+                      last_error = f"{url} -> {exc}"
+                      raise
+              if last_error:
+                  print(f"[{label}] No matching endpoint responded: {last_error}")
+              return None, []
+
+          def pick(item, *keys):
+              for key in keys:
+                  value = item.get(key)
+                  if isinstance(value, str) and value.strip():
+                      return value
+              return None
+
+          def normalize_resource(kind, item):
+              return {
+                  "name": pick(item, "name", "serviceName", "displayName", "envGroupName", "databaseName") or item.get("id") or "unknown",
+                  "id": item.get("id") or item.get("serviceId") or item.get("databaseId") or None,
+                  "type": kind,
+                  "status": pick(item, "status", "serviceStatus", "state", "healthStatus"),
+                  "repository": pick(item, "repo", "repository", "repoName", "serviceRepo", "repoUrl"),
+                  "branch": pick(item, "branch", "defaultBranch", "gitBranch"),
+                  "url": pick(item, "url", "serviceUrl", "webServiceUrl", "publicUrl", "host"),
+                  "region": pick(item, "region", "regionName", "location"),
+              }
+
+          def list_resources(label, candidates):
+              status, payload = fetch_with_fallback(label, candidates)
+              if status is None:
+                  return []
+              if isinstance(payload, list):
+                  items = payload
+              elif isinstance(payload, dict):
+                  if isinstance(payload.get("data"), list):
+                      items = payload["data"]
+                  elif isinstance(payload.get("results"), list):
+                      items = payload["results"]
+                  elif isinstance(payload.get("services"), list):
+                      items = payload["services"]
+                  elif isinstance(payload.get("items"), list):
+                      items = payload["items"]
+                  else:
+                      items = [payload]
+              else:
+                  items = []
+              return [normalize_resource(label, item) for item in items if isinstance(item, dict)]
+
+          inventory = {
+              "owner_id": owner_id,
+              "web_services": list_resources(
+                  "web services",
+                  [
+                      f"https://api.render.com/v1/owners/{owner_id}/services",
+                      f"https://api.render.com/v1/services?ownerId={owner_id}",
+                      f"https://api.render.com/v1/services?owner_id={owner_id}",
+                  ],
+              ),
+              "postgresql_databases": list_resources(
+                  "PostgreSQL databases",
+                  [
+                      f"https://api.render.com/v1/owners/{owner_id}/databases",
+                      f"https://api.render.com/v1/postgres?ownerId={owner_id}",
+                      f"https://api.render.com/v1/postgres?owner_id={owner_id}",
+                  ],
+              ),
+              "background_workers": list_resources(
+                  "background workers",
+                  [
+                      f"https://api.render.com/v1/owners/{owner_id}/background-workers",
+                      f"https://api.render.com/v1/background-workers?ownerId={owner_id}",
+                      f"https://api.render.com/v1/background-workers?owner_id={owner_id}",
+                  ],
+              ),
+              "cron_jobs": list_resources(
+                  "cron jobs",
+                  [
+                      f"https://api.render.com/v1/owners/{owner_id}/cron-jobs",
+                      f"https://api.render.com/v1/cron-jobs?ownerId={owner_id}",
+                      f"https://api.render.com/v1/cron-jobs?owner_id={owner_id}",
+                  ],
+              ),
+              "environment_groups": list_resources(
+                  "environment groups",
+                  [
+                      f"https://api.render.com/v1/owners/{owner_id}/environment-groups",
+                      f"https://api.render.com/v1/environment-groups?ownerId={owner_id}",
+                      f"https://api.render.com/v1/environment-groups?owner_id={owner_id}",
+                  ],
+              ),
+          }
+
+          print(json.dumps(inventory, indent=2, sort_keys=True))
+          PY
