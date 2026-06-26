@@ -1,0 +1,430 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String   @id @default(cuid())
+  email       String   @unique
+  password    String
+  name        String
+  status      UserStatus @default(ACTIVE)
+  roleId      String   @map("role_id")
+  workspaceId String   @map("workspace_id")
+  tenantId    String   @map("tenant_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  sessions    Session[]
+  devices     Device[]
+  evidence    EvidenceRecord[]
+  intelligenceObjects IntelligenceObject[]
+  governanceDecisions GovernanceDecision[]
+
+  role      Role      @relation(fields: [roleId], references: [id])
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
+
+  @@map("users")
+}
+
+model Role {
+  id          String @id @default(cuid())
+  name        String @unique
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  permissions Permission[]
+  users       User[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id        String   @id @default(cuid())
+  resource  String
+  action    String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  roles Role[]
+
+  @@unique([resource, action])
+  @@map("permissions")
+}
+
+model Workspace {
+  id          String @id @default(cuid())
+  name        String
+  description String?
+  status      WorkspaceStatus @default(ACTIVE)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  users       User[]
+  intelligenceObjects IntelligenceObject[]
+  evidence    EvidenceRecord[]
+  providers   ProviderProfile[]
+  tools       ToolProfile[]
+  governanceDecisions GovernanceDecision[]
+  capitalRecords CapitalRecord[]
+
+  @@map("workspaces")
+}
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  status    TenantStatus @default(ACTIVE)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users User[]
+
+  @@map("tenants")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String   @map("user_id")
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  revokedAt DateTime? @map("revoked_at")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model Device {
+  id       String @id @default(cuid())
+  name     String
+  userId   String @map("user_id")
+  lastSeen DateTime? @map("last_seen")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("devices")
+}
+
+model IntelligenceObject {
+  id              String            @id @default(cuid())
+  objectId        String            @unique @default(cuid()) @map("object_id")
+  name            String
+  content         String
+  contentHash     String            @map("content_hash")
+  semanticSummary String?           @map("semantic_summary")
+  objectType      IntelligenceObjectType @map("object_type")
+  layer           String            @default("L1_FOUNDATIONAL")
+  originSource    String            @default("L2_SIL") @map("origin_source")
+  creatorIdentity String            @default("system") @map("creator_identity")
+  ownershipClass  OwnershipClass    @default(INSTITUTIONAL) @map("ownership_class")
+  amanahScore     Float             @default(0.5) @map("amanah_score")
+  confidenceScore Float             @default(0.5) @map("confidence_score")
+  trustScore      Float             @default(0.5) @map("trust_score")
+  qualityIndex    Float             @default(0.5) @map("quality_index")
+  state           ObjectState       @default(ACTIVE)
+  shadowStatus    ShadowStatus      @default(INTERNAL) @map("shadow_status")
+  sourceLayer     String            @default("L1_FOUNDATIONAL") @map("source_layer")
+  privacyLevel    PrivacyLevel      @default(INSTITUTIONAL) @map("privacy_level")
+  ficValidated    Boolean           @default(false) @map("fic_validated")
+  constraintBasis String?           @map("constraint_basis")
+  capitalCategory CapitalCategory?  @map("capital_category")
+  capitalValue    Float             @default(0) @map("capital_value")
+  ownerId         String            @map("owner_id")
+  creatorId       String            @map("creator_id")
+  workspaceId     String            @map("workspace_id")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  owner         User   @relation(fields: [ownerId], references: [id])
+  workspace     Workspace @relation(fields: [workspaceId], references: [id])
+  evidence      EvidenceRecord[]
+  provenance    ProvenanceRecord[]
+
+  @@map("intelligence_objects")
+}
+
+model ProviderProfile {
+  id             String @id @default(cuid())
+  providerId     String @unique @map("provider_id")
+  providerName   String @map("provider_name")
+  status         ProviderStatus @default(ACTIVE)
+  priority       Int    @default(1)
+  domainFitness       Float @default(0) @map("domain_fitness")
+  riskFitness         Float @default(0) @map("risk_fitness")
+  historicalPerformance Float @default(0) @map("historical_performance")
+  evidenceQuality     Float @default(0) @map("evidence_quality")
+  judgmentQuality     Float @default(0) @map("judgment_quality")
+  hallucinationResistance Float @default(0) @map("hallucination_resistance")
+  governanceCompliance Float @default(0) @map("governance_compliance")
+  costEfficiency      Float @default(0) @map("cost_efficiency")
+  latency             Float @default(0)
+  reliability         Float @default(0)
+  outcomeSuccess      Float @default(0) @map("outcome_success")
+  ownershipCompatibility Float @default(0) @map("ownership_compatibility")
+  iseScore            Float @default(0) @map("ise_score")
+  totalCapital        Float @default(0) @map("total_capital")
+  models              String[]
+  costPer1kTokens     Float @default(0) @map("cost_per_1k_tokens")
+  latencyMs           Int    @default(0) @map("latency_ms")
+  successRate         Float  @default(0) @map("success_rate")
+  workspaceId         String @map("workspace_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  evaluations ProviderEvaluation[]
+
+  @@map("provider_profiles")
+}
+
+model ProviderEvaluation {
+  id        String   @id @default(cuid())
+  providerId String  @map("provider_id")
+  iseScore  Float   @map("ise_score")
+  dimensions Json   @default("{}")
+  intent    String
+  context   String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  provider ProviderProfile @relation(fields: [providerId], references: [id])
+
+  @@map("provider_evaluations")
+}
+
+model ToolProfile {
+  id        String @id @default(cuid())
+  toolId    String @unique @map("tool_id")
+  toolName  String @map("tool_name")
+  category  ToolCategory
+  status    ToolStatus @default(ACTIVE)
+  capabilities String[]
+  costPerCall Float @default(0) @map("cost_per_call")
+  totalCapital Float @default(0) @map("total_capital")
+  workspaceId String @map("workspace_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@map("tool_profiles")
+}
+
+model EvidenceRecord {
+  id        String   @id @default(cuid())
+  evidenceId String  @unique @default(cuid()) @map("evidence_id")
+  intent    String
+  intelligenceObjectId String? @map("intelligence_object_id")
+  ownerId   String   @map("owner_id")
+  workspaceId String @map("workspace_id")
+  confidence Float  @default(0)
+  cost      Float   @default(0)
+  latencyMs Int     @default(0) @map("latency_ms")
+  evidenceQuality Float @default(0) @map("evidence_quality")
+  capitalCreated Float @default(0) @map("capital_created")
+  providerCandidates String[] @default([]) @map("provider_candidates")
+  providerSelected String? @map("provider_selected")
+  toolCandidates String[] @default([]) @map("tool_candidates")
+  toolSelected String? @map("tool_selected")
+  judgment  String?
+  outcome   String?
+  learning  String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  owner     User @relation(fields: [ownerId], references: [id])
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  intelligenceObject IntelligenceObject? @relation(fields: [intelligenceObjectId], references: [id])
+
+  @@map("evidence_records")
+}
+
+model GovernanceDecision {
+  id           String @id @default(cuid())
+  decisionType String @map("decision_type")
+  outcome      String @default("UNDEFINED")
+  amanahScore  Float @map("amanah_score")
+  confidence   Float @default(0.5)
+  ficValidated Boolean @default(false) @map("fic_validated")
+  actorId      String @map("actor_id")
+  workspaceId  String @map("workspace_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  actor     User @relation(fields: [actorId], references: [id])
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@map("governance_decisions")
+}
+
+model CapitalRecord {
+  id        String @id @default(cuid())
+  type      String
+  amount    Float
+  category  CapitalCategory
+  workspaceId String @map("workspace_id")
+  ownerId   String @map("owner_id")
+  sourceObjectId String? @map("source_object_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@map("capital_records")
+}
+
+model ProvenanceRecord {
+  id        String @id @default(cuid())
+  action    String
+  resource  String
+  resourceId String? @map("resource_id")
+  actorId   String @map("actor_id")
+  workspaceId String? @map("workspace_id")
+  oldValue  String? @map("old_value")
+  newValue  String? @map("new_value")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  intelligenceObject IntelligenceObject? @relation(fields: [resourceId], references: [id])
+
+  @@map("provenance_records")
+}
+
+model FrontierAsset {
+  id          String @id @default(cuid())
+  assetId     String @unique @map("asset_id")
+  name        String
+  assetClass  String @map("asset_class")
+  status      AssetStatus @default(CATALOGED)
+  priorityScore Float @default(0) @map("priority_score")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("frontier_assets")
+}
+
+model SovereigntyMetric {
+  id          String @id @default(cuid())
+  metricType  String @map("metric_type")
+  value       Float
+  ksr         Float?
+  pdr         Float?
+  krr         Float?
+  kor         Float?
+  scg         Float?
+  sai         Float?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("sovereignty_metrics")
+}
+
+model AuditLog {
+  id        String @id @default(cuid())
+  action    String
+  resource  String
+  resourceId String? @map("resource_id")
+  actorId   String @map("actor_id")
+  workspaceId String? @map("workspace_id")
+  oldValue  String? @map("old_value")
+  newValue  String? @map("new_value")
+  ipAddress String? @map("ip_address")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("audit_logs")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum WorkspaceStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum TenantStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum IntelligenceObjectType {
+  SIGNAL
+  PATTERN
+  JUDGMENT
+  UNDERSTANDING
+  WISDOM
+  EXTERNAL_INTELLIGENCE
+}
+
+enum ObjectState {
+  ACTIVE
+  DORMANT
+  DEPRECATED
+  ARCHIVED
+}
+
+enum ShadowStatus {
+  INTERNAL
+  EXTERNAL
+  HYBRID
+}
+
+enum OwnershipClass {
+  PERSONAL
+  COMPANION
+  INSTITUTIONAL
+  CIVILIZATION
+}
+
+enum PrivacyLevel {
+  PUBLIC
+  INSTITUTIONAL
+  CONFIDENTIAL
+  RESTRICTED
+}
+
+enum CapitalCategory {
+  CLINICAL
+  OPERATIONS
+  COMMERCIAL
+  STRATEGY
+  GOVERNANCE
+  KNOWLEDGE
+}
+
+enum ProviderStatus {
+  ACTIVE
+  INACTIVE
+  EXPERIMENTAL
+  DEPRECATED
+}
+
+enum ToolCategory {
+  SEARCH
+  ANALYTICS
+  AUTOMATION
+  COMMUNICATION
+  KNOWLEDGE
+  MEDIA
+}
+
+enum ToolStatus {
+  ACTIVE
+  INACTIVE
+  EXPERIMENTAL
+}
+
+enum AssetStatus {
+  CATALOGED
+  READY
+  OPERATIONAL
+  RESEARCH
+  DEPRECATED
+}
