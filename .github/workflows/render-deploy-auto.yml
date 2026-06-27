@@ -313,7 +313,7 @@ jobs:
               if not isinstance(db_details, dict):
                   return ''
 
-              for key in ('internalConnectionString', 'connectionString', 'databaseUrl', 'url', 'internalUrl'):
+              for key in ('externalConnectionString', 'connectionString', 'databaseUrl', 'url', 'internalConnectionString', 'internalUrl'):
                   value = db_details.get(key, '')
                   if isinstance(value, str) and value.startswith('postgres'):
                       return value
