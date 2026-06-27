@@ -6,23 +6,29 @@ export class WorkspaceService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getHome(workspaceId: string) {
-    const [intelligenceCount, evidenceCount, providerCount, toolCount, recentIntelligence, recentEvidence] =
-      await Promise.all([
-        this.prisma.intelligenceObject.count({ where: { workspaceId } }),
-        this.prisma.evidenceRecord.count({ where: { workspaceId } }),
-        this.prisma.providerProfile.count({ where: { workspaceId } }),
-        this.prisma.toolProfile.count({ where: { workspaceId } }),
-        this.prisma.intelligenceObject.findMany({
-          where: { workspaceId },
-          orderBy: { createdAt: 'desc' },
-          take: 5,
-        }),
-        this.prisma.evidenceRecord.findMany({
-          where: { workspaceId },
-          orderBy: { createdAt: 'desc' },
-          take: 5,
-        }),
-      ]);
+    const [
+      intelligenceCount,
+      evidenceCount,
+      providerCount,
+      toolCount,
+      recentIntelligence,
+      recentEvidence,
+    ] = await Promise.all([
+      this.prisma.intelligenceObject.count({ where: { workspaceId } }),
+      this.prisma.evidenceRecord.count({ where: { workspaceId } }),
+      this.prisma.providerProfile.count({ where: { workspaceId } }),
+      this.prisma.toolProfile.count({ where: { workspaceId } }),
+      this.prisma.intelligenceObject.findMany({
+        where: { workspaceId },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      }),
+      this.prisma.evidenceRecord.findMany({
+        where: { workspaceId },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      }),
+    ]);
 
     return {
       workspace: {
