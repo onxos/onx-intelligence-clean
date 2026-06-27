@@ -1,4 +1,8 @@
-import { calculateSovereigntyMetrics, ISMF6_METRICS, SovereigntyService } from './sovereignty.service';
+import {
+  calculateSovereigntyMetrics,
+  ISMF6_METRICS,
+  SovereigntyService,
+} from './sovereignty.service';
 
 describe('SovereigntyService', () => {
   it('derives six sovereignty metrics from workspace intelligence objects', async () => {

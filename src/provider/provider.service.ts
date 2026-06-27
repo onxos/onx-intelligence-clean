@@ -175,7 +175,10 @@ export class ProviderService {
 
     const dimensions = buildDimensions(provider as Record<string, unknown>);
 
-    const iseScore = Object.values(dimensions).reduce((sum, dimension) => sum + dimension.contribution, 0);
+    const iseScore = Object.values(dimensions).reduce(
+      (sum, dimension) => sum + dimension.contribution,
+      0,
+    );
 
     await this.prisma.providerEvaluation.create({
       data: {

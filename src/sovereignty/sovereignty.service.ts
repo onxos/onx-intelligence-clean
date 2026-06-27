@@ -60,8 +60,12 @@ export function calculateSovereigntyMetrics(objects: SovereigntySnapshot[]) {
   const total = objects.length;
   const internal = objects.filter((object) => object.objectType !== 'EXTERNAL_INTELLIGENCE').length;
   const external = total - internal;
-  const reusable = objects.filter((object) => REUSABLE_OBJECT_TYPES.includes(object.objectType)).length;
-  const owned = objects.filter((object) => OWNED_OBJECT_CLASSES.includes(object.ownershipClass || '')).length;
+  const reusable = objects.filter((object) =>
+    REUSABLE_OBJECT_TYPES.includes(object.objectType),
+  ).length;
+  const owned = objects.filter((object) =>
+    OWNED_OBJECT_CLASSES.includes(object.ownershipClass || ''),
+  ).length;
 
   const confidenceGradient = averageScore(
     objects.map((object) =>
