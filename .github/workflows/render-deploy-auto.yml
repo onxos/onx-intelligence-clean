@@ -40,17 +40,46 @@ jobs:
               "Accept": "application/json",
           }
 
+          def decode_response_body(raw: bytes):
+              text = raw.decode("utf-8") if raw else ""
+              if not text.strip():
+                  return {}
+              try:
+                  return json.loads(text)
+              except Exception:
+                  return {"raw": text}
+
           def fetch_json(url: str):
               req = urllib.request.Request(url, headers=headers)
               try:
                   with urllib.request.urlopen(req, timeout=30) as resp:
-                      return resp.status, json.loads(resp.read().decode("utf-8"))
+                      return resp.status, decode_response_body(resp.read())
               except urllib.error.HTTPError as e:
-                  try:
-                      error_data = json.loads(e.read().decode("utf-8"))
-                      return e.code, error_data
-                  except:
-                      return e.code, {"error": f"HTTP {e.code}: {e.reason}"}
+                  error_data = decode_response_body(e.read())
+                  if not error_data:
+                      error_data = {"error": f"HTTP {e.code}: {e.reason}"}
+                  return e.code, error_data
+
+          def normalize_database_items(payload):
+              if isinstance(payload, dict):
+                  for key in ('databases', 'data', 'results', 'items'):
+                      if isinstance(payload.get(key), list):
+                          payload = payload[key]
+                          break
+                  else:
+                      payload = [payload]
+
+              if not isinstance(payload, list):
+                  return []
+
+              normalized = []
+              for item in payload:
+                  if not isinstance(item, dict):
+                      continue
+                  candidate = item.get('database') or item.get('postgres') or item
+                  if isinstance(candidate, dict):
+                      normalized.append(candidate)
+              return normalized
           
           # Debug: print the owner_id and api_key status
           print(f"DEBUG: owner_id = {owner_id}")
@@ -96,13 +125,17 @@ jobs:
           url_db = f"https://api.render.com/v1/databases"
           print(f"DEBUG: URL = {url_db}")
           status, db_data = fetch_json(url_db)
-          databases = db_data.get('databases', []) if isinstance(db_data, dict) else db_data
-          
-          # Handle Render API response format for databases: list of {cursor, database} objects
-          if isinstance(databases, list) and databases and 'database' in databases[0]:
-              databases = [d.get('database') for d in databases]
+          databases = normalize_database_items(db_data)
+
+          if status != 200:
+              print(f"⚠️ Primary database endpoint returned HTTP {status}, trying owner endpoint")
+              status_owner, db_data_owner = fetch_json(f"https://api.render.com/v1/owners/{owner_id}/databases")
+              if status_owner == 200:
+                  databases = normalize_database_items(db_data_owner)
           
           intelligence_dbs = [d for d in databases if 'intelligence' in d.get('name', '').lower() or 'onx' in d.get('name', '').lower()]
+          if not intelligence_dbs and databases:
+              print("⚠️ No ONX-named database found; will select best available PostgreSQL database in a later step")
           print(f"✓ Found {len(intelligence_dbs)} Intelligence database(s)")
           
           # Save for next step
@@ -209,7 +242,8 @@ jobs:
                   'current_repo': selected_service.get('repo'),
                   'current_branch': selected_service.get('branch'),
                   'current_status': selected_service.get('status'),
-                  'url': selected_service.get('serviceUrl') or selected_service.get('url')
+                  'url': selected_service.get('serviceUrl') or selected_service.get('url'),
+                  'region': selected_service.get('region')
               }, f, indent=2)
           
           print(f"\n📝 Service ID: {selected_service.get('id')}")
@@ -232,26 +266,98 @@ jobs:
               "Accept": "application/json",
           }
 
-          def fetch_json(url: str):
-              req = urllib.request.Request(url, headers=headers)
+          def decode_response_body(raw: bytes):
+              text = raw.decode("utf-8") if raw else ""
+              if not text.strip():
+                  return {}
+              try:
+                  return json.loads(text)
+              except Exception:
+                  return {"raw": text}
+
+          def fetch_json(url: str, method='GET', data=None):
+              req = urllib.request.Request(url, headers=headers, method=method)
+              if data is not None:
+                  req.data = json.dumps(data).encode('utf-8')
               try:
                   with urllib.request.urlopen(req, timeout=30) as resp:
-                      return resp.status, json.loads(resp.read().decode("utf-8"))
+                      return resp.status, decode_response_body(resp.read())
               except urllib.error.HTTPError as e:
-                  return e.code, None
+                  return e.code, decode_response_body(e.read())
+
+          def pick_connection_string(db_details):
+              for key in ('internalConnectionString', 'connectionString', 'databaseUrl', 'url'):
+                  value = db_details.get(key, '') if isinstance(db_details, dict) else ''
+                  if isinstance(value, str) and value.startswith('postgres'):
+                      return value
+              return ''
 
           with open('/tmp/render-services.json', 'r') as f:
               data = json.load(f)
+
+          with open('/tmp/selected-service.json', 'r') as f:
+              selected_service = json.load(f)
           
-          databases = data['databases']
+          databases = data.get('databases', []) or []
+          all_databases = data.get('all_databases', []) or []
+          service_region = (selected_service.get('region') or '').lower()
+
+          if not databases:
+              databases = all_databases
+
+          def score_db(db):
+              score = 0
+              name = (db.get('name') or '').lower()
+              status = (db.get('status') or '').lower()
+              region = (db.get('region') or '').lower()
+              if 'onx' in name or 'intelligence' in name:
+                  score += 50
+              if status in ('available', 'active'):
+                  score += 20
+              if service_region and region == service_region:
+                  score += 20
+              if region == 'frankfurt':
+                  score += 10
+              return score
           
           if not databases:
-              print("⚠️  No databases found")
-              with open('/tmp/database.json', 'w') as f:
-                  json.dump({'name': None, 'id': None}, f)
-              exit(0)
+              print("⚠️  No existing databases found. Attempting to create one...")
+              create_attempts = [
+                  ("https://api.render.com/v1/databases", {
+                      'name': 'onx-intelligence-clean-db',
+                      'ownerId': owner_id,
+                      'region': selected_service.get('region') or 'frankfurt'
+                  }),
+                  ("https://api.render.com/v1/databases", {
+                      'name': 'onx-intelligence-clean-db',
+                      'ownerId': owner_id
+                  }),
+                  ("https://api.render.com/v1/postgres", {
+                      'name': 'onx-intelligence-clean-db',
+                      'ownerId': owner_id,
+                      'region': selected_service.get('region') or 'frankfurt'
+                  })
+              ]
+
+              created_db = None
+              for url, payload in create_attempts:
+                  status, resp = fetch_json(url, method='POST', data=payload)
+                  print(f"Create DB attempt {url} -> HTTP {status}")
+                  if status in (200, 201):
+                      created_db = resp.get('database') if isinstance(resp, dict) and isinstance(resp.get('database'), dict) else resp
+                      break
+
+              if created_db and isinstance(created_db, dict):
+                  databases = [created_db]
+                  print(f"✓ Created database: {created_db.get('name')} ({created_db.get('id')})")
+              else:
+                  print("❌ Unable to create or discover a PostgreSQL database")
+                  with open('/tmp/database.json', 'w') as f:
+                      json.dump({'name': None, 'id': None, 'connection_string': ''}, f)
+                  exit(0)
           
-          # Use first database as default
+          # Select best candidate database using repo-specific and region preferences
+          databases = sorted(databases, key=score_db, reverse=True)
           db = databases[0]
           db_id = db.get('id')
           db_name = db.get('name')
@@ -262,9 +368,7 @@ jobs:
           status, db_details = fetch_json(f"https://api.render.com/v1/databases/{db_id}")
           
           if status == 200 and db_details:
-              connection_string = db_details.get('connectionString', '')
-              if not connection_string:
-                  connection_string = db_details.get('internalConnectionString', '')
+              connection_string = pick_connection_string(db_details)
               print(f"✓ Database connection string retrieved")
           else:
               print(f"⚠️  Could not fetch full database details (HTTP {status})")
@@ -303,7 +407,13 @@ jobs:
                   req.data = json.dumps(data).encode('utf-8')
               try:
                   with urllib.request.urlopen(req, timeout=30) as resp:
-                      return resp.status, json.loads(resp.read().decode("utf-8"))
+                      raw = resp.read()
+                      if not raw:
+                          return resp.status, {}
+                      try:
+                          return resp.status, json.loads(raw.decode("utf-8"))
+                      except Exception:
+                          return resp.status, {"raw": raw.decode("utf-8", errors='replace')}
               except urllib.error.HTTPError as e:
                   error_data = e.read().decode("utf-8")
                   try:
@@ -352,6 +462,9 @@ jobs:
                   'key': 'DATABASE_URL',
                   'value': db_info['connection_string']
               })
+          else:
+              print("❌ DATABASE_URL not available from selected database")
+              sys.exit(1)
           
           # Add JWT_SECRET if not already set
           current_env = service_data.get('envVars', [])
