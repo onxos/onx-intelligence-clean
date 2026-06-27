@@ -10,6 +10,32 @@ type MutationAuditContext = {
   userAgent?: string;
 };
 
+const MEMORY_CLASSIFICATIONS = ['PUBLIC', 'INSTITUTIONAL', 'CONFIDENTIAL', 'RESTRICTED'] as const;
+const MEMORY_ACCESS_SCOPES = ['WORKSPACE', 'OWNER_ONLY'] as const;
+const MEMORY_LIFECYCLE_STATUSES = ['ACTIVE', 'LOCKED', 'EXPIRED'] as const;
+const MEMORY_SORT_FIELDS = [
+  'createdAt',
+  'updatedAt',
+  'title',
+  'category',
+  'classification',
+  'expiresAt',
+  'lifecycleStatus',
+] as const;
+const MEMORY_DEFAULT_RETENTION_DAYS: Record<(typeof MEMORY_CLASSIFICATIONS)[number], number> = {
+  PUBLIC: 3650,
+  INSTITUTIONAL: 1095,
+  CONFIDENTIAL: 365,
+  RESTRICTED: 90,
+};
+const MEMORY_MAX_RETENTION_DAYS = MEMORY_DEFAULT_RETENTION_DAYS;
+const MAX_MEMORY_TITLE_LENGTH = 200;
+const MAX_MEMORY_CONTENT_LENGTH = 20000;
+const MAX_MEMORY_CATEGORY_LENGTH = 64;
+const MAX_MEMORY_TAGS = 20;
+const MAX_MEMORY_TAG_LENGTH = 32;
+const MAX_MEMORY_SEARCH_LENGTH = 200;
+
 @Injectable()
 export class WorkspaceService {
   constructor(
@@ -87,6 +113,303 @@ export class WorkspaceService {
       throw new BadRequestException('Invalid model id format. Expected providerId::model');
     }
     return { providerId, model };
+  }
+
+  private parseBoundedInteger(
+    value: unknown,
+    field: string,
+    defaultValue: number,
+    maxValue: number,
+  ) {
+    if (value === undefined || value === null || value === '') {
+      return defaultValue;
+    }
+
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > maxValue) {
+      throw new BadRequestException(`${field} must be an integer between 1 and ${maxValue}`);
+    }
+
+    return parsed;
+  }
+
+  private normalizeMemoryCategory(value: unknown, fallback = 'GENERAL') {
+    if (value === undefined || value === null || value === '') {
+      return fallback;
+    }
+
+    if (typeof value !== 'string' || !value.trim()) {
+      throw new BadRequestException('category must be a non-empty string');
+    }
+
+    const normalized = value.trim();
+    if (normalized.length > MAX_MEMORY_CATEGORY_LENGTH) {
+      throw new BadRequestException(
+        `category must be at most ${MAX_MEMORY_CATEGORY_LENGTH} characters`,
+      );
+    }
+
+    return normalized;
+  }
+
+  private normalizeMemoryClassification(value: unknown, fallback = 'INSTITUTIONAL') {
+    const normalized = (
+      typeof value === 'string' && value.trim() ? value.trim() : fallback
+    ).toUpperCase();
+    if (!(MEMORY_CLASSIFICATIONS as readonly string[]).includes(normalized)) {
+      throw new BadRequestException(
+        `classification must be one of: ${MEMORY_CLASSIFICATIONS.join(', ')}`,
+      );
+    }
+    return normalized;
+  }
+
+  private normalizeMemoryAccessScope(value: unknown, fallback = 'WORKSPACE') {
+    const normalized = (
+      typeof value === 'string' && value.trim() ? value.trim() : fallback
+    ).toUpperCase();
+    if (!(MEMORY_ACCESS_SCOPES as readonly string[]).includes(normalized)) {
+      throw new BadRequestException(
+        `accessScope must be one of: ${MEMORY_ACCESS_SCOPES.join(', ')}`,
+      );
+    }
+    return normalized;
+  }
+
+  private normalizeMemoryLifecycleStatus(
+    value: unknown,
+    allowExpired = false,
+    fallback = 'ACTIVE',
+  ) {
+    const normalized = (
+      typeof value === 'string' && value.trim() ? value.trim() : fallback
+    ).toUpperCase();
+    const allowed = allowExpired
+      ? MEMORY_LIFECYCLE_STATUSES
+      : MEMORY_LIFECYCLE_STATUSES.filter((status) => status !== 'EXPIRED');
+    if (!(allowed as readonly string[]).includes(normalized)) {
+      throw new BadRequestException(`lifecycleStatus must be one of: ${allowed.join(', ')}`);
+    }
+    return normalized;
+  }
+
+  private normalizeMemoryTags(value: unknown) {
+    if (value === undefined || value === null) {
+      return [] as string[];
+    }
+
+    if (!Array.isArray(value)) {
+      throw new BadRequestException('tags must be an array of strings');
+    }
+
+    const tags = Array.from(
+      new Set(
+        value.map((tag) => {
+          if (typeof tag !== 'string' || !tag.trim()) {
+            throw new BadRequestException('tags must contain only non-empty strings');
+          }
+          const normalized = tag.trim();
+          if (normalized.length > MAX_MEMORY_TAG_LENGTH) {
+            throw new BadRequestException(
+              `each tag must be at most ${MAX_MEMORY_TAG_LENGTH} characters`,
+            );
+          }
+          return normalized;
+        }),
+      ),
+    );
+
+    if (tags.length > MAX_MEMORY_TAGS) {
+      throw new BadRequestException(`tags may contain at most ${MAX_MEMORY_TAGS} items`);
+    }
+
+    return tags;
+  }
+
+  private normalizeMemoryRetentionDays(value: unknown, classification: string, fallback?: number) {
+    const defaultValue =
+      fallback ??
+      MEMORY_DEFAULT_RETENTION_DAYS[classification as keyof typeof MEMORY_DEFAULT_RETENTION_DAYS];
+
+    if (value === undefined || value === null || value === '') {
+      return defaultValue;
+    }
+
+    const parsed = Number(value);
+    const maxAllowed =
+      MEMORY_MAX_RETENTION_DAYS[classification as keyof typeof MEMORY_MAX_RETENTION_DAYS];
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > maxAllowed) {
+      throw new BadRequestException(
+        `retentionDays must be an integer between 1 and ${maxAllowed} for classification ${classification}`,
+      );
+    }
+
+    return parsed;
+  }
+
+  private computeMemoryExpiry(retentionDays: number) {
+    const expiresAt = new Date();
+    expiresAt.setUTCDate(expiresAt.getUTCDate() + retentionDays);
+    return expiresAt;
+  }
+
+  private normalizeMemoryContent(value: unknown, fallback?: string) {
+    if (value === undefined || value === null) {
+      return fallback;
+    }
+
+    if (typeof value !== 'string' || !value.trim()) {
+      throw new BadRequestException('content is required');
+    }
+
+    const normalized = value.trim();
+    if (normalized.length > MAX_MEMORY_CONTENT_LENGTH) {
+      throw new BadRequestException(
+        `content must be at most ${MAX_MEMORY_CONTENT_LENGTH} characters`,
+      );
+    }
+
+    return normalized;
+  }
+
+  private normalizeMemoryTitle(value: unknown, fallback?: string) {
+    if (value === undefined || value === null) {
+      return fallback;
+    }
+
+    if (typeof value !== 'string' || !value.trim()) {
+      throw new BadRequestException('title is required');
+    }
+
+    const normalized = value.trim();
+    if (normalized.length > MAX_MEMORY_TITLE_LENGTH) {
+      throw new BadRequestException(`title must be at most ${MAX_MEMORY_TITLE_LENGTH} characters`);
+    }
+
+    return normalized;
+  }
+
+  private buildMemoryGovernancePayload(
+    data: {
+      category?: string;
+      classification?: string;
+      accessScope?: string;
+      lifecycleStatus?: string;
+      retentionDays?: number;
+      tags?: string[];
+    },
+    existing?: {
+      category?: string;
+      classification?: string;
+      accessScope?: string;
+      lifecycleStatus?: string;
+      retentionDays?: number;
+    } | null,
+  ) {
+    const classification = this.normalizeMemoryClassification(
+      data.classification,
+      existing?.classification ?? 'INSTITUTIONAL',
+    );
+    const accessScope = this.normalizeMemoryAccessScope(
+      data.accessScope,
+      existing?.accessScope ?? 'WORKSPACE',
+    );
+    const lifecycleStatus = this.normalizeMemoryLifecycleStatus(
+      data.lifecycleStatus,
+      false,
+      existing?.lifecycleStatus ?? 'ACTIVE',
+    );
+    const retentionDays = this.normalizeMemoryRetentionDays(
+      data.retentionDays,
+      classification,
+      existing?.retentionDays,
+    );
+
+    if (classification === 'RESTRICTED' && accessScope !== 'OWNER_ONLY') {
+      throw new BadRequestException('RESTRICTED memory entries must use OWNER_ONLY access scope');
+    }
+
+    return {
+      category: this.normalizeMemoryCategory(data.category, existing?.category ?? 'GENERAL'),
+      classification,
+      accessScope,
+      lifecycleStatus,
+      retentionDays,
+      expiresAt: this.computeMemoryExpiry(retentionDays),
+      tags: this.normalizeMemoryTags(data.tags),
+    };
+  }
+
+  private normalizeMemoryQuery(query?: {
+    search?: string;
+    category?: string;
+    classification?: string;
+    accessScope?: string;
+    lifecycleStatus?: string;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+    page?: number;
+    pageSize?: number;
+  }) {
+    const pageSize = this.parseBoundedInteger(query?.pageSize, 'pageSize', 50, 100);
+    const page = this.parseBoundedInteger(query?.page, 'page', 1, 10000);
+    const sortBy = query?.sortBy || 'createdAt';
+    if (!(MEMORY_SORT_FIELDS as readonly string[]).includes(sortBy)) {
+      throw new BadRequestException(`sortBy must be one of: ${MEMORY_SORT_FIELDS.join(', ')}`);
+    }
+
+    const sortOrder = query?.sortOrder || 'desc';
+    if (!['asc', 'desc'].includes(sortOrder)) {
+      throw new BadRequestException('sortOrder must be asc or desc');
+    }
+
+    if (query?.search !== undefined) {
+      if (typeof query.search !== 'string') {
+        throw new BadRequestException('search must be a string');
+      }
+      if (query.search.length > MAX_MEMORY_SEARCH_LENGTH) {
+        throw new BadRequestException(
+          `search must be at most ${MAX_MEMORY_SEARCH_LENGTH} characters`,
+        );
+      }
+    }
+
+    return {
+      pageSize,
+      page,
+      skip: (page - 1) * pageSize,
+      sortBy,
+      sortOrder,
+      category:
+        query?.category !== undefined
+          ? this.normalizeMemoryCategory(query.category, 'GENERAL')
+          : undefined,
+      classification:
+        query?.classification !== undefined
+          ? this.normalizeMemoryClassification(query.classification)
+          : undefined,
+      accessScope:
+        query?.accessScope !== undefined
+          ? this.normalizeMemoryAccessScope(query.accessScope)
+          : undefined,
+      lifecycleStatus:
+        query?.lifecycleStatus !== undefined
+          ? this.normalizeMemoryLifecycleStatus(query.lifecycleStatus, true)
+          : undefined,
+      search: query?.search?.trim() || undefined,
+    };
+  }
+
+  private async syncExpiredMemoryEntries(workspaceId: string) {
+    await this.prisma.memoryEntry.updateMany({
+      where: {
+        workspaceId,
+        deletedAt: null,
+        lifecycleStatus: { not: 'EXPIRED' },
+        expiresAt: { lte: new Date() },
+      },
+      data: { lifecycleStatus: 'EXPIRED' },
+    });
   }
 
   async getHome(workspaceId: string) {
@@ -928,55 +1251,84 @@ export class WorkspaceService {
 
   async listMemory(
     workspaceId: string,
+    actorId: string,
     query?: {
       search?: string;
       category?: string;
+      classification?: string;
+      accessScope?: string;
+      lifecycleStatus?: string;
       sortBy?: string;
       sortOrder?: 'asc' | 'desc';
       page?: number;
       pageSize?: number;
     },
   ) {
-    const pageSize = Number(query?.pageSize || 50);
-    const page = Number(query?.page || 1);
-    const skip = (page - 1) * pageSize;
-    const sortBy = query?.sortBy || 'createdAt';
-    const sortOrder = query?.sortOrder || 'desc';
+    await this.syncExpiredMemoryEntries(workspaceId);
+    const normalized = this.normalizeMemoryQuery(query);
 
     return this.prisma.memoryEntry.findMany({
       where: {
         workspaceId,
         deletedAt: null,
-        ...(query?.category && { category: query.category }),
-        ...(query?.search && {
-          OR: [
-            { title: { contains: query.search, mode: 'insensitive' } },
-            { content: { contains: query.search, mode: 'insensitive' } },
-          ],
-        }),
+        ...(normalized.category && { category: normalized.category }),
+        ...(normalized.classification && { classification: normalized.classification as any }),
+        ...(normalized.accessScope && { accessScope: normalized.accessScope as any }),
+        ...(normalized.lifecycleStatus && { lifecycleStatus: normalized.lifecycleStatus as any }),
+        AND: [
+          {
+            OR: [{ accessScope: 'WORKSPACE' }, { ownerId: actorId }],
+          },
+          ...(normalized.search
+            ? [
+                {
+                  OR: [
+                    { title: { contains: normalized.search, mode: 'insensitive' as const } },
+                    { content: { contains: normalized.search, mode: 'insensitive' as const } },
+                    { category: { contains: normalized.search, mode: 'insensitive' as const } },
+                  ],
+                },
+              ]
+            : []),
+        ],
       },
-      orderBy: { [sortBy]: sortOrder } as any,
-      skip,
-      take: pageSize,
+      orderBy: { [normalized.sortBy]: normalized.sortOrder } as any,
+      skip: normalized.skip,
+      take: normalized.pageSize,
     });
   }
 
   async createMemory(
     workspaceId: string,
     ownerId: string,
-    data: { title: string; content: string; category?: string; tags?: string[] },
+    data: {
+      title: string;
+      content: string;
+      category?: string;
+      classification?: string;
+      accessScope?: string;
+      lifecycleStatus?: string;
+      retentionDays?: number;
+      tags?: string[];
+    },
     auditContext: MutationAuditContext,
   ) {
     try {
       this.assertNonEmpty(data.title, 'title');
       this.assertNonEmpty(data.content, 'content');
+      const governance = this.buildMemoryGovernancePayload(data);
 
       const created = await this.prisma.memoryEntry.create({
         data: {
-          title: data.title.trim(),
-          content: data.content,
-          category: data.category || 'GENERAL',
-          tags: data.tags || [],
+          title: this.normalizeMemoryTitle(data.title)!,
+          content: this.normalizeMemoryContent(data.content)!,
+          category: governance.category,
+          classification: governance.classification as any,
+          accessScope: governance.accessScope as any,
+          lifecycleStatus: governance.lifecycleStatus as any,
+          retentionDays: governance.retentionDays,
+          expiresAt: governance.expiresAt,
+          tags: governance.tags,
           workspaceId,
           ownerId,
         },
@@ -988,8 +1340,23 @@ export class WorkspaceService {
         resourceId: created.id,
         workspaceId,
         before: null,
-        after: { id: created.id, title: created.title, deletedAt: created.deletedAt },
+        after: {
+          id: created.id,
+          title: created.title,
+          classification: created.classification,
+          accessScope: created.accessScope,
+          lifecycleStatus: created.lifecycleStatus,
+          expiresAt: created.expiresAt,
+          deletedAt: created.deletedAt,
+        },
         context: auditContext,
+        metadata: {
+          classification: created.classification,
+          accessScope: created.accessScope,
+          lifecycleStatus: created.lifecycleStatus,
+          retentionDays: created.retentionDays,
+          expiresAt: created.expiresAt.toISOString(),
+        },
       });
 
       return created;
@@ -1009,25 +1376,61 @@ export class WorkspaceService {
   async updateMemory(
     memoryId: string,
     workspaceId: string,
-    data: { title?: string; content?: string; category?: string; tags?: string[] },
+    data: {
+      title?: string;
+      content?: string;
+      category?: string;
+      classification?: string;
+      accessScope?: string;
+      lifecycleStatus?: string;
+      retentionDays?: number;
+      tags?: string[];
+    },
     auditContext: MutationAuditContext,
   ) {
     let existing: any = null;
     try {
+      await this.syncExpiredMemoryEntries(workspaceId);
       existing = await this.prisma.memoryEntry.findFirst({
-        where: { id: memoryId, workspaceId, deletedAt: null },
+        where: {
+          id: memoryId,
+          workspaceId,
+          deletedAt: null,
+          AND: [{ OR: [{ accessScope: 'WORKSPACE' }, { ownerId: auditContext.actorId }] }],
+        },
       });
       if (!existing) {
         throw new NotFoundException('Memory entry not found');
       }
+      if (existing.lifecycleStatus === 'EXPIRED') {
+        throw new BadRequestException('Expired memory entries cannot be mutated');
+      }
+      const requestedLifecycleStatus =
+        data.lifecycleStatus !== undefined
+          ? this.normalizeMemoryLifecycleStatus(data.lifecycleStatus)
+          : existing.lifecycleStatus;
+      if (existing.lifecycleStatus === 'LOCKED' && requestedLifecycleStatus !== 'ACTIVE') {
+        throw new BadRequestException('Locked memory entries must be reactivated before mutation');
+      }
+
+      const governance = this.buildMemoryGovernancePayload(data, existing);
+      const nextTitle =
+        data.title !== undefined ? this.normalizeMemoryTitle(data.title)! : existing.title;
+      const nextContent =
+        data.content !== undefined ? this.normalizeMemoryContent(data.content)! : existing.content;
 
       const updated = await this.prisma.memoryEntry.update({
         where: { id: existing.id },
         data: {
-          ...(data.title !== undefined && { title: data.title }),
-          ...(data.content !== undefined && { content: data.content }),
-          ...(data.category !== undefined && { category: data.category }),
-          ...(data.tags !== undefined && { tags: data.tags }),
+          title: nextTitle,
+          content: nextContent,
+          category: governance.category,
+          classification: governance.classification as any,
+          accessScope: governance.accessScope as any,
+          lifecycleStatus: governance.lifecycleStatus as any,
+          retentionDays: governance.retentionDays,
+          expiresAt: governance.expiresAt,
+          tags: governance.tags,
         },
       });
 
@@ -1036,9 +1439,32 @@ export class WorkspaceService {
         resourceType: 'MemoryEntry',
         resourceId: updated.id,
         workspaceId,
-        before: { title: existing.title, deletedAt: existing.deletedAt },
-        after: { title: updated.title, deletedAt: updated.deletedAt },
+        before: {
+          title: existing.title,
+          classification: existing.classification,
+          accessScope: existing.accessScope,
+          lifecycleStatus: existing.lifecycleStatus,
+          retentionDays: existing.retentionDays,
+          expiresAt: existing.expiresAt,
+          deletedAt: existing.deletedAt,
+        },
+        after: {
+          title: updated.title,
+          classification: updated.classification,
+          accessScope: updated.accessScope,
+          lifecycleStatus: updated.lifecycleStatus,
+          retentionDays: updated.retentionDays,
+          expiresAt: updated.expiresAt,
+          deletedAt: updated.deletedAt,
+        },
         context: auditContext,
+        metadata: {
+          classification: updated.classification,
+          accessScope: updated.accessScope,
+          lifecycleStatus: updated.lifecycleStatus,
+          retentionDays: updated.retentionDays,
+          expiresAt: updated.expiresAt.toISOString(),
+        },
       });
 
       return updated;
@@ -1059,8 +1485,14 @@ export class WorkspaceService {
   async deleteMemory(memoryId: string, workspaceId: string, auditContext: MutationAuditContext) {
     let existing: any = null;
     try {
+      await this.syncExpiredMemoryEntries(workspaceId);
       existing = await this.prisma.memoryEntry.findFirst({
-        where: { id: memoryId, workspaceId, deletedAt: null },
+        where: {
+          id: memoryId,
+          workspaceId,
+          deletedAt: null,
+          AND: [{ OR: [{ accessScope: 'WORKSPACE' }, { ownerId: auditContext.actorId }] }],
+        },
       });
       if (!existing) {
         throw new NotFoundException('Memory entry not found');
@@ -1075,9 +1507,24 @@ export class WorkspaceService {
         resourceType: 'MemoryEntry',
         resourceId: existing.id,
         workspaceId,
-        before: { title: existing.title, deletedAt: existing.deletedAt },
-        after: { deletedAt: true },
+        before: {
+          title: existing.title,
+          classification: existing.classification,
+          accessScope: existing.accessScope,
+          lifecycleStatus: existing.lifecycleStatus,
+          retentionDays: existing.retentionDays,
+          expiresAt: existing.expiresAt,
+          deletedAt: existing.deletedAt,
+        },
+        after: { deletedAt: true, lifecycleStatus: existing.lifecycleStatus },
         context: auditContext,
+        metadata: {
+          classification: existing.classification,
+          accessScope: existing.accessScope,
+          lifecycleStatus: existing.lifecycleStatus,
+          retentionDays: existing.retentionDays,
+          expiresAt: existing.expiresAt?.toISOString?.() ?? existing.expiresAt,
+        },
       });
 
       return { success: true, id: existing.id };

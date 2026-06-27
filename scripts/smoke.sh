@@ -74,4 +74,11 @@ curl -fsS "$BASE_URL/evidence" -H "Authorization: Bearer $JWT" | jq 'length'
 evidence_create=$(curl -fsS -X POST "$BASE_URL/evidence" -H 'Content-Type: application/json' -H "Authorization: Bearer $JWT" -d '{"intent":"smoke test","confidence":0.77}')
 echo "$evidence_create" | jq '{id, intent}'
 
+memory_create=$(curl -fsS -X POST "$BASE_URL/memory" -H 'Content-Type: application/json' -H "Authorization: Bearer $JWT" -d '{"title":"Smoke Memory","content":"smoke governed memory","category":"SMOKE","classification":"INSTITUTIONAL","accessScope":"WORKSPACE","retentionDays":30,"tags":["smoke","memory"]}')
+memory_id=$(echo "$memory_create" | jq -r '.id')
+echo "$memory_create" | jq '{id, title, classification, accessScope, lifecycleStatus, retentionDays}'
+
+curl -fsS "$BASE_URL/memory?classification=INSTITUTIONAL" -H "Authorization: Bearer $JWT" | jq 'length'
+curl -fsS -X DELETE "$BASE_URL/memory/$memory_id" -H "Authorization: Bearer $JWT" | jq '{success, id}'
+
 echo "Smoke checks completed"

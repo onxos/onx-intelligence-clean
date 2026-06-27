@@ -12,6 +12,7 @@ describe('ONX Intelligence (e2e)', () => {
   let createdProviderId: string;
   let createdToolId: string;
   let createdProjectId: string;
+  let createdMemoryId: string;
   const password = 'StrongPass123!';
   const email = `e2e-${Date.now()}@onx.test`;
   const hasDatabase = Boolean(process.env.DATABASE_URL);
@@ -68,6 +69,26 @@ describe('ONX Intelligence (e2e)', () => {
     expect(entry).toHaveProperty('status');
     expect(entry).toHaveProperty('success');
     expect(entry).toHaveProperty('metadata');
+  };
+
+  const registerAndLogin = async (nextEmail: string) => {
+    const registerRes = await request(app.getHttpServer())
+      .post('/auth/register')
+      .send({
+        name: 'E2E Memory User',
+        email: nextEmail,
+        password,
+      })
+      .expect(201);
+
+    expect(typeof registerRes.body).toBe('string');
+
+    const loginRes = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: nextEmail, password })
+      .expect(200);
+
+    return loginRes.body as string;
   };
 
   it('/health returns 200 with status ok', async () => {
@@ -380,6 +401,108 @@ describe('ONX Intelligence (e2e)', () => {
     expect(
       failedDeleteAudit.some((item) => item.status === 'FAILED' && item.success === false),
     ).toBe(true);
+  });
+
+  it('memory governance enforces policy, lifecycle, access control, and audit', async () => {
+    if (!hasDatabase || !hasSchema) {
+      return;
+    }
+
+    await request(app.getHttpServer())
+      .post('/memory')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        title: 'Invalid Restricted Memory',
+        content: 'Should fail',
+        classification: 'RESTRICTED',
+        accessScope: 'WORKSPACE',
+      })
+      .expect(400);
+
+    const createRes = await request(app.getHttpServer())
+      .post('/memory')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        title: `Restricted Memory ${Date.now()}`,
+        content: 'Operationally sensitive memory record',
+        category: 'GOVERNANCE',
+        classification: 'RESTRICTED',
+        accessScope: 'OWNER_ONLY',
+        retentionDays: 30,
+        tags: ['governance', 'restricted'],
+      })
+      .expect(201);
+
+    createdMemoryId = createRes.body.id;
+    expect(createRes.body.classification).toBe('RESTRICTED');
+    expect(createRes.body.accessScope).toBe('OWNER_ONLY');
+    expect(createRes.body.lifecycleStatus).toBe('ACTIVE');
+    expect(createRes.body.retentionDays).toBe(30);
+
+    const ownerList = await request(app.getHttpServer())
+      .get('/memory?classification=RESTRICTED')
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(ownerList.body.some((item: { id: string }) => item.id === createdMemoryId)).toBe(true);
+
+    const lockRes = await request(app.getHttpServer())
+      .put(`/memory/${createdMemoryId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ lifecycleStatus: 'LOCKED', category: 'GOVERNANCE_LOCKED' })
+      .expect(200);
+    expect(lockRes.body.lifecycleStatus).toBe('LOCKED');
+
+    await request(app.getHttpServer())
+      .put(`/memory/${createdMemoryId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ title: 'Should not mutate while locked' })
+      .expect(400);
+
+    const secondToken = await registerAndLogin(`e2e-memory-${Date.now()}@onx.test`);
+    const secondUserList = await request(app.getHttpServer())
+      .get('/memory')
+      .set('Authorization', `Bearer ${secondToken}`)
+      .expect(200);
+    expect(secondUserList.body.some((item: { id: string }) => item.id === createdMemoryId)).toBe(
+      false,
+    );
+
+    await request(app.getHttpServer())
+      .put(`/memory/${createdMemoryId}`)
+      .set('Authorization', `Bearer ${secondToken}`)
+      .send({ lifecycleStatus: 'ACTIVE' })
+      .expect(404);
+
+    await request(app.getHttpServer())
+      .put(`/memory/${createdMemoryId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ lifecycleStatus: 'ACTIVE', category: 'GOVERNANCE_UNLOCKED' })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .delete(`/memory/${createdMemoryId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+
+    const memoryAudit = await listAudit('MEMORY_');
+    const createdAudit = memoryAudit.find(
+      (item) => item.action === 'MEMORY_CREATED' && item.resourceId === createdMemoryId,
+    );
+    const updatedAudit = memoryAudit.find(
+      (item) => item.action === 'MEMORY_UPDATED' && item.resourceId === createdMemoryId,
+    );
+    const deletedAudit = memoryAudit.find(
+      (item) => item.action === 'MEMORY_DELETED' && item.resourceId === createdMemoryId,
+    );
+
+    expect(createdAudit).toBeDefined();
+    expect(updatedAudit).toBeDefined();
+    expect(deletedAudit).toBeDefined();
+    expectUnifiedAuditShape(createdAudit);
+    expect(createdAudit.metadata.classification).toBe('RESTRICTED');
+    expect(createdAudit.metadata.accessScope).toBe('OWNER_ONLY');
+    expect(createdAudit.metadata.retentionDays).toBe(30);
+    expect(deletedAudit.success).toBe(true);
   });
 
   it('/w/ route is available (no server error)', async () => {

@@ -132,21 +132,28 @@ model Agent {
 }
 
 model MemoryEntry {
-  id          String   @id @default(cuid())
-  title       String
-  content     String
-  category    String   @default("GENERAL")
-  tags        String[] @default([])
-  workspaceId String   @map("workspace_id")
-  ownerId     String   @map("owner_id")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  deletedAt   DateTime? @map("deleted_at")
+  id              String                @id @default(cuid())
+  title           String
+  content         String
+  category        String                @default("GENERAL")
+  classification  PrivacyLevel          @default(INSTITUTIONAL)
+  accessScope     MemoryAccessScope     @default(WORKSPACE) @map("access_scope")
+  lifecycleStatus MemoryLifecycleStatus @default(ACTIVE) @map("lifecycle_status")
+  retentionDays   Int                   @default(1095) @map("retention_days")
+  expiresAt       DateTime              @map("expires_at")
+  tags            String[]              @default([])
+  workspaceId     String                @map("workspace_id")
+  ownerId         String                @map("owner_id")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+  deletedAt       DateTime?             @map("deleted_at")
 
   workspace Workspace @relation(fields: [workspaceId], references: [id])
   owner     User      @relation(fields: [ownerId], references: [id])
 
   @@index([workspaceId, createdAt])
+  @@index([workspaceId, deletedAt, lifecycleStatus])
+  @@index([workspaceId, ownerId, accessScope])
   @@map("memory_entries")
 }
 
@@ -494,6 +501,17 @@ enum ToolStatus {
   ACTIVE
   INACTIVE
   EXPERIMENTAL
+}
+
+enum MemoryAccessScope {
+  WORKSPACE
+  OWNER_ONLY
+}
+
+enum MemoryLifecycleStatus {
+  ACTIVE
+  LOCKED
+  EXPIRED
 }
 
 enum AssetStatus {

@@ -181,7 +181,7 @@ export class WorkspaceController {
   @Get('memory')
   @ApiOperation({ summary: 'List memory entries' })
   async memory(@Req() req: any, @Query() query: any) {
-    return this.svc.listMemory(req.user.workspaceId, query);
+    return this.svc.listMemory(req.user.workspaceId, req.user.userId, query);
   }
 
   @Post('memory')
