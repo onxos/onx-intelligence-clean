@@ -30,17 +30,17 @@ export class WorkspaceService {
       recentIntelligence,
       recentEvidence,
     ] = await Promise.all([
-      this.prisma.intelligenceObject.count({ where: { workspaceId } }),
-      this.prisma.evidenceRecord.count({ where: { workspaceId } }),
-      this.prisma.providerProfile.count({ where: { workspaceId } }),
-      this.prisma.toolProfile.count({ where: { workspaceId } }),
+      this.prisma.intelligenceObject.count({ where: { workspaceId, state: { not: 'ARCHIVED' } } }),
+      this.prisma.evidenceRecord.count({ where: { workspaceId, deletedAt: null } }),
+      this.prisma.providerProfile.count({ where: { workspaceId, status: { not: 'INACTIVE' } } }),
+      this.prisma.toolProfile.count({ where: { workspaceId, status: { not: 'INACTIVE' } } }),
       this.prisma.intelligenceObject.findMany({
-        where: { workspaceId },
+        where: { workspaceId, state: { not: 'ARCHIVED' } },
         orderBy: { createdAt: 'desc' },
         take: 5,
       }),
       this.prisma.evidenceRecord.findMany({
-        where: { workspaceId },
+        where: { workspaceId, deletedAt: null },
         orderBy: { createdAt: 'desc' },
         take: 5,
       }),
@@ -78,7 +78,7 @@ export class WorkspaceService {
     return this.prisma.project.findMany({
       where: {
         workspaceId,
-        ...(query?.status && { status: query.status }),
+        ...(query?.status ? { status: query.status } : { status: { not: 'ARCHIVED' } }),
         ...(query?.search && {
           OR: [
             { name: { contains: query.search, mode: 'insensitive' } },
@@ -117,7 +117,7 @@ export class WorkspaceService {
 
   async getProjectDetails(projectId: string, workspaceId: string) {
     const item = await this.prisma.project.findFirst({
-      where: { id: projectId, workspaceId },
+      where: { id: projectId, workspaceId, status: { not: 'ARCHIVED' } },
       include: {
         owner: {
           select: { id: true, email: true, name: true },
@@ -135,7 +135,9 @@ export class WorkspaceService {
     workspaceId: string,
     data: { name?: string; description?: string; status?: string },
   ) {
-    const existing = await this.prisma.project.findFirst({ where: { id: projectId, workspaceId } });
+    const existing = await this.prisma.project.findFirst({
+      where: { id: projectId, workspaceId, status: { not: 'ARCHIVED' } },
+    });
     if (!existing) {
       throw new NotFoundException('Project not found');
     }
@@ -151,11 +153,13 @@ export class WorkspaceService {
   }
 
   async deleteProject(projectId: string, workspaceId: string) {
-    const existing = await this.prisma.project.findFirst({ where: { id: projectId, workspaceId } });
+    const existing = await this.prisma.project.findFirst({
+      where: { id: projectId, workspaceId, status: { not: 'ARCHIVED' } },
+    });
     if (!existing) {
       throw new NotFoundException('Project not found');
     }
-    await this.prisma.project.delete({ where: { id: existing.id } });
+    await this.prisma.project.update({ where: { id: existing.id }, data: { status: 'ARCHIVED' } });
     return { success: true, id: existing.id };
   }
 
@@ -179,6 +183,7 @@ export class WorkspaceService {
     const items = await this.prisma.intelligenceObject.findMany({
       where: {
         workspaceId,
+        state: { not: 'ARCHIVED' },
         ...(query?.objectType && { objectType: query.objectType as any }),
         ...(query?.search && {
           OR: [
@@ -228,7 +233,7 @@ export class WorkspaceService {
 
   async getKnowledgeAssetDetails(id: string, workspaceId: string) {
     const item = await this.prisma.intelligenceObject.findFirst({
-      where: { id, workspaceId },
+      where: { id, workspaceId, state: { not: 'ARCHIVED' } },
     });
     if (!item) {
       throw new NotFoundException('Knowledge asset not found');
@@ -248,7 +253,9 @@ export class WorkspaceService {
       state?: string;
     },
   ) {
-    const existing = await this.prisma.intelligenceObject.findFirst({ where: { id, workspaceId } });
+    const existing = await this.prisma.intelligenceObject.findFirst({
+      where: { id, workspaceId, state: { not: 'ARCHIVED' } },
+    });
     if (!existing) {
       throw new NotFoundException('Knowledge asset not found');
     }
@@ -273,11 +280,16 @@ export class WorkspaceService {
   }
 
   async deleteKnowledgeAsset(id: string, workspaceId: string) {
-    const existing = await this.prisma.intelligenceObject.findFirst({ where: { id, workspaceId } });
+    const existing = await this.prisma.intelligenceObject.findFirst({
+      where: { id, workspaceId, state: { not: 'ARCHIVED' } },
+    });
     if (!existing) {
       throw new NotFoundException('Knowledge asset not found');
     }
-    await this.prisma.intelligenceObject.delete({ where: { id: existing.id } });
+    await this.prisma.intelligenceObject.update({
+      where: { id: existing.id },
+      data: { state: 'ARCHIVED' },
+    });
     return { success: true, id: existing.id };
   }
 
@@ -302,6 +314,7 @@ export class WorkspaceService {
     const items = await this.prisma.provenanceRecord.findMany({
       where: {
         workspaceId,
+        deletedAt: null,
         ...(query?.action && { action: { equals: query.action, mode: 'insensitive' } }),
         ...(query?.resource && { resource: { equals: query.resource, mode: 'insensitive' } }),
         ...(query?.search && {
@@ -337,7 +350,7 @@ export class WorkspaceService {
 
     if (data.resourceId) {
       const linked = await this.prisma.intelligenceObject.findFirst({
-        where: { id: data.resourceId, workspaceId },
+        where: { id: data.resourceId, workspaceId, state: { not: 'ARCHIVED' } },
       });
       if (!linked) {
         throw new BadRequestException('resourceId must reference an existing intelligence object');
@@ -358,7 +371,9 @@ export class WorkspaceService {
   }
 
   async getSourceDetails(id: string, workspaceId: string) {
-    const item = await this.prisma.provenanceRecord.findFirst({ where: { id, workspaceId } });
+    const item = await this.prisma.provenanceRecord.findFirst({
+      where: { id, workspaceId, deletedAt: null },
+    });
     if (!item) {
       throw new NotFoundException('Source record not found');
     }
@@ -376,14 +391,16 @@ export class WorkspaceService {
       newValue?: string;
     },
   ) {
-    const existing = await this.prisma.provenanceRecord.findFirst({ where: { id, workspaceId } });
+    const existing = await this.prisma.provenanceRecord.findFirst({
+      where: { id, workspaceId, deletedAt: null },
+    });
     if (!existing) {
       throw new NotFoundException('Source record not found');
     }
 
     if (data.resourceId !== undefined && data.resourceId !== null && data.resourceId !== '') {
       const linked = await this.prisma.intelligenceObject.findFirst({
-        where: { id: data.resourceId, workspaceId },
+        where: { id: data.resourceId, workspaceId, state: { not: 'ARCHIVED' } },
       });
       if (!linked) {
         throw new BadRequestException('resourceId must reference an existing intelligence object');
@@ -403,11 +420,16 @@ export class WorkspaceService {
   }
 
   async deleteSource(id: string, workspaceId: string) {
-    const existing = await this.prisma.provenanceRecord.findFirst({ where: { id, workspaceId } });
+    const existing = await this.prisma.provenanceRecord.findFirst({
+      where: { id, workspaceId, deletedAt: null },
+    });
     if (!existing) {
       throw new NotFoundException('Source record not found');
     }
-    await this.prisma.provenanceRecord.delete({ where: { id: existing.id } });
+    await this.prisma.provenanceRecord.update({
+      where: { id: existing.id },
+      data: { deletedAt: new Date() },
+    });
     return { success: true, id: existing.id };
   }
 
@@ -431,7 +453,7 @@ export class WorkspaceService {
     return this.prisma.agent.findMany({
       where: {
         workspaceId,
-        ...(query?.status && { status: query.status }),
+        ...(query?.status ? { status: query.status } : { status: { not: 'ARCHIVED' } }),
         ...(query?.search && {
           OR: [
             { name: { contains: query.search, mode: 'insensitive' } },
@@ -490,7 +512,9 @@ export class WorkspaceService {
       config?: Record<string, any>;
     },
   ) {
-    const existing = await this.prisma.agent.findFirst({ where: { id: agentId, workspaceId } });
+    const existing = await this.prisma.agent.findFirst({
+      where: { id: agentId, workspaceId, status: { not: 'ARCHIVED' } },
+    });
     if (!existing) {
       throw new NotFoundException('Agent not found');
     }
@@ -509,11 +533,13 @@ export class WorkspaceService {
   }
 
   async deleteAgent(agentId: string, workspaceId: string) {
-    const existing = await this.prisma.agent.findFirst({ where: { id: agentId, workspaceId } });
+    const existing = await this.prisma.agent.findFirst({
+      where: { id: agentId, workspaceId, status: { not: 'ARCHIVED' } },
+    });
     if (!existing) {
       throw new NotFoundException('Agent not found');
     }
-    await this.prisma.agent.delete({ where: { id: existing.id } });
+    await this.prisma.agent.update({ where: { id: existing.id }, data: { status: 'ARCHIVED' } });
     return { success: true, id: existing.id };
   }
 
@@ -537,6 +563,7 @@ export class WorkspaceService {
     return this.prisma.memoryEntry.findMany({
       where: {
         workspaceId,
+        deletedAt: null,
         ...(query?.category && { category: query.category }),
         ...(query?.search && {
           OR: [
@@ -577,7 +604,7 @@ export class WorkspaceService {
     data: { title?: string; content?: string; category?: string; tags?: string[] },
   ) {
     const existing = await this.prisma.memoryEntry.findFirst({
-      where: { id: memoryId, workspaceId },
+      where: { id: memoryId, workspaceId, deletedAt: null },
     });
     if (!existing) {
       throw new NotFoundException('Memory entry not found');
@@ -596,12 +623,15 @@ export class WorkspaceService {
 
   async deleteMemory(memoryId: string, workspaceId: string) {
     const existing = await this.prisma.memoryEntry.findFirst({
-      where: { id: memoryId, workspaceId },
+      where: { id: memoryId, workspaceId, deletedAt: null },
     });
     if (!existing) {
       throw new NotFoundException('Memory entry not found');
     }
-    await this.prisma.memoryEntry.delete({ where: { id: existing.id } });
+    await this.prisma.memoryEntry.update({
+      where: { id: existing.id },
+      data: { deletedAt: new Date() },
+    });
     return { success: true, id: existing.id };
   }
 
@@ -617,7 +647,7 @@ export class WorkspaceService {
     },
   ) {
     const providers = await this.prisma.providerProfile.findMany({
-      where: { workspaceId },
+      where: { workspaceId, status: { not: 'INACTIVE' } },
       orderBy: { priority: 'asc' },
       select: {
         providerId: true,
@@ -671,7 +701,7 @@ export class WorkspaceService {
     this.assertNonEmpty(data.model, 'model');
 
     const provider = await this.prisma.providerProfile.findFirst({
-      where: { providerId: data.providerId, workspaceId },
+      where: { providerId: data.providerId, workspaceId, status: { not: 'INACTIVE' } },
     });
     if (!provider) {
       throw new NotFoundException('Provider not found');
@@ -698,7 +728,7 @@ export class WorkspaceService {
   async getModelDetails(id: string, workspaceId: string) {
     const { providerId, model } = this.parseModelKey(id);
     const provider = await this.prisma.providerProfile.findFirst({
-      where: { providerId, workspaceId },
+      where: { providerId, workspaceId, status: { not: 'INACTIVE' } },
     });
     if (!provider || !provider.models.includes(model)) {
       throw new NotFoundException('Model record not found');
@@ -719,7 +749,7 @@ export class WorkspaceService {
     const nextModel = (data.model as string).trim();
 
     const provider = await this.prisma.providerProfile.findFirst({
-      where: { providerId, workspaceId },
+      where: { providerId, workspaceId, status: { not: 'INACTIVE' } },
     });
     if (!provider || !provider.models.includes(model)) {
       throw new NotFoundException('Model record not found');
@@ -745,7 +775,7 @@ export class WorkspaceService {
   async deleteModel(id: string, workspaceId: string) {
     const { providerId, model } = this.parseModelKey(id);
     const provider = await this.prisma.providerProfile.findFirst({
-      where: { providerId, workspaceId },
+      where: { providerId, workspaceId, status: { not: 'INACTIVE' } },
     });
     if (!provider || !provider.models.includes(model)) {
       throw new NotFoundException('Model record not found');
@@ -779,8 +809,10 @@ export class WorkspaceService {
 
     const items = await this.prisma.providerEvaluation.findMany({
       where: {
+        deletedAt: null,
         provider: {
           workspaceId,
+          status: { not: 'INACTIVE' },
           ...(query?.providerId && { providerId: query.providerId }),
           ...(query?.search && {
             OR: [
@@ -823,7 +855,7 @@ export class WorkspaceService {
     this.assertNonEmpty(data.intent, 'intent');
 
     const provider = await this.prisma.providerProfile.findFirst({
-      where: { providerId: data.providerId, workspaceId },
+      where: { providerId: data.providerId, workspaceId, status: { not: 'INACTIVE' } },
     });
     if (!provider) {
       throw new NotFoundException('Provider not found');
@@ -863,8 +895,10 @@ export class WorkspaceService {
     const item = await this.prisma.providerEvaluation.findFirst({
       where: {
         id,
+        deletedAt: null,
         provider: {
           workspaceId,
+          status: { not: 'INACTIVE' },
         },
       },
       include: {
@@ -895,7 +929,8 @@ export class WorkspaceService {
     const existing = await this.prisma.providerEvaluation.findFirst({
       where: {
         id,
-        provider: { workspaceId },
+        deletedAt: null,
+        provider: { workspaceId, status: { not: 'INACTIVE' } },
       },
     });
     if (!existing) {
@@ -936,20 +971,24 @@ export class WorkspaceService {
     const existing = await this.prisma.providerEvaluation.findFirst({
       where: {
         id,
-        provider: { workspaceId },
+        deletedAt: null,
+        provider: { workspaceId, status: { not: 'INACTIVE' } },
       },
     });
     if (!existing) {
       throw new NotFoundException('Evaluation not found');
     }
-    await this.prisma.providerEvaluation.delete({ where: { id: existing.id } });
+    await this.prisma.providerEvaluation.update({
+      where: { id: existing.id },
+      data: { deletedAt: new Date() },
+    });
     return { success: true, id: existing.id };
   }
 
   async getReports(workspaceId: string) {
     const [intelligenceCount, evidenceCount, governanceCount, totalCapital] = await Promise.all([
-      this.prisma.intelligenceObject.count({ where: { workspaceId } }),
-      this.prisma.evidenceRecord.count({ where: { workspaceId } }),
+      this.prisma.intelligenceObject.count({ where: { workspaceId, state: { not: 'ARCHIVED' } } }),
+      this.prisma.evidenceRecord.count({ where: { workspaceId, deletedAt: null } }),
       this.prisma.governanceDecision.count({ where: { workspaceId } }),
       this.prisma.capitalRecord.aggregate({
         where: { workspaceId },
@@ -1022,7 +1061,7 @@ export class WorkspaceService {
         orderBy: { createdAt: 'desc' },
         take: 20,
       }),
-      this.prisma.evidenceRecord.count({ where: { workspaceId } }),
+      this.prisma.evidenceRecord.count({ where: { workspaceId, deletedAt: null } }),
     ]);
 
     return {

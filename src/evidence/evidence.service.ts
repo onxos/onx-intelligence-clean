@@ -26,6 +26,7 @@ export class EvidenceService {
       where: {
         workspaceId,
         ownerId,
+        deletedAt: null,
         ...(query?.search && {
           OR: [
             { intent: { contains: query.search, mode: 'insensitive' } },
@@ -71,7 +72,7 @@ export class EvidenceService {
     },
   ) {
     const existing = await this.prisma.evidenceRecord.findFirst({
-      where: { id, workspaceId, ownerId },
+      where: { id, workspaceId, ownerId, deletedAt: null },
     });
     if (!existing) {
       throw new NotFoundException('Evidence record not found');
@@ -91,13 +92,16 @@ export class EvidenceService {
 
   async remove(id: string, workspaceId: string, ownerId: string) {
     const existing = await this.prisma.evidenceRecord.findFirst({
-      where: { id, workspaceId, ownerId },
+      where: { id, workspaceId, ownerId, deletedAt: null },
     });
     if (!existing) {
       throw new NotFoundException('Evidence record not found');
     }
 
-    await this.prisma.evidenceRecord.delete({ where: { id: existing.id } });
+    await this.prisma.evidenceRecord.update({
+      where: { id: existing.id },
+      data: { deletedAt: new Date() },
+    });
     return { success: true, id: existing.id };
   }
 }

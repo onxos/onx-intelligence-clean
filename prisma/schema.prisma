@@ -141,6 +141,7 @@ model MemoryEntry {
   ownerId     String   @map("owner_id")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
 
   workspace Workspace @relation(fields: [workspaceId], references: [id])
   owner     User      @relation(fields: [ownerId], references: [id])
@@ -256,6 +257,7 @@ model ProviderEvaluation {
   intent    String
   context   String?
   createdAt DateTime @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
 
   provider ProviderProfile @relation(fields: [providerId], references: [id])
 
@@ -300,6 +302,7 @@ model EvidenceRecord {
   outcome   String?
   learning  String?
   createdAt DateTime @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
 
   owner     User @relation(fields: [ownerId], references: [id])
   workspace Workspace @relation(fields: [workspaceId], references: [id])
@@ -350,6 +353,7 @@ model ProvenanceRecord {
   oldValue  String? @map("old_value")
   newValue  String? @map("new_value")
   createdAt DateTime @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
 
   intelligenceObject IntelligenceObject? @relation(fields: [resourceId], references: [id])
 

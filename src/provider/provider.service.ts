@@ -72,7 +72,7 @@ export class ProviderService {
     return this.prisma.providerProfile.findMany({
       where: {
         workspaceId,
-        ...(query?.status && { status: query.status as any }),
+        ...(query?.status ? { status: query.status as any } : { status: { not: 'INACTIVE' } }),
         ...(query?.search && {
           OR: [
             { providerName: { contains: query.search, mode: 'insensitive' } },
@@ -117,7 +117,9 @@ export class ProviderService {
   }
 
   async update(workspaceId: string, id: string, data: any) {
-    const existing = await this.prisma.providerProfile.findFirst({ where: { id, workspaceId } });
+    const existing = await this.prisma.providerProfile.findFirst({
+      where: { id, workspaceId, status: { not: 'INACTIVE' } },
+    });
     if (!existing) {
       throw new NotFoundException('Provider profile not found');
     }
@@ -159,17 +161,22 @@ export class ProviderService {
   }
 
   async remove(workspaceId: string, id: string) {
-    const existing = await this.prisma.providerProfile.findFirst({ where: { id, workspaceId } });
+    const existing = await this.prisma.providerProfile.findFirst({
+      where: { id, workspaceId, status: { not: 'INACTIVE' } },
+    });
     if (!existing) {
       throw new NotFoundException('Provider profile not found');
     }
-    await this.prisma.providerProfile.delete({ where: { id: existing.id } });
+    await this.prisma.providerProfile.update({
+      where: { id: existing.id },
+      data: { status: 'INACTIVE' },
+    });
     return { success: true, id: existing.id };
   }
 
   async evaluate(data: { providerId: string; intent: string; context?: string }) {
-    const provider = await this.prisma.providerProfile.findUnique({
-      where: { providerId: data.providerId },
+    const provider = await this.prisma.providerProfile.findFirst({
+      where: { providerId: data.providerId, status: { not: 'INACTIVE' } },
     });
     if (!provider) return null;
 

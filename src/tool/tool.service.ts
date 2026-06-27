@@ -26,7 +26,7 @@ export class ToolService {
     return this.prisma.toolProfile.findMany({
       where: {
         workspaceId,
-        ...(query?.status && { status: query.status as any }),
+        ...(query?.status ? { status: query.status as any } : { status: { not: 'INACTIVE' } }),
         ...(query?.category && { category: query.category as any }),
         ...(query?.search && {
           OR: [
@@ -57,7 +57,9 @@ export class ToolService {
   }
 
   async update(workspaceId: string, id: string, data: any) {
-    const existing = await this.prisma.toolProfile.findFirst({ where: { id, workspaceId } });
+    const existing = await this.prisma.toolProfile.findFirst({
+      where: { id, workspaceId, status: { not: 'INACTIVE' } },
+    });
     if (!existing) {
       throw new NotFoundException('Tool profile not found');
     }
@@ -78,12 +80,17 @@ export class ToolService {
   }
 
   async remove(workspaceId: string, id: string) {
-    const existing = await this.prisma.toolProfile.findFirst({ where: { id, workspaceId } });
+    const existing = await this.prisma.toolProfile.findFirst({
+      where: { id, workspaceId, status: { not: 'INACTIVE' } },
+    });
     if (!existing) {
       throw new NotFoundException('Tool profile not found');
     }
 
-    await this.prisma.toolProfile.delete({ where: { id: existing.id } });
+    await this.prisma.toolProfile.update({
+      where: { id: existing.id },
+      data: { status: 'INACTIVE' },
+    });
     return { success: true, id: existing.id };
   }
 }

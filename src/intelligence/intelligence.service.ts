@@ -124,6 +124,7 @@ export class IntelligenceService {
     return this.prisma.intelligenceObject.findMany({
       where: {
         workspaceId,
+        state: { not: 'ARCHIVED' },
         AND: andFilters,
         ...(filters?.type && { objectType: filters.type as IntelligenceObjectType }),
       },
@@ -138,6 +139,7 @@ export class IntelligenceService {
       where: {
         id,
         workspaceId,
+        state: { not: 'ARCHIVED' },
         OR: [{ ownerId: actorId }, { creatorId: actorId }],
       },
     });
@@ -146,7 +148,9 @@ export class IntelligenceService {
   }
 
   async stats(workspaceId: string) {
-    const all = await this.prisma.intelligenceObject.findMany({ where: { workspaceId } });
+    const all = await this.prisma.intelligenceObject.findMany({
+      where: { workspaceId, state: { not: 'ARCHIVED' } },
+    });
     const byType: Record<string, number> = {};
     let totalCapital = 0;
     let reusableCount = 0;
@@ -239,7 +243,10 @@ export class IntelligenceService {
   async remove(id: string, workspaceId: string, actorId: string) {
     const existing = await this.findOne(id, workspaceId, actorId);
 
-    await this.prisma.intelligenceObject.delete({ where: { id: existing.id } });
+    await this.prisma.intelligenceObject.update({
+      where: { id: existing.id },
+      data: { state: 'ARCHIVED' },
+    });
 
     await this.audit.log({
       action: 'INTELLIGENCE_DELETED',

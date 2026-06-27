@@ -194,6 +194,20 @@ describe('ONX Intelligence (e2e)', () => {
 
     expect(Array.isArray(listRes.body)).toBe(true);
     expect(listRes.body.some((item: { id: string }) => item.id === createdEvidenceId)).toBe(true);
+
+    await request(app.getHttpServer())
+      .delete(`/evidence/${createdEvidenceId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+
+    const afterDeleteList = await request(app.getHttpServer())
+      .get('/evidence')
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+
+    expect(afterDeleteList.body.some((item: { id: string }) => item.id === createdEvidenceId)).toBe(
+      false,
+    );
   });
 
   it('/w/ route is available (no server error)', async () => {

@@ -4,7 +4,7 @@ describe('ProviderService', () => {
   it('clamps ISES-12 scores and returns all 12 dimensions', async () => {
     const prisma = {
       providerProfile: {
-        findUnique: jest.fn().mockResolvedValue({
+        findFirst: jest.fn().mockResolvedValue({
           id: 'profile-1',
           providerId: 'prov-123',
           domainFitness: 150,
