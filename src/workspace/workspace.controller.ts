@@ -59,14 +59,62 @@ export class WorkspaceController {
 
   @Get('knowledge/assets')
   @ApiOperation({ summary: 'List knowledge assets' })
-  async knowledge(@Req() req: any) {
-    return this.svc.listKnowledgeAssets(req.user.workspaceId);
+  async knowledge(@Req() req: any, @Query() query: any) {
+    return this.svc.listKnowledgeAssets(req.user.workspaceId, query);
+  }
+
+  @Post('knowledge/assets')
+  @ApiOperation({ summary: 'Create knowledge asset' })
+  async createKnowledge(@Req() req: any, @Body() body: any) {
+    return this.svc.createKnowledgeAsset(req.user.workspaceId, req.user.userId, body);
+  }
+
+  @Get('knowledge/assets/:id')
+  @ApiOperation({ summary: 'Get knowledge asset details' })
+  async knowledgeDetails(@Param('id') id: string, @Req() req: any) {
+    return this.svc.getKnowledgeAssetDetails(id, req.user.workspaceId);
+  }
+
+  @Put('knowledge/assets/:id')
+  @ApiOperation({ summary: 'Update knowledge asset' })
+  async updateKnowledge(@Param('id') id: string, @Req() req: any, @Body() body: any) {
+    return this.svc.updateKnowledgeAsset(id, req.user.workspaceId, body);
+  }
+
+  @Delete('knowledge/assets/:id')
+  @ApiOperation({ summary: 'Delete knowledge asset' })
+  async deleteKnowledge(@Param('id') id: string, @Req() req: any) {
+    return this.svc.deleteKnowledgeAsset(id, req.user.workspaceId);
   }
 
   @Get('sources')
   @ApiOperation({ summary: 'List sources and provenance records' })
-  async sources(@Req() req: any) {
-    return this.svc.listSources(req.user.workspaceId);
+  async sources(@Req() req: any, @Query() query: any) {
+    return this.svc.listSources(req.user.workspaceId, query);
+  }
+
+  @Post('sources')
+  @ApiOperation({ summary: 'Create source/provenance record' })
+  async createSource(@Req() req: any, @Body() body: any) {
+    return this.svc.createSource(req.user.workspaceId, req.user.userId, body);
+  }
+
+  @Get('sources/:id')
+  @ApiOperation({ summary: 'Get source/provenance record details' })
+  async sourceDetails(@Param('id') id: string, @Req() req: any) {
+    return this.svc.getSourceDetails(id, req.user.workspaceId);
+  }
+
+  @Put('sources/:id')
+  @ApiOperation({ summary: 'Update source/provenance record' })
+  async updateSource(@Param('id') id: string, @Req() req: any, @Body() body: any) {
+    return this.svc.updateSource(id, req.user.workspaceId, body);
+  }
+
+  @Delete('sources/:id')
+  @ApiOperation({ summary: 'Delete source/provenance record' })
+  async deleteSource(@Param('id') id: string, @Req() req: any) {
+    return this.svc.deleteSource(id, req.user.workspaceId);
   }
 
   @Get('agents')
@@ -119,14 +167,62 @@ export class WorkspaceController {
 
   @Get('models')
   @ApiOperation({ summary: 'List available models by provider' })
-  async models(@Req() req: any) {
-    return this.svc.listModels(req.user.workspaceId);
+  async models(@Req() req: any, @Query() query: any) {
+    return this.svc.listModels(req.user.workspaceId, query);
+  }
+
+  @Post('models')
+  @ApiOperation({ summary: 'Create model entry on provider' })
+  async createModel(@Req() req: any, @Body() body: any) {
+    return this.svc.createModel(req.user.workspaceId, body);
+  }
+
+  @Get('models/:id')
+  @ApiOperation({ summary: 'Get model entry details' })
+  async modelDetails(@Param('id') id: string, @Req() req: any) {
+    return this.svc.getModelDetails(id, req.user.workspaceId);
+  }
+
+  @Put('models/:id')
+  @ApiOperation({ summary: 'Rename/update model entry on provider' })
+  async updateModel(@Param('id') id: string, @Req() req: any, @Body() body: any) {
+    return this.svc.updateModel(id, req.user.workspaceId, body);
+  }
+
+  @Delete('models/:id')
+  @ApiOperation({ summary: 'Delete model entry from provider' })
+  async deleteModel(@Param('id') id: string, @Req() req: any) {
+    return this.svc.deleteModel(id, req.user.workspaceId);
   }
 
   @Get('evaluations')
   @ApiOperation({ summary: 'List provider evaluations' })
-  async evaluations(@Req() req: any) {
-    return this.svc.listEvaluations(req.user.workspaceId);
+  async evaluations(@Req() req: any, @Query() query: any) {
+    return this.svc.listEvaluations(req.user.workspaceId, query);
+  }
+
+  @Post('evaluations')
+  @ApiOperation({ summary: 'Create provider evaluation' })
+  async createEvaluation(@Req() req: any, @Body() body: any) {
+    return this.svc.createEvaluation(req.user.workspaceId, body);
+  }
+
+  @Get('evaluations/:id')
+  @ApiOperation({ summary: 'Get provider evaluation details' })
+  async evaluationDetails(@Param('id') id: string, @Req() req: any) {
+    return this.svc.getEvaluationDetails(id, req.user.workspaceId);
+  }
+
+  @Put('evaluations/:id')
+  @ApiOperation({ summary: 'Update provider evaluation' })
+  async updateEvaluation(@Param('id') id: string, @Req() req: any, @Body() body: any) {
+    return this.svc.updateEvaluation(id, req.user.workspaceId, body);
+  }
+
+  @Delete('evaluations/:id')
+  @ApiOperation({ summary: 'Delete provider evaluation' })
+  async deleteEvaluation(@Param('id') id: string, @Req() req: any) {
+    return this.svc.deleteEvaluation(id, req.user.workspaceId);
   }
 
   @Get('reports')
@@ -135,10 +231,34 @@ export class WorkspaceController {
     return this.svc.getReports(req.user.workspaceId);
   }
 
+  @Get('reports/governance')
+  @ApiOperation({ summary: 'List governance report records' })
+  async reportGovernance(@Req() req: any, @Query() query: any) {
+    return this.svc.listReportGovernance(req.user.workspaceId, query);
+  }
+
+  @Get('reports/capital')
+  @ApiOperation({ summary: 'List capital report records' })
+  async reportCapital(@Req() req: any, @Query() query: any) {
+    return this.svc.listReportCapital(req.user.workspaceId, query);
+  }
+
   @Get('monitoring')
   @ApiOperation({ summary: 'Get workspace monitoring snapshot' })
   async monitoring(@Req() req: any) {
     return this.svc.getMonitoring(req.user.workspaceId);
+  }
+
+  @Get('monitoring/audit')
+  @ApiOperation({ summary: 'List monitoring audit entries' })
+  async monitoringAudit(@Req() req: any, @Query() query: any) {
+    return this.svc.listMonitoringAudit(req.user.workspaceId, query);
+  }
+
+  @Get('monitoring/audit/:id')
+  @ApiOperation({ summary: 'Get monitoring audit entry details' })
+  async monitoringAuditDetails(@Req() req: any, @Param('id') id: string) {
+    return this.svc.getMonitoringAuditById(req.user.workspaceId, id);
   }
 
   @Get('settings')

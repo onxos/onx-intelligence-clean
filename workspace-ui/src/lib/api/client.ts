@@ -120,8 +120,22 @@ export const api = {
     updateProject: (id: string, body: Record<string, unknown>) =>
       workspaceFetch(`/projects/${id}`, { method: "PUT", body }),
     deleteProject: (id: string) => workspaceFetch(`/projects/${id}`, { method: "DELETE" }),
-    knowledgeAssets: () => workspaceFetch("/knowledge/assets"),
-    sources: () => workspaceFetch("/sources"),
+    knowledgeAssets: (query?: Record<string, QueryValue>) =>
+      workspaceFetch("/knowledge/assets", { query }),
+    createKnowledgeAsset: (body: Record<string, unknown>) =>
+      workspaceFetch("/knowledge/assets", { method: "POST", body }),
+    knowledgeAssetDetails: (id: string) => workspaceFetch(`/knowledge/assets/${id}`),
+    updateKnowledgeAsset: (id: string, body: Record<string, unknown>) =>
+      workspaceFetch(`/knowledge/assets/${id}`, { method: "PUT", body }),
+    deleteKnowledgeAsset: (id: string) =>
+      workspaceFetch(`/knowledge/assets/${id}`, { method: "DELETE" }),
+    sources: (query?: Record<string, QueryValue>) => workspaceFetch("/sources", { query }),
+    createSource: (body: Record<string, unknown>) =>
+      workspaceFetch("/sources", { method: "POST", body }),
+    sourceDetails: (id: string) => workspaceFetch(`/sources/${id}`),
+    updateSource: (id: string, body: Record<string, unknown>) =>
+      workspaceFetch(`/sources/${id}`, { method: "PUT", body }),
+    deleteSource: (id: string) => workspaceFetch(`/sources/${id}`, { method: "DELETE" }),
     agents: (query?: Record<string, QueryValue>) => workspaceFetch("/agents", { query }),
     createAgent: (body: Record<string, unknown>) =>
       workspaceFetch("/agents", { method: "POST", body }),
@@ -134,10 +148,30 @@ export const api = {
     updateMemory: (id: string, body: Record<string, unknown>) =>
       workspaceFetch(`/memory/${id}`, { method: "PUT", body }),
     deleteMemory: (id: string) => workspaceFetch(`/memory/${id}`, { method: "DELETE" }),
-    models: () => workspaceFetch("/models"),
-    evaluations: () => workspaceFetch("/evaluations"),
+    models: (query?: Record<string, QueryValue>) => workspaceFetch("/models", { query }),
+    createModel: (body: Record<string, unknown>) =>
+      workspaceFetch("/models", { method: "POST", body }),
+    modelDetails: (id: string) => workspaceFetch(`/models/${id}`),
+    updateModel: (id: string, body: Record<string, unknown>) =>
+      workspaceFetch(`/models/${id}`, { method: "PUT", body }),
+    deleteModel: (id: string) => workspaceFetch(`/models/${id}`, { method: "DELETE" }),
+    evaluations: (query?: Record<string, QueryValue>) =>
+      workspaceFetch("/evaluations", { query }),
+    createEvaluation: (body: Record<string, unknown>) =>
+      workspaceFetch("/evaluations", { method: "POST", body }),
+    evaluationDetails: (id: string) => workspaceFetch(`/evaluations/${id}`),
+    updateEvaluation: (id: string, body: Record<string, unknown>) =>
+      workspaceFetch(`/evaluations/${id}`, { method: "PUT", body }),
+    deleteEvaluation: (id: string) => workspaceFetch(`/evaluations/${id}`, { method: "DELETE" }),
     reports: () => workspaceFetch("/reports"),
+    reportGovernance: (query?: Record<string, QueryValue>) =>
+      workspaceFetch("/reports/governance", { query }),
+    reportCapital: (query?: Record<string, QueryValue>) =>
+      workspaceFetch("/reports/capital", { query }),
     monitoring: () => workspaceFetch("/monitoring"),
+    monitoringAudit: (query?: Record<string, QueryValue>) =>
+      workspaceFetch("/monitoring/audit", { query }),
+    monitoringAuditDetails: (id: string) => workspaceFetch(`/monitoring/audit/${id}`),
     settings: () => workspaceFetch("/settings"),
     updateSettings: (body: Record<string, unknown>) =>
       workspaceFetch("/settings", { method: "PUT", body }),

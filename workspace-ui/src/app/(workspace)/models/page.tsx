@@ -1,15 +1,24 @@
 "use client";
 
-import { DomainScreen } from "@/components/domain-screen";
+import { CrudDomainScreen } from "@/components/crud-domain-screen";
 import { api } from "@/lib/api/client";
 
 export default function ModelsPage() {
   return (
-    <DomainScreen
+    <CrudDomainScreen
       title="Models"
-      description="Model inventory aggregated from provider profiles."
-      queryKey={["models"]}
-      queryFn={api.workspace.models}
+      description="Maintain provider model inventory with live persistence in provider profiles."
+      queryKey="models"
+      fields={[
+        { name: "providerId", label: "Provider ID", required: true },
+        { name: "model", label: "Model", required: true },
+      ]}
+      columns={["id", "providerId", "providerName", "providerStatus", "model"]}
+      defaultSortBy="providerName"
+      listFn={(query) => api.workspace.models(query) as Promise<any[]>}
+      createFn={(payload) => api.workspace.createModel(payload)}
+      updateFn={(id, payload) => api.workspace.updateModel(id, payload)}
+      deleteFn={(id) => api.workspace.deleteModel(id)}
     />
   );
 }
