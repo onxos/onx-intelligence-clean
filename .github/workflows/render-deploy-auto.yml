@@ -551,6 +551,14 @@ jobs:
                   'key': 'DATABASE_URL',
                   'value': db_info['connection_string']
               })
+          elif db_info.get('name'):
+              update_payload['envVars'].append({
+                  'key': 'DATABASE_URL',
+                  'fromDatabase': {
+                      'name': db_info['name'],
+                      'property': 'connectionString'
+                  }
+              })
           else:
               print("❌ DATABASE_URL not available from selected database")
               sys.exit(1)
