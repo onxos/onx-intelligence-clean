@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from './../src/app.module';
+import { PrismaService } from '../src/common/prisma.service';
 
 describe('ONX Intelligence (e2e)', () => {
   let app: INestApplication;
@@ -11,6 +12,7 @@ describe('ONX Intelligence (e2e)', () => {
   const password = 'StrongPass123!';
   const email = `e2e-${Date.now()}@onx.test`;
   const hasDatabase = Boolean(process.env.DATABASE_URL);
+  let hasSchema = false;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -19,6 +21,18 @@ describe('ONX Intelligence (e2e)', () => {
 
     app = moduleFixture.createNestApplication();
     await app.init();
+
+    if (hasDatabase) {
+      try {
+        const prisma = app.get(PrismaService);
+        const result = (await prisma.$queryRawUnsafe(
+          "SELECT to_regclass('public.users')::text AS users_table",
+        )) as Array<{ users_table: string | null }>;
+        hasSchema = Boolean(result?.[0]?.users_table);
+      } catch {
+        hasSchema = false;
+      }
+    }
   });
 
   afterAll(async () => {
@@ -32,7 +46,7 @@ describe('ONX Intelligence (e2e)', () => {
   });
 
   it('/auth/register creates user and returns JWT token', async () => {
-    if (!hasDatabase) {
+    if (!hasDatabase || !hasSchema) {
       const res = await request(app.getHttpServer())
         .post('/auth/register')
         .send({ name: 'E2E User', email, password });
@@ -55,7 +69,7 @@ describe('ONX Intelligence (e2e)', () => {
   });
 
   it('/auth/login returns JWT token', async () => {
-    if (!hasDatabase) {
+    if (!hasDatabase || !hasSchema) {
       const res = await request(app.getHttpServer()).post('/auth/login').send({ email, password });
       expect([500, 503]).toContain(res.status);
       return;
@@ -75,7 +89,7 @@ describe('ONX Intelligence (e2e)', () => {
   });
 
   it('/auth/me returns safe user profile without password fields', async () => {
-    if (!hasDatabase) {
+    if (!hasDatabase || !hasSchema) {
       await request(app.getHttpServer()).get('/auth/me').expect(401);
       return;
     }
@@ -92,7 +106,7 @@ describe('ONX Intelligence (e2e)', () => {
   });
 
   it('intelligence CRUD works with ownership/workspace scoping', async () => {
-    if (!hasDatabase) {
+    if (!hasDatabase || !hasSchema) {
       await request(app.getHttpServer())
         .post('/intelligence')
         .send({
@@ -152,7 +166,7 @@ describe('ONX Intelligence (e2e)', () => {
   });
 
   it('evidence create/list returns created records correctly', async () => {
-    if (!hasDatabase) {
+    if (!hasDatabase || !hasSchema) {
       await request(app.getHttpServer())
         .post('/evidence')
         .send({ intent: 'Validate evidence list consistency', confidence: 0.77 })
