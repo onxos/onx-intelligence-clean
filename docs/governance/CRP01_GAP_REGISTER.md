@@ -8,7 +8,7 @@
 - Automated smoke tests: installed as executable repository behavior
 - Full constitutional CRUD completeness: partial
 - Full audit trail coverage: closed (MO-012, production-verified)
-- Memory governance: partial
+- Memory governance: closed (MO-013, production-verified)
 - Reporting depth: partial
 - Workspace domain completeness: partial
 - Capital allocation: missing
@@ -136,3 +136,27 @@
 - Live audit proof:
 	- Verified `AUTH_REGISTERED`, `AUTH_LOGGED_IN`, `EVIDENCE_CREATED`, `EVIDENCE_UPDATED`, `EVIDENCE_DELETED`
 	- Verified fields present on live audit entries: `actorId`, `resourceType`, `resourceId`, `action`, `timestamp`, `status`, `success`, `metadata`
+
+## Mission Order 013 Memory Governance Record (2026-06-27)
+
+- Selected V2 item: Memory governance
+- Scope implemented (no architecture redesign):
+	- Extended `memory_entries` with governance fields: classification, access scope, lifecycle status, retention days, and expiry timestamp.
+	- Enforced server-side memory policy validation for classification/access-scope combinations, retention limits, tag/query bounds, and sort/query whitelists.
+	- Added lifecycle enforcement for locked and expired memory plus owner-only visibility for restricted memory within existing workspace CRUD endpoints.
+	- Added mutation audit metadata for governed memory create/update/delete and extended smoke coverage to the `/memory` path.
+- Verification evidence:
+	- Implementation commit: `b5f745bcf12f400fafaddd30b2003132b2122e5e`
+	- Deployment fix commit: `72afd605a375fda762ce1b4f0799b5526b3db91a`
+	- Build: success (`npm run build`)
+	- Unit tests: success (`npm test`)
+	- E2E tests: success (`npm run test:e2e`)
+	- CI (final SHA): success https://github.com/onxos/onx-intelligence-clean/actions/runs/28297736042
+	- Render deploy (final SHA): success https://github.com/onxos/onx-intelligence-clean/actions/runs/28297736046
+	- Production `/commit`: `{"commit":"72afd605a375fda762ce1b4f0799b5526b3db91a","nodeEnv":"production"}`
+	- Production `/health`: `{"status":"ok","database":{"status":"up","version":"1.0.0"}}`
+	- Production smoke: success (`BASE_URL=https://onx-intelligence-clean.onrender.com npm run smoke`)
+	- Practical closure proof:
+		- Restricted owner-only memory visibility: owner sees created memory, peer in same workspace does not (`owner_can_see=1`, `peer_can_see=0`)
+		- Memory audit events present live: `MEMORY_CREATED`, `MEMORY_UPDATED`, `MEMORY_DELETED`
+		- Audit metadata present live: `classification`, `accessScope`, `lifecycleStatus`, `retentionDays`, `expiresAt`

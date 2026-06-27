@@ -52,6 +52,21 @@
 	- Closure verification CI: https://github.com/onxos/onx-intelligence-clean/actions/runs/28296058571
 	- Closure verification Render: https://github.com/onxos/onx-intelligence-clean/actions/runs/28296058585
 	- Closure verification production `/commit`: `{"commit":"b78599bcd0c489739874708260a140a602b4586b","nodeEnv":"production"}`
+- MO-013: Memory Governance (server-side policy, lifecycle, retention, access, audit)
+	- Scope delivered:
+		- Added governed memory schema fields for `classification`, `accessScope`, `lifecycleStatus`, `retentionDays`, and `expiresAt`.
+		- Enforced server-side memory policy validation, query validation, lifecycle locking/expiry, and owner-only visibility rules within existing workspace memory CRUD.
+		- Preserved backward-compatible `/memory` CRUD while adding memory mutation audit metadata and workspace consistency enforcement.
+		- Added unit and e2e coverage plus smoke coverage for governed memory create/list/delete.
+	- Production-ready status: COMPLETED
+	- Implementation commit: b5f745bcf12f400fafaddd30b2003132b2122e5e (`feat(v2): implement memory governance`)
+	- Deployment fix commit: 72afd605a375fda762ce1b4f0799b5526b3db91a (`fix(deploy): align memory seed with governance schema`)
+	- CI (final deployed SHA): https://github.com/onxos/onx-intelligence-clean/actions/runs/28297736042
+	- Render (final deployed SHA): https://github.com/onxos/onx-intelligence-clean/actions/runs/28297736046
+	- Production `/commit`: `{"commit":"72afd605a375fda762ce1b4f0799b5526b3db91a","nodeEnv":"production"}`
+	- Production `/health`: `{"status":"ok","database":{"status":"up","version":"1.0.0"}}`
+	- Smoke: PASS (`BASE_URL=https://onx-intelligence-clean.onrender.com npm run smoke`)
+	- Live practical proof: PASS (restricted owner-only memory visible to owner and hidden from peer; audit captured `MEMORY_CREATED`, `MEMORY_UPDATED`, `MEMORY_DELETED` with governance metadata)
 
 ## Blocked Work Items
 
@@ -66,3 +81,4 @@
 - Unlock timestamp (UTC): 2026-06-27T16:18:50Z
 - 2026-06-27 Sprint 1 complete: soft delete implementation verified on production commit c4201cd804946f0129861513b3eb1b425ad1fd73
 - 2026-06-27 Sprint 2 complete: full audit trail coverage verified on production commit b957f10156fa9aba1170fe7ba4ba500324b9d0e6
+- 2026-06-27 Memory governance complete: governed memory CRUD verified on production commit 72afd605a375fda762ce1b4f0799b5526b3db91a
