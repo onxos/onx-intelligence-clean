@@ -127,18 +127,23 @@ jobs:
           
           # Fetch databases
           print("🔍 Fetching PostgreSQL databases...")
-          url_db = f"https://api.render.com/v1/databases"
-          print(f"DEBUG: URL = {url_db}")
-          status, db_data = fetch_json(url_db)
-          databases = normalize_database_items(db_data)
+          db_endpoints = [
+              f"https://api.render.com/v1/databases",
+              f"https://api.render.com/v1/owners/{owner_id}/databases",
+              f"https://api.render.com/v1/postgres?ownerId={owner_id}",
+              f"https://api.render.com/v1/postgres?owner_id={owner_id}",
+          ]
 
-          if status != 200:
-              print(f"⚠️ Primary database endpoint returned HTTP {status}, trying owner endpoint")
-              status_owner, db_data_owner = fetch_json(f"https://api.render.com/v1/owners/{owner_id}/databases")
-              if status_owner == 200:
-                  databases = normalize_database_items(db_data_owner)
+          databases = []
+          for url_db in db_endpoints:
+              print(f"DEBUG: DB URL = {url_db}")
+              status, db_data = fetch_json(url_db)
+              if status == 200:
+                  databases = normalize_database_items(db_data)
+                  if databases:
+                      break
               else:
-                  databases = []
+                  print(f"⚠️ Database endpoint returned HTTP {status}: {url_db}")
           
           intelligence_dbs = [d for d in databases if 'intelligence' in d.get('name', '').lower() or 'onx' in d.get('name', '').lower()]
           if not intelligence_dbs and databases:
