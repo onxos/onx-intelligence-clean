@@ -43,7 +43,9 @@ describe('ONX Intelligence (e2e)', () => {
   });
 
   const listAudit = async (search?: string) => {
-    const path = search ? `/monitoring/audit?search=${encodeURIComponent(search)}` : '/monitoring/audit';
+    const path = search
+      ? `/monitoring/audit?search=${encodeURIComponent(search)}`
+      : '/monitoring/audit';
     const res = await request(app.getHttpServer())
       .get(path)
       .set('Authorization', `Bearer ${authToken}`)
@@ -203,7 +205,9 @@ describe('ONX Intelligence (e2e)', () => {
     expect(createdAudit.length).toBeGreaterThan(0);
     expect(updatedAudit.length).toBeGreaterThan(0);
     expect(deletedAudit.length).toBeGreaterThan(0);
-    expect(deletedAudit.some((item) => item.status === 'SUCCESS' && item.success === true)).toBe(true);
+    expect(deletedAudit.some((item) => item.status === 'SUCCESS' && item.success === true)).toBe(
+      true,
+    );
     expectUnifiedAuditShape(createdAudit[0]);
   });
 
@@ -255,9 +259,9 @@ describe('ONX Intelligence (e2e)', () => {
     const evidenceDeleteAudit = await listAudit('EVIDENCE_DELETED');
     expect(evidenceCreateAudit.length).toBeGreaterThan(0);
     expect(evidenceDeleteAudit.length).toBeGreaterThan(0);
-    expect(evidenceDeleteAudit.some((item) => item.status === 'SUCCESS' && item.success === true)).toBe(
-      true,
-    );
+    expect(
+      evidenceDeleteAudit.some((item) => item.status === 'SUCCESS' && item.success === true),
+    ).toBe(true);
     expectUnifiedAuditShape(evidenceDeleteAudit[0]);
   });
 
@@ -373,9 +377,9 @@ describe('ONX Intelligence (e2e)', () => {
       .expect(404);
 
     const failedDeleteAudit = await listAudit('INTELLIGENCE_DELETED');
-    expect(failedDeleteAudit.some((item) => item.status === 'FAILED' && item.success === false)).toBe(
-      true,
-    );
+    expect(
+      failedDeleteAudit.some((item) => item.status === 'FAILED' && item.success === false),
+    ).toBe(true);
   });
 
   it('/w/ route is available (no server error)', async () => {

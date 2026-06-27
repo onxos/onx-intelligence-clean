@@ -281,7 +281,10 @@ export class WorkspaceService {
       if (!existing) {
         throw new NotFoundException('Project not found');
       }
-      await this.prisma.project.update({ where: { id: existing.id }, data: { status: 'ARCHIVED' } });
+      await this.prisma.project.update({
+        where: { id: existing.id },
+        data: { status: 'ARCHIVED' },
+      });
 
       await this.logMutationSuccess({
         action: 'PROJECT_DELETED',
@@ -577,7 +580,9 @@ export class WorkspaceService {
           where: { id: data.resourceId, workspaceId, state: { not: 'ARCHIVED' } },
         });
         if (!linked) {
-          throw new BadRequestException('resourceId must reference an existing intelligence object');
+          throw new BadRequestException(
+            'resourceId must reference an existing intelligence object',
+          );
         }
       }
 
@@ -653,7 +658,9 @@ export class WorkspaceService {
           where: { id: data.resourceId, workspaceId, state: { not: 'ARCHIVED' } },
         });
         if (!linked) {
-          throw new BadRequestException('resourceId must reference an existing intelligence object');
+          throw new BadRequestException(
+            'resourceId must reference an existing intelligence object',
+          );
         }
       }
 

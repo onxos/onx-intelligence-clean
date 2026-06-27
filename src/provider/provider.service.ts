@@ -178,7 +178,9 @@ export class ProviderService {
           ...(data.providerName !== undefined && { providerName: data.providerName }),
           ...(data.status !== undefined && { status: data.status as any }),
           ...(data.priority !== undefined && { priority: data.priority }),
-          ...(data.models !== undefined && { models: Array.isArray(data.models) ? data.models : [] }),
+          ...(data.models !== undefined && {
+            models: Array.isArray(data.models) ? data.models : [],
+          }),
           ...(data.domainFitness !== undefined && { domainFitness: data.domainFitness }),
           ...(data.riskFitness !== undefined && { riskFitness: data.riskFitness }),
           ...(data.historicalPerformance !== undefined && {

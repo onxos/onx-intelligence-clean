@@ -41,14 +41,17 @@ export class AuthService {
     private readonly audit: AuditService,
   ) {}
 
-  async register(data: {
-    email: string;
-    password: string;
-    name: string;
-    roleId?: string;
-    workspaceId?: string;
-    tenantId?: string;
-  }, auditContext?: MutationAuditContext) {
+  async register(
+    data: {
+      email: string;
+      password: string;
+      name: string;
+      roleId?: string;
+      workspaceId?: string;
+      tenantId?: string;
+    },
+    auditContext?: MutationAuditContext,
+  ) {
     try {
       const defaults = await this.resolveDefaults({
         roleId: data.roleId,

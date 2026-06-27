@@ -51,12 +51,15 @@ export class EvidenceService {
     });
   }
 
-  async create(data: {
-    intent: string;
-    confidence?: number;
-    ownerId: string;
-    workspaceId: string;
-  }, auditContext?: MutationAuditContext) {
+  async create(
+    data: {
+      intent: string;
+      confidence?: number;
+      ownerId: string;
+      workspaceId: string;
+    },
+    auditContext?: MutationAuditContext,
+  ) {
     try {
       const created = await this.prisma.evidenceRecord.create({
         data: {

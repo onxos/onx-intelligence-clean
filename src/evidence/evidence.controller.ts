@@ -70,18 +70,27 @@ export class EvidenceController {
   @Post()
   @ApiOperation({ summary: 'Create evidence record' })
   async create(@Body() body: CreateEvidenceDto, @Req() req: any) {
-    return this.svc.create({
-      intent: body.intent,
-      confidence: body.confidence,
-      ownerId: req.user.userId,
-      workspaceId: req.user.workspaceId,
-    }, getRequestAuditContext(req));
+    return this.svc.create(
+      {
+        intent: body.intent,
+        confidence: body.confidence,
+        ownerId: req.user.userId,
+        workspaceId: req.user.workspaceId,
+      },
+      getRequestAuditContext(req),
+    );
   }
 
   @Put(':id')
   @ApiOperation({ summary: 'Update evidence record' })
   async update(@Param('id') id: string, @Body() body: UpdateEvidenceDto, @Req() req: any) {
-    return this.svc.update(id, req.user.workspaceId, req.user.userId, body, getRequestAuditContext(req));
+    return this.svc.update(
+      id,
+      req.user.workspaceId,
+      req.user.userId,
+      body,
+      getRequestAuditContext(req),
+    );
   }
 
   @Delete(':id')

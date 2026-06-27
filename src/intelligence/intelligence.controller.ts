@@ -123,12 +123,15 @@ export class IntelligenceController {
   @Post()
   @ApiOperation({ summary: 'Create intelligence object' })
   async create(@Body() body: CreateIntelligenceDto, @Req() req: any) {
-    return this.svc.create({
-      ...body,
-      ownerId: req.user.userId,
-      creatorId: req.user.userId,
-      workspaceId: req.user.workspaceId,
-    }, getRequestAuditContext(req));
+    return this.svc.create(
+      {
+        ...body,
+        ownerId: req.user.userId,
+        creatorId: req.user.userId,
+        workspaceId: req.user.workspaceId,
+      },
+      getRequestAuditContext(req),
+    );
   }
 
   @Get()
@@ -152,7 +155,13 @@ export class IntelligenceController {
   @Put(':id')
   @ApiOperation({ summary: 'Update intelligence object' })
   async update(@Param('id') id: string, @Body() body: UpdateIntelligenceDto, @Req() req: any) {
-    return this.svc.update(id, req.user.workspaceId, req.user.userId, body, getRequestAuditContext(req));
+    return this.svc.update(
+      id,
+      req.user.workspaceId,
+      req.user.userId,
+      body,
+      getRequestAuditContext(req),
+    );
   }
 
   @Delete(':id')

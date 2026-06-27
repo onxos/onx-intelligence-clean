@@ -196,7 +196,10 @@ export class SovereigntyService {
         resourceId: workspaceId,
         workspaceId,
         before: null,
-        after: { metricCount: response.metricCount, sovereigntyAlignmentScore: response.sovereigntyAlignmentScore },
+        after: {
+          metricCount: response.metricCount,
+          sovereigntyAlignmentScore: response.sovereigntyAlignmentScore,
+        },
         requestId: auditContext.requestId,
         ip: auditContext.ip,
         userAgent: auditContext.userAgent,

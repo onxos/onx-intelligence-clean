@@ -42,23 +42,24 @@ export class IntelligenceService {
     }
   }
 
-  async create(data: {
-    name: string;
-    content: string;
-    objectType: IntelligenceObjectType;
-    layer?: string;
-    originSource?: string;
-    creatorIdentity?: string;
-    ownershipClass?: string;
-    amanahScore?: number;
-    semanticSummary?: string;
-    privacyLevel?: string;
-    capitalCategory?: string;
-    ownerId: string;
-    creatorId: string;
-    workspaceId: string;
-  },
-  auditContext?: MutationAuditContext,
+  async create(
+    data: {
+      name: string;
+      content: string;
+      objectType: IntelligenceObjectType;
+      layer?: string;
+      originSource?: string;
+      creatorIdentity?: string;
+      ownershipClass?: string;
+      amanahScore?: number;
+      semanticSummary?: string;
+      privacyLevel?: string;
+      capitalCategory?: string;
+      ownerId: string;
+      creatorId: string;
+      workspaceId: string;
+    },
+    auditContext?: MutationAuditContext,
   ) {
     try {
       this.validateCreateInput(data);

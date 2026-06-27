@@ -57,7 +57,10 @@ export class ProviderController {
 
   @Post('evaluate')
   @ApiOperation({ summary: 'Evaluate provider via ISES' })
-  async evaluate(@Body() body: { providerId: string; intent: string; context?: string }, @Req() req: any) {
+  async evaluate(
+    @Body() body: { providerId: string; intent: string; context?: string },
+    @Req() req: any,
+  ) {
     return this.svc.evaluate(body, {
       actorId: req.user.userId,
       ...getRequestAuditContext(req),
