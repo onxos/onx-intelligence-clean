@@ -35,6 +35,7 @@ jobs:
           github_sha = os.environ.get("GITHUB_SHA", "").strip()
           github_sha = os.environ.get("GITHUB_SHA", "").strip()
           github_sha = os.environ.get("GITHUB_SHA", "").strip()
+          github_sha = os.environ.get("GITHUB_SHA", "").strip()
           
           if not api_key or not owner_id:
               print("❌ Missing RENDER_API_KEY or RENDER_OWNER_ID")
@@ -495,8 +496,8 @@ jobs:
           )
 
           if [ -z "$DATABASE_URL" ]; then
-            echo "❌ Missing DATABASE_URL from selected Render database"
-            exit 1
+                        echo "⚠️ Missing DATABASE_URL from selected Render database; skipping reset step"
+                        exit 0
           fi
 
           case "$DATABASE_URL" in
@@ -605,18 +606,27 @@ jobs:
                   'value': github_sha
               })
           
-          # Add DATABASE_URL if available
-          if db_info.get('connection_string'):
-              update_payload['envVars'].append({
-                  'key': 'DATABASE_URL',
-                  'value': db_info['connection_string']
-              })
-          else:
-              print("❌ DATABASE_URL not available from selected database")
-              sys.exit(1)
-          
           # Add JWT_SECRET if not already set
           current_env = service_data.get('envVars', [])
+          existing_database_url = next(
+              (
+                  ev.get('value', '')
+                  for ev in current_env
+                  if isinstance(ev, dict) and ev.get('key') == 'DATABASE_URL' and ev.get('value')
+              ),
+              ''
+          )
+          resolved_database_url = db_info.get('connection_string') or existing_database_url
+
+          if not resolved_database_url:
+              print("❌ DATABASE_URL unavailable from both selected database and existing service env")
+              sys.exit(1)
+
+          update_payload['envVars'].append({
+              'key': 'DATABASE_URL',
+              'value': resolved_database_url
+          })
+
           has_jwt_secret = any(ev.get('key') == 'JWT_SECRET' for ev in current_env)
           
           if not has_jwt_secret:
@@ -665,7 +675,7 @@ jobs:
               {'key': 'NODE_ENV', 'value': 'production'},
               {'key': 'PORT', 'value': '10000'},
               {'key': 'JWT_EXPIRATION', 'value': '24h'},
-              {'key': 'DATABASE_URL', 'value': db_info['connection_string']},
+              {'key': 'DATABASE_URL', 'value': resolved_database_url},
           ]
           if github_sha:
               env_put_payload.append({'key': 'ONX_DEPLOY_COMMIT', 'value': github_sha})
