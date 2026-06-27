@@ -26,6 +26,7 @@ jobs:
           import json
           import urllib.request
           import urllib.error
+          import urllib.parse
           import sys
 
           api_key = os.environ.get("RENDER_API_KEY", "")
@@ -329,6 +330,42 @@ jobs:
 
               return ''
 
+          def extract_connection_parts(payload, parts=None):
+              if parts is None:
+                  parts = {}
+              if isinstance(payload, dict):
+                  for key, value in payload.items():
+                      k = key.lower()
+                      if k in ('host', 'hostname', 'internalhostname', 'internalhost') and isinstance(value, str) and value:
+                          if k.startswith('internal'):
+                              parts['host'] = value
+                          elif 'host' not in parts:
+                              parts['host'] = value
+                      elif k in ('port',) and value is not None and str(value):
+                          parts['port'] = str(value)
+                      elif k in ('user', 'username') and isinstance(value, str) and value:
+                          parts['user'] = value
+                      elif k in ('password',) and isinstance(value, str) and value:
+                          parts['password'] = value
+                      elif k in ('databasename', 'database', 'dbname') and isinstance(value, str) and value:
+                          parts['database'] = value
+                      elif isinstance(value, (dict, list)):
+                          extract_connection_parts(value, parts)
+              elif isinstance(payload, list):
+                  for item in payload:
+                      extract_connection_parts(item, parts)
+              return parts
+
+          def build_connection_string(payload):
+              parts = extract_connection_parts(payload)
+              required = ('host', 'port', 'user', 'password', 'database')
+              if all(parts.get(k) for k in required):
+                  user = urllib.parse.quote(parts['user'], safe='')
+                  password = urllib.parse.quote(parts['password'], safe='')
+                  database = urllib.parse.quote(parts['database'], safe='')
+                  return f"postgresql://{user}:{password}@{parts['host']}:{parts['port']}/{database}?schema=public"
+              return ''
+
           with open('/tmp/render-services.json', 'r') as f:
               data = json.load(f)
 
@@ -414,7 +451,11 @@ jobs:
               for detail_url in detail_endpoints:
                   status, db_details = fetch_json(detail_url)
                   if status == 200 and db_details:
+                      if isinstance(db_details, dict):
+                          print(f"DEBUG: DB detail keys from {detail_url}: {list(db_details.keys())[:12]}")
                       connection_string = pick_connection_string(db_details)
+                      if not connection_string:
+                          connection_string = build_connection_string(db_details)
                       if connection_string:
                           print(f"✓ Database connection string retrieved from {detail_url}")
                           break
