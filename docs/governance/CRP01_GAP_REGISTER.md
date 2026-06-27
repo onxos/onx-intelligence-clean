@@ -6,7 +6,7 @@
 - ISMF-6: implemented and covered by unit test
 - Soft delete: closed (MO-011, production-verified)
 - Automated smoke tests: installed as executable repository behavior
-- Full constitutional CRUD completeness: partial
+- Full constitutional CRUD completeness: closed (MO-015, production-verified)
 - Full audit trail coverage: closed (MO-012, production-verified)
 - Memory governance: closed (MO-013, production-verified)
 - Reporting depth: partial
@@ -160,3 +160,34 @@
 		- Restricted owner-only memory visibility: owner sees created memory, peer in same workspace does not (`owner_can_see=1`, `peer_can_see=0`)
 		- Memory audit events present live: `MEMORY_CREATED`, `MEMORY_UPDATED`, `MEMORY_DELETED`
 		- Audit metadata present live: `classification`, `accessScope`, `lifecycleStatus`, `retentionDays`, `expiresAt`
+
+## Mission Order 015 Full Constitutional CRUD Completeness Record (2026-06-27)
+
+- Selected V2 item: Full constitutional CRUD completeness
+- Scope implemented (no architecture redesign, no new domain creation):
+	- Closed read-parity gaps by adding missing read-by-id coverage for existing constitutional modules:
+		- `evidence`: `GET /evidence/:id`
+		- `provider`: `GET /providers/:id`
+		- `tool`: `GET /tools/:id`
+		- `workspace agents`: `GET /agents/:id`
+		- `workspace memory`: `GET /memory/:id`
+	- Preserved existing authorization and soft-delete policies per module.
+	- Preserved memory governance policy compatibility on direct read path (`OWNER_ONLY` visibility constraints remain enforced).
+	- Added e2e coverage for all new read-by-id paths and their authorization/soft-delete behavior.
+- Verification evidence:
+	- Implementation commit: `975e7a8128ad361dd48cb7c81fbe17276f02aa65`
+	- Build: success (`npm run build`)
+	- Unit tests: success (`npm test`)
+	- E2E tests: success (`npm run test:e2e`)
+	- CI: success https://github.com/onxos/onx-intelligence-clean/actions/runs/28298411961
+	- Render deploy: success https://github.com/onxos/onx-intelligence-clean/actions/runs/28298411946
+	- Production `/commit`: `{"commit":"975e7a8128ad361dd48cb7c81fbe17276f02aa65","nodeEnv":"production"}`
+	- Production `/health`: `{"status":"ok","database":{"status":"up","version":"1.0.0"}}`
+	- Production smoke: success (`BASE_URL=https://onx-intelligence-clean.onrender.com npm run smoke`)
+	- Live practical CRUD proof: PASS
+		- Direct read-by-id verified live for `evidence`, `provider`, `tool`, `agents`, `memory`.
+		- Pagination/filter verified live on list paths.
+		- Authorization verified live via peer access denial.
+		- Validation verified live (`RESTRICTED` memory with non-`OWNER_ONLY` rejected).
+		- Soft delete verified live by post-delete `404` on read paths.
+		- Audit verified live for create/update/delete across intelligence, evidence, provider, tool, and workspace-domain entities, with memory governance metadata present.

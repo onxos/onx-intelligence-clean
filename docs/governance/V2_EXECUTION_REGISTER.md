@@ -67,6 +67,24 @@
 	- Production `/health`: `{"status":"ok","database":{"status":"up","version":"1.0.0"}}`
 	- Smoke: PASS (`BASE_URL=https://onx-intelligence-clean.onrender.com npm run smoke`)
 	- Live practical proof: PASS (restricted owner-only memory visible to owner and hidden from peer; audit captured `MEMORY_CREATED`, `MEMORY_UPDATED`, `MEMORY_DELETED` with governance metadata)
+- MO-015: Full Constitutional CRUD Completeness (existing domains only, production-first)
+	- Scope delivered:
+		- Added missing read-by-id coverage to existing modules without introducing new domains or architecture changes:
+			- `GET /evidence/:id`
+			- `GET /providers/:id`
+			- `GET /tools/:id`
+			- `GET /agents/:id`
+			- `GET /memory/:id`
+		- Preserved module-specific authorization, soft-delete semantics, and memory governance constraints.
+		- Extended e2e tests to verify new read-by-id paths and enforce authorization/soft-delete behavior.
+	- Production-ready status: COMPLETED
+	- Implementation commit: 975e7a8128ad361dd48cb7c81fbe17276f02aa65 (`feat(v2): complete CRUD read parity across constitutional modules`)
+	- CI: https://github.com/onxos/onx-intelligence-clean/actions/runs/28298411961
+	- Render: https://github.com/onxos/onx-intelligence-clean/actions/runs/28298411946
+	- Production `/commit`: `{"commit":"975e7a8128ad361dd48cb7c81fbe17276f02aa65","nodeEnv":"production"}`
+	- Production `/health`: `{"status":"ok","database":{"status":"up","version":"1.0.0"}}`
+	- Smoke: PASS (`BASE_URL=https://onx-intelligence-clean.onrender.com npm run smoke`)
+	- Live practical proof: PASS (CRUD + pagination/filtering + authorization + validation + audit + soft-delete + memory governance compatibility verified across constitutional modules)
 
 ## Blocked Work Items
 
@@ -82,3 +100,4 @@
 - 2026-06-27 Sprint 1 complete: soft delete implementation verified on production commit c4201cd804946f0129861513b3eb1b425ad1fd73
 - 2026-06-27 Sprint 2 complete: full audit trail coverage verified on production commit b957f10156fa9aba1170fe7ba4ba500324b9d0e6
 - 2026-06-27 Memory governance complete: governed memory CRUD verified on production commit 72afd605a375fda762ce1b4f0799b5526b3db91a
+- 2026-06-27 Full constitutional CRUD completeness complete: read-parity gaps closed and verified on production commit 975e7a8128ad361dd48cb7c81fbe17276f02aa65
