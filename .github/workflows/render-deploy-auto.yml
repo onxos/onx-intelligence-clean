@@ -549,9 +549,9 @@ jobs:
           # Prepare update payload
           update_payload = {
               'envVars': [
-                  {'key': 'NODE_ENV', 'value': 'production'},
-                  {'key': 'PORT', 'value': '10000'},
-                  {'key': 'JWT_EXPIRATION', 'value': '24h'},
+                  {'key': 'NODE_ENV', 'value': 'production', 'sync': False},
+                  {'key': 'PORT', 'value': '10000', 'sync': False},
+                  {'key': 'JWT_EXPIRATION', 'value': '24h', 'sync': False},
               ]
           }
           
@@ -559,7 +559,8 @@ jobs:
           if db_info.get('connection_string'):
               update_payload['envVars'].append({
                   'key': 'DATABASE_URL',
-                  'value': db_info['connection_string']
+                  'value': db_info['connection_string'],
+                  'sync': False
               })
           elif db_info.get('name'):
               update_payload['envVars'].append({
@@ -567,7 +568,8 @@ jobs:
                   'fromDatabase': {
                       'name': db_info['name'],
                       'property': 'connectionString'
-                  }
+                  },
+                  'sync': False
               })
           else:
               print("❌ DATABASE_URL not available from selected database")
@@ -609,6 +611,11 @@ jobs:
           
           if status in [200, 201]:
               print(f"✓ Service configured successfully")
+              if isinstance(response, dict):
+                  response_env = response.get('envVars', [])
+                  if isinstance(response_env, list):
+                      keys = [ev.get('key') for ev in response_env if isinstance(ev, dict) and ev.get('key')]
+                      print(f"DEBUG: response env keys count={len(keys)} includes DATABASE_URL={'DATABASE_URL' in keys}")
           else:
               print(f"⚠️  Service update returned HTTP {status}")
               print(json.dumps(response, indent=2))
