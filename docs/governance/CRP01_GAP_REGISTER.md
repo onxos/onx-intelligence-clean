@@ -50,3 +50,19 @@
 - No duplicate PrismaService: verified single declaration in `src/common/prisma.service.ts`
 - No duplicate AuditService: verified single declaration in `src/common/audit.service.ts`
 - No `server.js` fallback: verified container CMD uses `node dist/src/main.js`
+
+## Mission Order 007 Commit Hash Consistency Record (2026-06-27)
+
+- Scope: non-blocking V1 closure note from MO-006
+- Root issue: production `/commit` could surface stale commit metadata precedence without a deterministic deploy-time commit source.
+- Minimal fix applied:
+	- `/commit` now prioritizes `ONX_DEPLOY_COMMIT` then `SOURCE_VERSION` before legacy commit env fallbacks.
+	- Render deployment workflows now inject `ONX_DEPLOY_COMMIT=$GITHUB_SHA` during deploy configuration.
+	- Render auto workflow hardened for cases where database API omits connection string (non-blocking reset skip + existing service `DATABASE_URL` fallback for deploy env update).
+- Verification evidence:
+	- Latest main after fix: `340b54a1e617ce92929f1023a8c21edc3ed43ff4`
+	- CI success: https://github.com/onxos/onx-intelligence-clean/actions/runs/28294171388
+	- Render deploy success: https://github.com/onxos/onx-intelligence-clean/actions/runs/28294171365
+	- Live `/commit`: `{"commit":"340b54a1e617ce92929f1023a8c21edc3ed43ff4","nodeEnv":"production"}`
+	- Live `/health`: status `ok`, database status `up`
+	- Live smoke: passed (`npm run smoke` against production URL)
