@@ -99,6 +99,9 @@ const dictionary: Record<Locale, Dict> = {
       role: "Role",
       project: "Current Project",
       unknown: "Unknown",
+      languageEnglish: "English",
+      languageArabic: "Arabic",
+      backendEndpointPending: "Backend Endpoint Pending",
     },
     auth: {
       email: "Email",
@@ -342,6 +345,9 @@ const dictionary: Record<Locale, Dict> = {
       role: "الدور",
       project: "المشروع الحالي",
       unknown: "غير معروف",
+      languageEnglish: "الإنجليزية",
+      languageArabic: "العربية",
+      backendEndpointPending: "نقطة النهاية الخلفية قيد الإتاحة",
     },
     auth: {
       email: "البريد الإلكتروني",
@@ -543,6 +549,8 @@ export function I18nProvider({ children }: PropsWithChildren) {
     window.localStorage.setItem(LOCALE_KEY, locale);
     document.documentElement.lang = locale;
     document.documentElement.dir = locale === "ar" ? "rtl" : "ltr";
+    document.body.lang = locale;
+    document.body.dir = locale === "ar" ? "rtl" : "ltr";
   }, [locale]);
 
   const value = useMemo<I18nContextValue>(

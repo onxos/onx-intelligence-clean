@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { AuditService } from '../common/audit.service';
-import { IntelligenceObjectType } from '@prisma/client';
+import { IntelligenceObjectType, Prisma } from '@prisma/client';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -90,6 +90,7 @@ export class IntelligenceService {
 
   async findAll(
     workspaceId: string,
+    actorId: string,
     filters?: {
       type?: string;
       search?: string;
@@ -106,18 +107,25 @@ export class IntelligenceService {
     const offset = Number(filters?.offset ?? (page - 1) * pageSize);
     const sortBy = filters?.sortBy || 'createdAt';
     const sortOrder = filters?.sortOrder || 'desc';
+    const andFilters: Prisma.IntelligenceObjectWhereInput[] = [
+      { OR: [{ ownerId: actorId }, { creatorId: actorId }] },
+    ];
+
+    if (filters?.search) {
+      andFilters.push({
+        OR: [
+          { name: { contains: filters.search, mode: 'insensitive' } },
+          { content: { contains: filters.search, mode: 'insensitive' } },
+          { semanticSummary: { contains: filters.search, mode: 'insensitive' } },
+        ],
+      });
+    }
 
     return this.prisma.intelligenceObject.findMany({
       where: {
         workspaceId,
+        AND: andFilters,
         ...(filters?.type && { objectType: filters.type as IntelligenceObjectType }),
-        ...(filters?.search && {
-          OR: [
-            { name: { contains: filters.search, mode: 'insensitive' } },
-            { content: { contains: filters.search, mode: 'insensitive' } },
-            { semanticSummary: { contains: filters.search, mode: 'insensitive' } },
-          ],
-        }),
       },
       take: pageSize,
       skip: offset,
@@ -125,9 +133,13 @@ export class IntelligenceService {
     });
   }
 
-  async findOne(id: string, workspaceId: string) {
+  async findOne(id: string, workspaceId: string, actorId: string) {
     const obj = await this.prisma.intelligenceObject.findFirst({
-      where: { id, workspaceId },
+      where: {
+        id,
+        workspaceId,
+        OR: [{ ownerId: actorId }, { creatorId: actorId }],
+      },
     });
     if (!obj) throw new NotFoundException('Intelligence object not found');
     return obj;
@@ -181,7 +193,7 @@ export class IntelligenceService {
       throw new BadRequestException('objectType is invalid');
     }
 
-    const existing = await this.findOne(id, workspaceId);
+    const existing = await this.findOne(id, workspaceId, actorId);
     const contentHash =
       data.content !== undefined
         ? crypto.createHash('sha256').update(data.content).digest('hex')
@@ -225,7 +237,7 @@ export class IntelligenceService {
   }
 
   async remove(id: string, workspaceId: string, actorId: string) {
-    const existing = await this.findOne(id, workspaceId);
+    const existing = await this.findOne(id, workspaceId, actorId);
 
     await this.prisma.intelligenceObject.delete({ where: { id: existing.id } });
 

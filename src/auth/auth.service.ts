@@ -3,6 +3,29 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../common/prisma.service';
 
+type SafeUserProfile = {
+  id: string;
+  email: string;
+  name: string;
+  status: string;
+  roleId: string;
+  workspaceId: string;
+  tenantId: string;
+  createdAt: Date;
+  updatedAt: Date;
+  role: {
+    id: string;
+    name: string;
+    description: string | null;
+    permissions: Array<{
+      id: string;
+      resource: string;
+      action: string;
+      createdAt: Date;
+    }>;
+  } | null;
+};
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -57,10 +80,37 @@ export class AuthService {
   }
 
   async validateUser(userId: string) {
-    return this.prisma.user.findUnique({
+    const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      include: { role: { include: { permissions: true } } },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        status: true,
+        roleId: true,
+        workspaceId: true,
+        tenantId: true,
+        createdAt: true,
+        updatedAt: true,
+        role: {
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            permissions: {
+              select: {
+                id: true,
+                resource: true,
+                action: true,
+                createdAt: true,
+              },
+            },
+          },
+        },
+      },
     });
+
+    return user as SafeUserProfile | null;
   }
 
   async revokeUserSessions(userId: string) {

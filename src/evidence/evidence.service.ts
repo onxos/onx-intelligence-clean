@@ -7,6 +7,7 @@ export class EvidenceService {
 
   async findAll(
     workspaceId: string,
+    ownerId: string,
     query?: {
       search?: string;
       sortBy?: string;
@@ -24,6 +25,7 @@ export class EvidenceService {
     return this.prisma.evidenceRecord.findMany({
       where: {
         workspaceId,
+        ownerId,
         ...(query?.search && {
           OR: [
             { intent: { contains: query.search, mode: 'insensitive' } },
@@ -59,6 +61,7 @@ export class EvidenceService {
   async update(
     id: string,
     workspaceId: string,
+    ownerId: string,
     data: {
       intent?: string;
       confidence?: number;
@@ -67,7 +70,9 @@ export class EvidenceService {
       learning?: string;
     },
   ) {
-    const existing = await this.prisma.evidenceRecord.findFirst({ where: { id, workspaceId } });
+    const existing = await this.prisma.evidenceRecord.findFirst({
+      where: { id, workspaceId, ownerId },
+    });
     if (!existing) {
       throw new NotFoundException('Evidence record not found');
     }
@@ -84,8 +89,10 @@ export class EvidenceService {
     });
   }
 
-  async remove(id: string, workspaceId: string) {
-    const existing = await this.prisma.evidenceRecord.findFirst({ where: { id, workspaceId } });
+  async remove(id: string, workspaceId: string, ownerId: string) {
+    const existing = await this.prisma.evidenceRecord.findFirst({
+      where: { id, workspaceId, ownerId },
+    });
     if (!existing) {
       throw new NotFoundException('Evidence record not found');
     }

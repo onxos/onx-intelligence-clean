@@ -9,40 +9,48 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiProperty } from '@nestjs/swagger';
 import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt.guard';
 
 class RegisterDto {
+  @ApiProperty({ example: 'user@example.com' })
   @IsEmail()
   email: string;
 
+  @ApiProperty({ minLength: 8, example: 'StrongPass123!' })
   @IsString()
   @MinLength(8)
   password: string;
 
+  @ApiProperty({ minLength: 2, example: 'ONX User' })
   @IsString()
   @MinLength(2)
   name: string;
 
+  @ApiProperty({ required: false, example: 'role_cuid' })
   @IsOptional()
   @IsString()
   roleId?: string;
 
+  @ApiProperty({ required: false, example: 'workspace_cuid' })
   @IsOptional()
   @IsString()
   workspaceId?: string;
 
+  @ApiProperty({ required: false, example: 'tenant_cuid' })
   @IsOptional()
   @IsString()
   tenantId?: string;
 }
 
 class LoginDto {
+  @ApiProperty({ example: 'user@example.com' })
   @IsEmail()
   email: string;
 
+  @ApiProperty({ minLength: 8, example: 'StrongPass123!' })
   @IsString()
   @MinLength(8)
   password: string;

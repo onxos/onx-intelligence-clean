@@ -32,7 +32,7 @@ const navItems = [
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { locale, setLocale, t, isRtl } = useI18n();
+  const { locale, setLocale, t, isRtl, direction } = useI18n();
   const [layout, setLayout] = useState<"comfortable" | "compact">(
     () => readWorkspaceMemory().layout || "comfortable",
   );
@@ -60,7 +60,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_right,#d8e3f1_0,#eef3f7_35%,#f7f9fb_60%,#f8fafc_100%)] text-slate-900">
+    <div dir={direction} className="min-h-screen bg-[radial-gradient(circle_at_top_right,#d8e3f1_0,#eef3f7_35%,#f7f9fb_60%,#f8fafc_100%)] text-slate-900">
       <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/90 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-[1800px] items-center justify-between px-4 md:px-6">
           <div>

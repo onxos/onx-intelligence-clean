@@ -71,8 +71,8 @@ export default function SettingsPage() {
               }}
               className="h-9 w-full rounded-md border border-slate-300 px-3 text-sm"
             >
-              <option value="en">English</option>
-              <option value="ar">العربية</option>
+              <option value="en">{t("common.languageEnglish")}</option>
+              <option value="ar">{t("common.languageArabic")}</option>
             </select>
           </div>
           <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>

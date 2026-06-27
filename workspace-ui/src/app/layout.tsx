@@ -26,13 +26,36 @@ export default function RootLayout({
 }: Readonly<{
   children: ReactNode;
 }>) {
+  const initDirectionScript = `(() => {
+    try {
+      const stored = window.localStorage.getItem('onx_workspace_locale');
+      const locale = stored === 'ar' ? 'ar' : 'en';
+      const direction = locale === 'ar' ? 'rtl' : 'ltr';
+      document.documentElement.lang = locale;
+      document.documentElement.dir = direction;
+      if (document.body) {
+        document.body.lang = locale;
+        document.body.dir = direction;
+      }
+    } catch {
+      document.documentElement.lang = 'en';
+      document.documentElement.dir = 'ltr';
+      if (document.body) {
+        document.body.lang = 'en';
+        document.body.dir = 'ltr';
+      }
+    }
+  })();`;
+
   return (
     <html
       lang="en"
+      dir="ltr"
       suppressHydrationWarning
       className={`${ibmPlexSans.variable} ${ibmPlexMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
+      <body lang="en" dir="ltr" className="min-h-full flex flex-col">
+        <script dangerouslySetInnerHTML={{ __html: initDirectionScript }} />
         <Providers>{children}</Providers>
       </body>
     </html>
