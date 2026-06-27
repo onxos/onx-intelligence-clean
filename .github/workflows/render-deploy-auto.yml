@@ -376,6 +376,7 @@ jobs:
           databases = data.get('databases', []) or []
           all_databases = data.get('all_databases', []) or []
           service_region = (selected_service.get('region') or '').lower()
+          service_name = (selected_service.get('name') or '').lower()
 
           if not databases:
               databases = all_databases
@@ -385,6 +386,8 @@ jobs:
               name = (db.get('name') or '').lower()
               status = (db.get('status') or '').lower()
               region = (db.get('region') or '').lower()
+              if service_name and name == service_name:
+                  score += 100
               if 'onx' in name or 'intelligence' in name:
                   score += 50
               if status in ('available', 'active'):
@@ -475,6 +478,41 @@ jobs:
                   'connection_string': connection_string
               }, f, indent=2)
           PYTHON_SCRIPT
+
+            - name: Reset Database And Apply Prisma Schema
+                shell: bash
+                run: |
+                    DATABASE_URL=$(python3 << 'PYTHON_SCRIPT'
+                    import json
+                    with open('/tmp/database.json', 'r') as f:
+                            data = json.load(f)
+                    print(data.get('connection_string', ''))
+                    PYTHON_SCRIPT
+                    )
+
+                    if [ -z "$DATABASE_URL" ]; then
+                        echo "❌ Missing DATABASE_URL from selected Render database"
+                        exit 1
+                    fi
+
+                    case "$DATABASE_URL" in
+                        *sslmode=*)
+                            ;;
+                        *\?*)
+                            DATABASE_URL="$DATABASE_URL&sslmode=require"
+                            ;;
+                        *)
+                            DATABASE_URL="$DATABASE_URL?sslmode=require"
+                            ;;
+                    esac
+
+                    echo "🧹 Resetting onx-intelligence-clean database (approved)"
+                    npm ci
+                    npx prisma generate
+                    DATABASE_URL="$DATABASE_URL" npx prisma migrate reset --force --skip-generate --skip-seed
+                    DATABASE_URL="$DATABASE_URL" npx prisma migrate deploy
+                    DATABASE_URL="$DATABASE_URL" npx prisma db seed
+                    echo "✅ Database reset, migration, and seed completed"
 
       - name: Configure & Deploy Service
         shell: bash
