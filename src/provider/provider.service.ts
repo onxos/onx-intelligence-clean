@@ -7,7 +7,14 @@ export class ProviderService {
 
   async findAll(
     workspaceId: string,
-    query?: { search?: string; status?: string; sortBy?: string; sortOrder?: 'asc' | 'desc'; page?: number; pageSize?: number },
+    query?: {
+      search?: string;
+      status?: string;
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
+      page?: number;
+      pageSize?: number;
+    },
   ) {
     const pageSize = Number(query?.pageSize || 50);
     const page = Number(query?.page || 1);

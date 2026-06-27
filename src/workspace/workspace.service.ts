@@ -321,7 +321,9 @@ export class WorkspaceService {
     workspaceId: string,
     data: { title?: string; content?: string; category?: string; tags?: string[] },
   ) {
-    const existing = await this.prisma.memoryEntry.findFirst({ where: { id: memoryId, workspaceId } });
+    const existing = await this.prisma.memoryEntry.findFirst({
+      where: { id: memoryId, workspaceId },
+    });
     if (!existing) {
       throw new NotFoundException('Memory entry not found');
     }
@@ -338,7 +340,9 @@ export class WorkspaceService {
   }
 
   async deleteMemory(memoryId: string, workspaceId: string) {
-    const existing = await this.prisma.memoryEntry.findFirst({ where: { id: memoryId, workspaceId } });
+    const existing = await this.prisma.memoryEntry.findFirst({
+      where: { id: memoryId, workspaceId },
+    });
     if (!existing) {
       throw new NotFoundException('Memory entry not found');
     }
