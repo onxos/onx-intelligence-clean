@@ -10,10 +10,147 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { Transform, Type } from 'class-transformer';
+import {
+  IsBoolean,
+  IsDateString,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import { WorkspaceService } from './workspace.service';
 import { getRequestAuditContext } from '../common/audit-context.util';
+
+class BaseReportingQueryDto {
+  @ApiPropertyOptional({ example: 'error' })
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @ApiPropertyOptional({ example: '2026-01-01' })
+  @IsOptional()
+  @IsDateString()
+  from?: string;
+
+  @ApiPropertyOptional({ example: '2026-12-31' })
+  @IsOptional()
+  @IsDateString()
+  to?: string;
+
+  @ApiPropertyOptional({ example: 1, default: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @ApiPropertyOptional({ example: 20, default: 20 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  pageSize?: number;
+
+  @ApiPropertyOptional({ example: 'createdAt' })
+  @IsOptional()
+  @IsString()
+  sortBy?: string;
+
+  @ApiPropertyOptional({ enum: ['asc', 'desc'], example: 'desc' })
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  sortOrder?: 'asc' | 'desc';
+}
+
+class ReportingQueryDto extends BaseReportingQueryDto {
+  @ApiPropertyOptional({ enum: ['all', 'intelligence', 'evidence', 'provider', 'tool', 'workspace', 'memory', 'sovereignty'], default: 'all' })
+  @IsOptional()
+  @IsIn(['all', 'intelligence', 'evidence', 'provider', 'tool', 'workspace', 'memory', 'sovereignty'])
+  module?:
+    | 'all'
+    | 'intelligence'
+    | 'evidence'
+    | 'provider'
+    | 'tool'
+    | 'workspace'
+    | 'memory'
+    | 'sovereignty';
+
+  @ApiPropertyOptional({ example: false, default: false })
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  includeDetails?: boolean;
+}
+
+class GovernanceReportQueryDto extends BaseReportingQueryDto {
+  @ApiPropertyOptional({ example: 'POLICY_APPROVAL' })
+  @IsOptional()
+  @IsString()
+  decisionType?: string;
+
+  @ApiPropertyOptional({ example: 'APPROVED' })
+  @IsOptional()
+  @IsString()
+  outcome?: string;
+
+  @ApiPropertyOptional({ example: 'user-id' })
+  @IsOptional()
+  @IsString()
+  actorId?: string;
+}
+
+class CapitalReportQueryDto extends BaseReportingQueryDto {
+  @ApiPropertyOptional({ example: 'KNOWLEDGE' })
+  @IsOptional()
+  @IsString()
+  category?: string;
+
+  @ApiPropertyOptional({ example: 'CREATED' })
+  @IsOptional()
+  @IsString()
+  type?: string;
+
+  @ApiPropertyOptional({ example: 'owner-id' })
+  @IsOptional()
+  @IsString()
+  ownerId?: string;
+}
+
+class MonitoringQueryDto extends BaseReportingQueryDto {
+  @ApiPropertyOptional({ example: 'SUCCESS' })
+  @IsOptional()
+  @IsString()
+  status?: string;
+}
+
+class MonitoringAuditQueryDto extends MonitoringQueryDto {
+  @ApiPropertyOptional({ example: 'MEMORY_UPDATED' })
+  @IsOptional()
+  @IsString()
+  action?: string;
+
+  @ApiPropertyOptional({ example: 'MemoryEntry' })
+  @IsOptional()
+  @IsString()
+  resourceType?: string;
+
+  @ApiPropertyOptional({ example: 'workspace' })
+  @IsOptional()
+  @IsString()
+  resource?: string;
+
+  @ApiPropertyOptional({ example: 'user-id' })
+  @IsOptional()
+  @IsString()
+  actorId?: string;
+}
 
 @ApiTags('Workspace')
 @Controller()
@@ -303,31 +440,31 @@ export class WorkspaceController {
 
   @Get('reports')
   @ApiOperation({ summary: 'Get workspace report snapshot' })
-  async reports(@Req() req: any) {
-    return this.svc.getReports(req.user.workspaceId);
+  async reports(@Req() req: any, @Query() query: ReportingQueryDto) {
+    return this.svc.getReports(req.user.workspaceId, req.user.userId, query);
   }
 
   @Get('reports/governance')
   @ApiOperation({ summary: 'List governance report records' })
-  async reportGovernance(@Req() req: any, @Query() query: any) {
+  async reportGovernance(@Req() req: any, @Query() query: GovernanceReportQueryDto) {
     return this.svc.listReportGovernance(req.user.workspaceId, query);
   }
 
   @Get('reports/capital')
   @ApiOperation({ summary: 'List capital report records' })
-  async reportCapital(@Req() req: any, @Query() query: any) {
+  async reportCapital(@Req() req: any, @Query() query: CapitalReportQueryDto) {
     return this.svc.listReportCapital(req.user.workspaceId, query);
   }
 
   @Get('monitoring')
   @ApiOperation({ summary: 'Get workspace monitoring snapshot' })
-  async monitoring(@Req() req: any) {
-    return this.svc.getMonitoring(req.user.workspaceId);
+  async monitoring(@Req() req: any, @Query() query: MonitoringQueryDto) {
+    return this.svc.getMonitoring(req.user.workspaceId, query);
   }
 
   @Get('monitoring/audit')
   @ApiOperation({ summary: 'List monitoring audit entries' })
-  async monitoringAudit(@Req() req: any, @Query() query: any) {
+  async monitoringAudit(@Req() req: any, @Query() query: MonitoringAuditQueryDto) {
     return this.svc.listMonitoringAudit(req.user.workspaceId, query);
   }
 

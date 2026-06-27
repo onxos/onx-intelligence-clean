@@ -2087,18 +2087,387 @@ export class WorkspaceService {
     }
   }
 
-  async getReports(workspaceId: string) {
-    const [intelligenceCount, evidenceCount, governanceCount, totalCapital] = await Promise.all([
-      this.prisma.intelligenceObject.count({ where: { workspaceId, state: { not: 'ARCHIVED' } } }),
-      this.prisma.evidenceRecord.count({ where: { workspaceId, deletedAt: null } }),
-      this.prisma.governanceDecision.count({ where: { workspaceId } }),
-      this.prisma.capitalRecord.aggregate({
-        where: { workspaceId },
-        _sum: { amount: true },
+  private normalizeReportingDateRange(from?: string, to?: string) {
+    const parseDate = (value?: string, field?: string) => {
+      if (!value) return undefined;
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) {
+        throw new BadRequestException(`${field} must be a valid ISO date`);
+      }
+      if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        if (field === 'to') {
+          parsed.setUTCHours(23, 59, 59, 999);
+        } else {
+          parsed.setUTCHours(0, 0, 0, 0);
+        }
+      }
+      return parsed;
+    };
+
+    const fromDate = parseDate(from, 'from');
+    const toDate = parseDate(to, 'to');
+    if (fromDate && toDate && fromDate > toDate) {
+      throw new BadRequestException('from must be less than or equal to to');
+    }
+
+    return { fromDate, toDate };
+  }
+
+  private buildCreatedAtFilter(fromDate?: Date, toDate?: Date) {
+    if (!fromDate && !toDate) {
+      return undefined;
+    }
+
+    return {
+      ...(fromDate && { gte: fromDate }),
+      ...(toDate && { lte: toDate }),
+    };
+  }
+
+  private normalizeReportingSortOrder(value?: string) {
+    if (!value) return 'desc' as const;
+    if (value !== 'asc' && value !== 'desc') {
+      throw new BadRequestException('sortOrder must be asc or desc');
+    }
+    return value;
+  }
+
+  private normalizeReportingSortBy(value: unknown, allowed: readonly string[], fallback: string) {
+    if (!value) return fallback;
+    if (typeof value !== 'string' || !allowed.includes(value)) {
+      return fallback;
+    }
+    return value;
+  }
+
+  private normalizeReportingSearch(value?: string) {
+    if (!value) return undefined;
+    if (typeof value !== 'string') {
+      throw new BadRequestException('search must be a string');
+    }
+    const search = value.trim();
+    if (!search) return undefined;
+    if (search.length > MAX_MEMORY_SEARCH_LENGTH) {
+      throw new BadRequestException(`search must be at most ${MAX_MEMORY_SEARCH_LENGTH} characters`);
+    }
+    return search;
+  }
+
+  private normalizeReportingPagination(page?: number, pageSize?: number) {
+    const normalizedPage = this.parseBoundedInteger(page, 'page', 1, 10000);
+    const normalizedPageSize = this.parseBoundedInteger(pageSize, 'pageSize', 20, 100);
+    return {
+      page: normalizedPage,
+      pageSize: normalizedPageSize,
+      skip: (normalizedPage - 1) * normalizedPageSize,
+    };
+  }
+
+  private summarizeAuditFailures(rows: Array<{ action: string; status: string; metadata: any }>) {
+    const failedRows = rows.filter((row) => row.status === 'FAILED');
+    const failedByAction = failedRows.reduce(
+      (acc, row) => {
+        acc[row.action] = (acc[row.action] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
+
+    const validationErrorCount = failedRows.filter((row) => {
+      const message = String(row.metadata?.error ?? '').toLowerCase();
+      return (
+        message.includes('must') ||
+        message.includes('invalid') ||
+        message.includes('required') ||
+        message.includes('cannot')
+      );
+    }).length;
+
+    return {
+      failedCount: failedRows.length,
+      failedByAction,
+      validationErrorCount,
+    };
+  }
+
+  async getReports(
+    workspaceId: string,
+    actorId: string,
+    query?: {
+      search?: string;
+      from?: string;
+      to?: string;
+      page?: number;
+      pageSize?: number;
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
+      module?:
+        | 'all'
+        | 'intelligence'
+        | 'evidence'
+        | 'provider'
+        | 'tool'
+        | 'workspace'
+        | 'memory'
+        | 'sovereignty';
+      includeDetails?: boolean;
+    },
+  ) {
+    const { fromDate, toDate } = this.normalizeReportingDateRange(query?.from, query?.to);
+    const createdAt = this.buildCreatedAtFilter(fromDate, toDate);
+    const search = this.normalizeReportingSearch(query?.search);
+    const { page, pageSize, skip } = this.normalizeReportingPagination(query?.page, query?.pageSize);
+    const sortOrder = this.normalizeReportingSortOrder(query?.sortOrder);
+    const includeDetails = Boolean(query?.includeDetails);
+    const moduleFilter = query?.module || 'all';
+
+    const intelligenceWhere: any = {
+      workspaceId,
+      state: { not: 'ARCHIVED' },
+      ...(createdAt && { createdAt }),
+      ...(search && {
+        OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { content: { contains: search, mode: 'insensitive' } },
+          { semanticSummary: { contains: search, mode: 'insensitive' } },
+        ],
+      }),
+    };
+
+    const evidenceWhere: any = {
+      workspaceId,
+      deletedAt: null,
+      ...(createdAt && { createdAt }),
+      ...(search && {
+        OR: [
+          { intent: { contains: search, mode: 'insensitive' } },
+          { judgment: { contains: search, mode: 'insensitive' } },
+          { outcome: { contains: search, mode: 'insensitive' } },
+        ],
+      }),
+    };
+
+    const providerWhere: any = {
+      workspaceId,
+      ...(createdAt && { createdAt }),
+      ...(search && {
+        OR: [
+          { providerName: { contains: search, mode: 'insensitive' } },
+          { providerId: { contains: search, mode: 'insensitive' } },
+        ],
+      }),
+    };
+
+    const toolWhere: any = {
+      workspaceId,
+      ...(createdAt && { createdAt }),
+      ...(search && {
+        OR: [
+          { toolName: { contains: search, mode: 'insensitive' } },
+          { toolId: { contains: search, mode: 'insensitive' } },
+        ],
+      }),
+    };
+
+    const projectWhere: any = {
+      workspaceId,
+      ...(createdAt && { createdAt }),
+      ...(search && {
+        OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { description: { contains: search, mode: 'insensitive' } },
+        ],
+      }),
+    };
+
+    const agentWhere: any = {
+      workspaceId,
+      ...(createdAt && { createdAt }),
+      ...(search && {
+        OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { description: { contains: search, mode: 'insensitive' } },
+        ],
+      }),
+    };
+
+    const sourceWhere: any = {
+      workspaceId,
+      deletedAt: null,
+      ...(createdAt && { createdAt }),
+      ...(search && {
+        OR: [
+          { action: { contains: search, mode: 'insensitive' } },
+          { resource: { contains: search, mode: 'insensitive' } },
+          { actorId: { contains: search, mode: 'insensitive' } },
+        ],
+      }),
+    };
+
+    const evaluationWhere: any = {
+      deletedAt: null,
+      provider: {
+        workspaceId,
+      },
+      ...(createdAt && { createdAt }),
+      ...(search && {
+        OR: [
+          { intent: { contains: search, mode: 'insensitive' } },
+          { context: { contains: search, mode: 'insensitive' } },
+        ],
+      }),
+    };
+
+    const memoryWhere: any = {
+      workspaceId,
+      deletedAt: null,
+      ...(createdAt && { createdAt }),
+      AND: [
+        {
+          OR: [{ accessScope: 'WORKSPACE' }, { ownerId: actorId }],
+        },
+        ...(search
+          ? [
+              {
+                OR: [
+                  { title: { contains: search, mode: 'insensitive' } },
+                  { content: { contains: search, mode: 'insensitive' } },
+                  { category: { contains: search, mode: 'insensitive' } },
+                ],
+              },
+            ]
+          : []),
+      ],
+    };
+
+    const governanceWhere: any = {
+      workspaceId,
+      ...(createdAt && { createdAt }),
+      ...(search && {
+        OR: [
+          { decisionType: { contains: search, mode: 'insensitive' } },
+          { outcome: { contains: search, mode: 'insensitive' } },
+        ],
+      }),
+    };
+
+    const capitalWhere: any = {
+      workspaceId,
+      ...(createdAt && { createdAt }),
+      ...(search && {
+        OR: [
+          { type: { contains: search, mode: 'insensitive' } },
+          { category: { contains: search, mode: 'insensitive' } },
+        ],
+      }),
+    };
+
+    const sovereigntyMetricWhere: any = {
+      ...(createdAt && { createdAt }),
+    };
+
+    const auditWhere: any = {
+      workspaceId,
+      ...(createdAt && { createdAt }),
+      ...(search && {
+        OR: [
+          { action: { contains: search, mode: 'insensitive' } },
+          { resourceType: { contains: search, mode: 'insensitive' } },
+          { resource: { contains: search, mode: 'insensitive' } },
+          { actorId: { contains: search, mode: 'insensitive' } },
+        ],
+      }),
+    };
+
+    const [
+      intelligenceCount,
+      evidenceCount,
+      providerActiveCount,
+      providerInactiveCount,
+      toolActiveCount,
+      toolInactiveCount,
+      projectActiveCount,
+      agentActiveCount,
+      sourceCount,
+      evaluationCount,
+      memoryCount,
+      governanceCount,
+      totalCapital,
+      evidenceConfidenceStats,
+      intelligenceCapitalStats,
+      auditTotalCount,
+      sovereigntyMetricCount,
+      recentSovereigntyMetrics,
+      topProviders,
+      auditRows,
+    ] = await Promise.all([
+      this.prisma.intelligenceObject.count({ where: intelligenceWhere }),
+      this.prisma.evidenceRecord.count({ where: evidenceWhere }),
+      this.prisma.providerProfile.count({ where: { ...providerWhere, status: { not: 'INACTIVE' } } }),
+      this.prisma.providerProfile.count({ where: { ...providerWhere, status: 'INACTIVE' } }),
+      this.prisma.toolProfile.count({ where: { ...toolWhere, status: { not: 'INACTIVE' } } }),
+      this.prisma.toolProfile.count({ where: { ...toolWhere, status: 'INACTIVE' } }),
+      this.prisma.project.count({ where: { ...projectWhere, status: { not: 'ARCHIVED' } } }),
+      this.prisma.agent.count({ where: { ...agentWhere, status: { not: 'ARCHIVED' } } }),
+      this.prisma.provenanceRecord.count({ where: sourceWhere }),
+      this.prisma.providerEvaluation.count({ where: evaluationWhere }),
+      this.prisma.memoryEntry.count({ where: memoryWhere }),
+      this.prisma.governanceDecision.count({ where: governanceWhere }),
+      this.prisma.capitalRecord.aggregate({ where: capitalWhere, _sum: { amount: true }, _avg: { amount: true } }),
+      this.prisma.evidenceRecord.aggregate({ where: evidenceWhere, _avg: { confidence: true }, _sum: { cost: true } }),
+      this.prisma.intelligenceObject.aggregate({ where: intelligenceWhere, _avg: { amanahScore: true, qualityIndex: true }, _sum: { capitalValue: true } }),
+      this.prisma.auditLog.count({ where: auditWhere }),
+      this.prisma.sovereigntyMetric.count({ where: sovereigntyMetricWhere }),
+      this.prisma.sovereigntyMetric.findMany({ where: sovereigntyMetricWhere, orderBy: { createdAt: 'desc' }, take: 5 }),
+      this.prisma.providerProfile.findMany({
+        where: { ...providerWhere, status: { not: 'INACTIVE' } },
+        orderBy: { iseScore: 'desc' },
+        take: 5,
+        select: { id: true, providerId: true, providerName: true, iseScore: true, status: true },
+      }),
+      this.prisma.auditLog.findMany({
+        where: auditWhere,
+        orderBy: { createdAt: 'desc' },
+        take: 500,
+        select: { action: true, status: true, metadata: true, createdAt: true },
       }),
     ]);
 
-    return {
+    const failedAuditCount = auditRows.filter((row) => row.status === 'FAILED').length;
+    const successfulAuditCount = auditRows.length - failedAuditCount;
+    const crudActivitySummary = auditRows.reduce(
+      (acc, row) => {
+        if (row.action.endsWith('_CREATED')) acc.created += 1;
+        if (row.action.endsWith('_UPDATED')) acc.updated += 1;
+        if (row.action.endsWith('_DELETED')) acc.deleted += 1;
+        return acc;
+      },
+      { created: 0, updated: 0, deleted: 0 },
+    );
+
+    const auditFailures = this.summarizeAuditFailures(auditRows);
+    const healthStatus = failedAuditCount > 0 && auditRows.length > 0 ? 'degraded' : 'ok';
+
+    const memoryByClassification: Record<string, number> = {};
+    const memoryByLifecycle: Record<string, number> = {};
+    for (const classification of MEMORY_CLASSIFICATIONS) {
+      memoryByClassification[classification] = await this.prisma.memoryEntry.count({
+        where: {
+          ...memoryWhere,
+          classification: classification as any,
+        },
+      });
+    }
+    for (const lifecycleStatus of MEMORY_LIFECYCLE_STATUSES) {
+      memoryByLifecycle[lifecycleStatus] = await this.prisma.memoryEntry.count({
+        where: {
+          ...memoryWhere,
+          lifecycleStatus: lifecycleStatus as any,
+        },
+      });
+    }
+
+    const result: any = {
       pending: false,
       snapshot: {
         intelligenceCount,
@@ -2106,26 +2475,238 @@ export class WorkspaceService {
         governanceCount,
         totalCapital: totalCapital._sum.amount || 0,
       },
+      statistics: {
+        averageEvidenceConfidence: evidenceConfidenceStats._avg.confidence || 0,
+        totalEvidenceCost: evidenceConfidenceStats._sum.cost || 0,
+        averageAmanahScore: intelligenceCapitalStats._avg.amanahScore || 0,
+        averageQualityIndex: intelligenceCapitalStats._avg.qualityIndex || 0,
+        totalIntelligenceCapital: intelligenceCapitalStats._sum.capitalValue || 0,
+        averageCapitalRecordAmount: totalCapital._avg.amount || 0,
+      },
+      counts: {
+        intelligence: intelligenceCount,
+        evidence: evidenceCount,
+        provider: providerActiveCount,
+        tool: toolActiveCount,
+        workspace: {
+          projects: projectActiveCount,
+          agents: agentActiveCount,
+          sources: sourceCount,
+          evaluations: evaluationCount,
+        },
+        memory: memoryCount,
+        sovereignty: sovereigntyMetricCount,
+      },
+      healthSummary: {
+        status: healthStatus,
+        auditFailureRate:
+          auditRows.length > 0 ? Math.round((failedAuditCount / auditRows.length) * 10000) / 100 : 0,
+        totalAuditedEvents: auditTotalCount,
+      },
+      auditSummary: {
+        total: auditTotalCount,
+        successful: successfulAuditCount,
+        failed: failedAuditCount,
+        range: {
+          from: fromDate?.toISOString() || null,
+          to: toDate?.toISOString() || null,
+        },
+      },
+      memorySummary: {
+        total: memoryCount,
+        byClassification: memoryByClassification,
+        byLifecycle: memoryByLifecycle,
+      },
+      crudActivitySummary,
+      providerSummary: {
+        active: providerActiveCount,
+        inactive: providerInactiveCount,
+        topByIseScore: topProviders,
+      },
+      workspaceSummary: {
+        projectsActive: projectActiveCount,
+        agentsActive: agentActiveCount,
+        sourcesActive: sourceCount,
+        evaluationsActive: evaluationCount,
+      },
+      errorSummary: {
+        totalFailed: auditFailures.failedCount,
+        failedByAction: auditFailures.failedByAction,
+      },
+      validationSummary: {
+        validationErrorCount: auditFailures.validationErrorCount,
+      },
+      sovereigntySummary: {
+        metricCount: sovereigntyMetricCount,
+        latestMetrics: recentSovereigntyMetrics,
+      },
+      filtersApplied: {
+        search: search || null,
+        from: fromDate?.toISOString() || null,
+        to: toDate?.toISOString() || null,
+      },
     };
+
+    if (!includeDetails) {
+      return result;
+    }
+
+    const details: Record<string, unknown> = {};
+    const includeAll = moduleFilter === 'all';
+
+    if (includeAll || moduleFilter === 'intelligence') {
+      const sortBy = this.normalizeReportingSortBy(query?.sortBy, ['createdAt', 'updatedAt', 'name', 'amanahScore', 'qualityIndex'], 'createdAt');
+      const [total, items] = await Promise.all([
+        this.prisma.intelligenceObject.count({ where: intelligenceWhere }),
+        this.prisma.intelligenceObject.findMany({
+          where: intelligenceWhere,
+          orderBy: { [sortBy]: sortOrder } as any,
+          skip,
+          take: pageSize,
+        }),
+      ]);
+      details.intelligence = { total, page, pageSize, items };
+    }
+
+    if (includeAll || moduleFilter === 'evidence') {
+      const sortBy = this.normalizeReportingSortBy(query?.sortBy, ['createdAt', 'intent', 'confidence', 'cost'], 'createdAt');
+      const [total, items] = await Promise.all([
+        this.prisma.evidenceRecord.count({ where: evidenceWhere }),
+        this.prisma.evidenceRecord.findMany({
+          where: evidenceWhere,
+          orderBy: { [sortBy]: sortOrder } as any,
+          skip,
+          take: pageSize,
+        }),
+      ]);
+      details.evidence = { total, page, pageSize, items };
+    }
+
+    if (includeAll || moduleFilter === 'provider') {
+      const sortBy = this.normalizeReportingSortBy(query?.sortBy, ['createdAt', 'priority', 'iseScore', 'providerName'], 'createdAt');
+      const [total, items] = await Promise.all([
+        this.prisma.providerProfile.count({ where: providerWhere }),
+        this.prisma.providerProfile.findMany({
+          where: providerWhere,
+          orderBy: { [sortBy]: sortOrder } as any,
+          skip,
+          take: pageSize,
+        }),
+      ]);
+      details.provider = { total, page, pageSize, items };
+    }
+
+    if (includeAll || moduleFilter === 'tool') {
+      const sortBy = this.normalizeReportingSortBy(query?.sortBy, ['createdAt', 'toolName', 'category', 'costPerCall'], 'createdAt');
+      const [total, items] = await Promise.all([
+        this.prisma.toolProfile.count({ where: toolWhere }),
+        this.prisma.toolProfile.findMany({
+          where: toolWhere,
+          orderBy: { [sortBy]: sortOrder } as any,
+          skip,
+          take: pageSize,
+        }),
+      ]);
+      details.tool = { total, page, pageSize, items };
+    }
+
+    if (includeAll || moduleFilter === 'workspace') {
+      const sortByProject = this.normalizeReportingSortBy(query?.sortBy, ['createdAt', 'name', 'status'], 'createdAt');
+      const sortBySource = this.normalizeReportingSortBy(query?.sortBy, ['createdAt', 'action', 'resource'], 'createdAt');
+      const sortByEvaluation = this.normalizeReportingSortBy(query?.sortBy, ['createdAt', 'intent', 'iseScore'], 'createdAt');
+
+      const [projectsTotal, projects, agentsTotal, agents, sourcesTotal, sources, evaluationsTotal, evaluations] = await Promise.all([
+        this.prisma.project.count({ where: projectWhere }),
+        this.prisma.project.findMany({ where: projectWhere, orderBy: { [sortByProject]: sortOrder } as any, skip, take: pageSize }),
+        this.prisma.agent.count({ where: agentWhere }),
+        this.prisma.agent.findMany({ where: agentWhere, orderBy: { [sortByProject]: sortOrder } as any, skip, take: pageSize }),
+        this.prisma.provenanceRecord.count({ where: sourceWhere }),
+        this.prisma.provenanceRecord.findMany({ where: sourceWhere, orderBy: { [sortBySource]: sortOrder } as any, skip, take: pageSize }),
+        this.prisma.providerEvaluation.count({ where: evaluationWhere }),
+        this.prisma.providerEvaluation.findMany({ where: evaluationWhere, orderBy: { [sortByEvaluation]: sortOrder } as any, skip, take: pageSize }),
+      ]);
+
+      details.workspace = {
+        projects: { total: projectsTotal, page, pageSize, items: projects },
+        agents: { total: agentsTotal, page, pageSize, items: agents },
+        sources: { total: sourcesTotal, page, pageSize, items: sources },
+        evaluations: { total: evaluationsTotal, page, pageSize, items: evaluations },
+      };
+    }
+
+    if (includeAll || moduleFilter === 'memory') {
+      const sortBy = this.normalizeReportingSortBy(query?.sortBy, ['createdAt', 'updatedAt', 'title', 'classification', 'lifecycleStatus', 'expiresAt'], 'createdAt');
+      const [total, items] = await Promise.all([
+        this.prisma.memoryEntry.count({ where: memoryWhere }),
+        this.prisma.memoryEntry.findMany({
+          where: memoryWhere,
+          orderBy: { [sortBy]: sortOrder } as any,
+          skip,
+          take: pageSize,
+        }),
+      ]);
+      details.memory = { total, page, pageSize, items };
+    }
+
+    if (includeAll || moduleFilter === 'sovereignty') {
+      const sortBy = this.normalizeReportingSortBy(query?.sortBy, ['createdAt', 'value', 'ksr', 'pdr', 'krr', 'kor', 'scg', 'sai'], 'createdAt');
+      const [total, items] = await Promise.all([
+        this.prisma.sovereigntyMetric.count({ where: sovereigntyMetricWhere }),
+        this.prisma.sovereigntyMetric.findMany({
+          where: sovereigntyMetricWhere,
+          orderBy: { [sortBy]: sortOrder } as any,
+          skip,
+          take: pageSize,
+        }),
+      ]);
+      details.sovereignty = { total, page, pageSize, items };
+    }
+
+    result.details = details;
+    return result;
   }
 
   async listReportGovernance(
     workspaceId: string,
     query?: {
+      search?: string;
+      from?: string;
+      to?: string;
+      decisionType?: string;
+      outcome?: string;
+      actorId?: string;
       sortBy?: string;
       sortOrder?: 'asc' | 'desc';
       page?: number;
       pageSize?: number;
     },
   ) {
-    const pageSize = Number(query?.pageSize || 50);
-    const page = Number(query?.page || 1);
-    const skip = (page - 1) * pageSize;
-    const sortBy = query?.sortBy || 'createdAt';
-    const sortOrder = query?.sortOrder || 'desc';
+    const { fromDate, toDate } = this.normalizeReportingDateRange(query?.from, query?.to);
+    const createdAt = this.buildCreatedAtFilter(fromDate, toDate);
+    const search = this.normalizeReportingSearch(query?.search);
+    const { pageSize, skip } = this.normalizeReportingPagination(query?.page, query?.pageSize);
+    const sortBy = this.normalizeReportingSortBy(
+      query?.sortBy,
+      ['createdAt', 'decisionType', 'outcome', 'confidence', 'amanahScore'],
+      'createdAt',
+    );
+    const sortOrder = this.normalizeReportingSortOrder(query?.sortOrder);
 
     return this.prisma.governanceDecision.findMany({
-      where: { workspaceId },
+      where: {
+        workspaceId,
+        ...(createdAt && { createdAt }),
+        ...(query?.decisionType && { decisionType: { equals: query.decisionType, mode: 'insensitive' } }),
+        ...(query?.outcome && { outcome: { equals: query.outcome, mode: 'insensitive' } }),
+        ...(query?.actorId && { actorId: query.actorId }),
+        ...(search && {
+          OR: [
+            { decisionType: { contains: search, mode: 'insensitive' } },
+            { outcome: { contains: search, mode: 'insensitive' } },
+            { actorId: { contains: search, mode: 'insensitive' } },
+          ],
+        }),
+      },
       orderBy: { [sortBy]: sortOrder } as any,
       skip,
       take: pageSize,
@@ -2135,43 +2716,120 @@ export class WorkspaceService {
   async listReportCapital(
     workspaceId: string,
     query?: {
+      search?: string;
+      from?: string;
+      to?: string;
+      category?: string;
+      type?: string;
+      ownerId?: string;
       sortBy?: string;
       sortOrder?: 'asc' | 'desc';
       page?: number;
       pageSize?: number;
     },
   ) {
-    const pageSize = Number(query?.pageSize || 50);
-    const page = Number(query?.page || 1);
-    const skip = (page - 1) * pageSize;
-    const sortBy = query?.sortBy || 'createdAt';
-    const sortOrder = query?.sortOrder || 'desc';
+    const { fromDate, toDate } = this.normalizeReportingDateRange(query?.from, query?.to);
+    const createdAt = this.buildCreatedAtFilter(fromDate, toDate);
+    const search = this.normalizeReportingSearch(query?.search);
+    const { pageSize, skip } = this.normalizeReportingPagination(query?.page, query?.pageSize);
+    const sortBy = this.normalizeReportingSortBy(
+      query?.sortBy,
+      ['createdAt', 'amount', 'type', 'category'],
+      'createdAt',
+    );
+    const sortOrder = this.normalizeReportingSortOrder(query?.sortOrder);
 
     return this.prisma.capitalRecord.findMany({
-      where: { workspaceId },
+      where: {
+        workspaceId,
+        ...(createdAt && { createdAt }),
+        ...(query?.category && { category: query.category as any }),
+        ...(query?.type && { type: { equals: query.type, mode: 'insensitive' } }),
+        ...(query?.ownerId && { ownerId: query.ownerId }),
+        ...(search && {
+          OR: [
+            { type: { contains: search, mode: 'insensitive' } },
+            { ownerId: { contains: search, mode: 'insensitive' } },
+            { sourceObjectId: { contains: search, mode: 'insensitive' } },
+          ],
+        }),
+      },
       orderBy: { [sortBy]: sortOrder } as any,
       skip,
       take: pageSize,
     });
   }
 
-  async getMonitoring(workspaceId: string) {
-    const [auditCount, recentAudit, evidenceCount] = await Promise.all([
-      this.prisma.auditLog.count({ where: { workspaceId } }),
+  async getMonitoring(
+    workspaceId: string,
+    query?: {
+      search?: string;
+      from?: string;
+      to?: string;
+      status?: string;
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
+      page?: number;
+      pageSize?: number;
+    },
+  ) {
+    const { fromDate, toDate } = this.normalizeReportingDateRange(query?.from, query?.to);
+    const createdAt = this.buildCreatedAtFilter(fromDate, toDate);
+    const search = this.normalizeReportingSearch(query?.search);
+    const sortBy = this.normalizeReportingSortBy(query?.sortBy, ['createdAt', 'action', 'status'], 'createdAt');
+    const sortOrder = this.normalizeReportingSortOrder(query?.sortOrder);
+
+    const auditWhere: any = {
+      workspaceId,
+      ...(createdAt && { createdAt }),
+      ...(query?.status && { status: { equals: query.status, mode: 'insensitive' } }),
+      ...(search && {
+        OR: [
+          { action: { contains: search, mode: 'insensitive' } },
+          { resourceType: { contains: search, mode: 'insensitive' } },
+          { resource: { contains: search, mode: 'insensitive' } },
+          { actorId: { contains: search, mode: 'insensitive' } },
+        ],
+      }),
+    };
+
+    const [auditCount, recentAudit, evidenceCount, memoryCount, providerCount, toolCount] = await Promise.all([
+      this.prisma.auditLog.count({ where: auditWhere }),
       this.prisma.auditLog.findMany({
-        where: { workspaceId },
-        orderBy: { createdAt: 'desc' },
+        where: auditWhere,
+        orderBy: { [sortBy]: sortOrder } as any,
         take: 20,
       }),
       this.prisma.evidenceRecord.count({ where: { workspaceId, deletedAt: null } }),
+      this.prisma.memoryEntry.count({ where: { workspaceId, deletedAt: null } }),
+      this.prisma.providerProfile.count({ where: { workspaceId, status: { not: 'INACTIVE' } } }),
+      this.prisma.toolProfile.count({ where: { workspaceId, status: { not: 'INACTIVE' } } }),
     ]);
+
+    const failedCount = recentAudit.filter((entry) => entry.status === 'FAILED').length;
+    const validationCount = recentAudit.filter((entry) => {
+      const message = String((entry as any).metadata?.error || '').toLowerCase();
+      return message.includes('must') || message.includes('required') || message.includes('invalid');
+    }).length;
 
     return {
       pending: false,
-      status: 'ok',
+      status: failedCount > 0 ? 'degraded' : 'ok',
       metrics: {
         auditCount,
         evidenceCount,
+        memoryCount,
+        providerCount,
+        toolCount,
+        failedAuditCount: failedCount,
+        validationIssueCount: validationCount,
+      },
+      healthSummary: {
+        status: failedCount > 0 ? 'degraded' : 'ok',
+        range: {
+          from: fromDate?.toISOString() || null,
+          to: toDate?.toISOString() || null,
+        },
       },
       recentAudit,
     };
@@ -2181,26 +2839,47 @@ export class WorkspaceService {
     workspaceId: string,
     query?: {
       search?: string;
+      from?: string;
+      to?: string;
+      action?: string;
+      resourceType?: string;
+      resource?: string;
+      actorId?: string;
+      status?: string;
       sortBy?: string;
       sortOrder?: 'asc' | 'desc';
       page?: number;
       pageSize?: number;
     },
   ) {
-    const pageSize = Number(query?.pageSize || 50);
-    const page = Number(query?.page || 1);
-    const skip = (page - 1) * pageSize;
-    const sortBy = query?.sortBy || 'createdAt';
-    const sortOrder = query?.sortOrder || 'desc';
+    const { fromDate, toDate } = this.normalizeReportingDateRange(query?.from, query?.to);
+    const createdAt = this.buildCreatedAtFilter(fromDate, toDate);
+    const search = this.normalizeReportingSearch(query?.search);
+    const { pageSize, skip } = this.normalizeReportingPagination(query?.page, query?.pageSize);
+    const sortBy = this.normalizeReportingSortBy(
+      query?.sortBy,
+      ['createdAt', 'timestamp', 'action', 'resource', 'resourceType', 'status', 'actorId'],
+      'createdAt',
+    );
+    const sortOrder = this.normalizeReportingSortOrder(query?.sortOrder);
 
     return this.prisma.auditLog.findMany({
       where: {
         workspaceId,
-        ...(query?.search && {
+        ...(createdAt && { createdAt }),
+        ...(query?.action && { action: { equals: query.action, mode: 'insensitive' } }),
+        ...(query?.resourceType && {
+          resourceType: { equals: query.resourceType, mode: 'insensitive' },
+        }),
+        ...(query?.resource && { resource: { equals: query.resource, mode: 'insensitive' } }),
+        ...(query?.actorId && { actorId: query.actorId }),
+        ...(query?.status && { status: { equals: query.status, mode: 'insensitive' } }),
+        ...(search && {
           OR: [
-            { action: { contains: query.search, mode: 'insensitive' } },
-            { resource: { contains: query.search, mode: 'insensitive' } },
-            { actorId: { contains: query.search, mode: 'insensitive' } },
+            { action: { contains: search, mode: 'insensitive' } },
+            { resource: { contains: search, mode: 'insensitive' } },
+            { resourceType: { contains: search, mode: 'insensitive' } },
+            { actorId: { contains: search, mode: 'insensitive' } },
           ],
         }),
       },

@@ -6,10 +6,59 @@ describe('WorkspaceService memory governance', () => {
     const prisma = {
       memoryEntry: {
         create: jest.fn(),
-        findMany: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
         findFirst: jest.fn(),
         update: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        count: jest.fn().mockResolvedValue(0),
+      },
+      intelligenceObject: {
+        count: jest.fn().mockResolvedValue(0),
+        aggregate: jest.fn().mockResolvedValue({ _avg: { amanahScore: 0, qualityIndex: 0 }, _sum: { capitalValue: 0 } }),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      evidenceRecord: {
+        count: jest.fn().mockResolvedValue(0),
+        aggregate: jest.fn().mockResolvedValue({ _avg: { confidence: 0 }, _sum: { cost: 0 } }),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      providerProfile: {
+        count: jest.fn().mockResolvedValue(0),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      toolProfile: {
+        count: jest.fn().mockResolvedValue(0),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      project: {
+        count: jest.fn().mockResolvedValue(0),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      agent: {
+        count: jest.fn().mockResolvedValue(0),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      provenanceRecord: {
+        count: jest.fn().mockResolvedValue(0),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      providerEvaluation: {
+        count: jest.fn().mockResolvedValue(0),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      governanceDecision: {
+        count: jest.fn().mockResolvedValue(0),
+      },
+      capitalRecord: {
+        aggregate: jest.fn().mockResolvedValue({ _sum: { amount: 0 }, _avg: { amount: 0 } }),
+      },
+      auditLog: {
+        count: jest.fn().mockResolvedValue(0),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      sovereigntyMetric: {
+        count: jest.fn().mockResolvedValue(0),
+        findMany: jest.fn().mockResolvedValue([]),
       },
     } as any;
 
@@ -169,5 +218,54 @@ describe('WorkspaceService memory governance', () => {
         success: false,
       }),
     );
+  });
+
+  it('rejects invalid reporting date ranges', async () => {
+    const { service } = makeService();
+
+    await expect(
+      service.getReports('workspace-1', 'user-1', {
+        from: '2026-12-31',
+        to: '2026-01-01',
+      }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('returns deep reporting summary with required sections', async () => {
+    const { prisma, service } = makeService();
+    prisma.auditLog.findMany
+      .mockResolvedValueOnce([
+        { action: 'MEMORY_CREATED', status: 'SUCCESS', metadata: {}, createdAt: new Date() },
+        { action: 'MEMORY_UPDATED', status: 'FAILED', metadata: { error: 'invalid payload' }, createdAt: new Date() },
+      ])
+      .mockResolvedValueOnce([]);
+
+    const result = await service.getReports('workspace-1', 'user-1', {
+      includeDetails: true,
+      module: 'memory',
+      page: 1,
+      pageSize: 10,
+    });
+
+    expect(result).toMatchObject({
+      snapshot: expect.any(Object),
+      statistics: expect.any(Object),
+      counts: expect.any(Object),
+      healthSummary: expect.any(Object),
+      auditSummary: expect.any(Object),
+      memorySummary: expect.any(Object),
+      crudActivitySummary: expect.any(Object),
+      providerSummary: expect.any(Object),
+      workspaceSummary: expect.any(Object),
+      errorSummary: expect.any(Object),
+      validationSummary: expect.any(Object),
+      sovereigntySummary: expect.any(Object),
+    });
+    expect(result.details.memory).toMatchObject({
+      total: expect.any(Number),
+      page: 1,
+      pageSize: 10,
+      items: expect.any(Array),
+    });
   });
 });

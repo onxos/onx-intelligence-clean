@@ -559,4 +559,100 @@ describe('ONX Intelligence (e2e)', () => {
     const res = await request(app.getHttpServer()).get('/w/');
     expect(res.status).toBeLessThan(500);
   });
+
+  it('reporting depth supports summaries, details, filtering, sorting, date range, and audit compatibility', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).get('/reports').expect(401);
+      return;
+    }
+
+    const reportsSummary = await request(app.getHttpServer())
+      .get('/reports?includeDetails=false&module=all')
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+
+    expect(reportsSummary.body).toEqual(
+      expect.objectContaining({
+        snapshot: expect.any(Object),
+        statistics: expect.any(Object),
+        counts: expect.any(Object),
+        healthSummary: expect.any(Object),
+        auditSummary: expect.any(Object),
+        memorySummary: expect.any(Object),
+        crudActivitySummary: expect.any(Object),
+        providerSummary: expect.any(Object),
+        workspaceSummary: expect.any(Object),
+        errorSummary: expect.any(Object),
+        validationSummary: expect.any(Object),
+      }),
+    );
+
+    const reportsDetails = await request(app.getHttpServer())
+      .get('/reports?includeDetails=true&module=memory&page=1&pageSize=5&sortBy=createdAt&sortOrder=desc')
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+
+    expect(reportsDetails.body.details).toBeDefined();
+    expect(reportsDetails.body.details.memory).toEqual(
+      expect.objectContaining({
+        total: expect.any(Number),
+        page: 1,
+        pageSize: 5,
+        items: expect.any(Array),
+      }),
+    );
+
+    const today = new Date().toISOString().slice(0, 10);
+    await request(app.getHttpServer())
+      .get(`/reports?from=${today}&to=${today}&includeDetails=true&module=evidence&page=1&pageSize=5`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .get('/reports?from=2026-12-31&to=2026-01-01')
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(400);
+
+    const governanceReport = await request(app.getHttpServer())
+      .get('/reports/governance?page=1&pageSize=5&sortBy=createdAt&sortOrder=desc')
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(Array.isArray(governanceReport.body)).toBe(true);
+
+    const capitalReport = await request(app.getHttpServer())
+      .get('/reports/capital?page=1&pageSize=5&sortBy=createdAt&sortOrder=desc')
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(Array.isArray(capitalReport.body)).toBe(true);
+
+    const monitoring = await request(app.getHttpServer())
+      .get('/monitoring?status=SUCCESS&sortBy=createdAt&sortOrder=desc')
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(monitoring.body).toEqual(
+      expect.objectContaining({
+        status: expect.any(String),
+        metrics: expect.any(Object),
+        healthSummary: expect.any(Object),
+        recentAudit: expect.any(Array),
+      }),
+    );
+
+    const monitoringAudit = await request(app.getHttpServer())
+      .get('/monitoring/audit?page=1&pageSize=10&search=MEMORY_&sortBy=createdAt&sortOrder=desc')
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(Array.isArray(monitoringAudit.body)).toBe(true);
+
+    if (monitoringAudit.body.length > 0) {
+      const auditItem = monitoringAudit.body[0];
+      await request(app.getHttpServer())
+        .get(`/monitoring/audit/${auditItem.id}`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .expect(200);
+    }
+
+    await request(app.getHttpServer()).get('/reports').expect(401);
+    await request(app.getHttpServer()).get('/monitoring').expect(401);
+  });
 });
