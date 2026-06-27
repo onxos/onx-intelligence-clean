@@ -336,18 +336,18 @@ jobs:
               if isinstance(payload, dict):
                   for key, value in payload.items():
                       k = key.lower()
-                      if k in ('host', 'hostname', 'internalhostname', 'internalhost') and isinstance(value, str) and value:
+                      if k in ('host', 'hostname', 'internalhostname', 'internalhost', 'postgreshostname', 'postgreshost') and isinstance(value, str) and value:
                           if k.startswith('internal'):
                               parts['host'] = value
                           elif 'host' not in parts:
                               parts['host'] = value
                       elif k in ('port',) and value is not None and str(value):
                           parts['port'] = str(value)
-                      elif k in ('user', 'username') and isinstance(value, str) and value:
+                      elif k in ('user', 'username', 'databaseuser', 'dbuser', 'postgresuser') and isinstance(value, str) and value:
                           parts['user'] = value
-                      elif k in ('password',) and isinstance(value, str) and value:
+                      elif k in ('password', 'databasepassword', 'dbpassword', 'postgrespassword') and isinstance(value, str) and value:
                           parts['password'] = value
-                      elif k in ('databasename', 'database', 'dbname') and isinstance(value, str) and value:
+                      elif k in ('databasename', 'database', 'dbname', 'postgresdatabase') and isinstance(value, str) and value:
                           parts['database'] = value
                       elif isinstance(value, (dict, list)):
                           extract_connection_parts(value, parts)
@@ -446,6 +446,9 @@ jobs:
                   f"https://api.render.com/v1/databases/{db_id}",
                   f"https://api.render.com/v1/postgres/{db_id}",
                   f"https://api.render.com/v1/databases/{db_id}/connection",
+                  f"https://api.render.com/v1/postgres/{db_id}/connection-info",
+                  f"https://api.render.com/v1/postgres/{db_id}/connectionInfo",
+                  f"https://api.render.com/v1/postgres/{db_id}/credentials",
               ]
 
               for detail_url in detail_endpoints:
