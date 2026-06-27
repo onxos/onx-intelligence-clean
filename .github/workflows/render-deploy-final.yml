@@ -28,9 +28,6 @@ jobs:
           api_key = os.environ.get("RENDER_API_KEY", "")
           owner_id = os.environ.get("RENDER_OWNER_ID", "")
           github_sha = os.environ.get("GITHUB_SHA", "").strip()
-          github_sha = os.environ.get("GITHUB_SHA", "").strip()
-          github_sha = os.environ.get("GITHUB_SHA", "").strip()
-          github_sha = os.environ.get("GITHUB_SHA", "").strip()
           
           if not api_key or not owner_id:
               print("❌ Missing RENDER_API_KEY or RENDER_OWNER_ID")
@@ -260,6 +257,7 @@ jobs:
 
           api_key = os.environ.get("RENDER_API_KEY", "")
           owner_id = os.environ.get("RENDER_OWNER_ID", "")
+          github_sha = os.environ.get("GITHUB_SHA", "").strip()
           
           headers = {
               "Authorization": f"Bearer {api_key}",
