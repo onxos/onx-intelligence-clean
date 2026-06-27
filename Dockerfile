@@ -23,4 +23,4 @@ COPY --from=builder /app/workspace-ui/out ./workspace-ui/out
 ENV NODE_ENV=production
 ENV PORT=10000
 EXPOSE 10000
-CMD ["sh", "-c", "npx prisma generate && (npx prisma migrate deploy || true) && node dist/src/main.js"]
+CMD ["sh", "-c", "npx prisma generate && npx prisma db push --accept-data-loss && npx prisma migrate deploy && node dist/src/main.js"]

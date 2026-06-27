@@ -80,24 +80,46 @@ export class AuthService {
     workspaceId?: string;
     tenantId?: string;
   }) {
-    const [role, workspace, tenant] = await Promise.all([
-      input.roleId
-        ? Promise.resolve({ id: input.roleId })
-        : this.prisma.role.findFirst({
-            where: { name: 'USER' },
-            select: { id: true },
-          }),
-      input.workspaceId
-        ? Promise.resolve({ id: input.workspaceId })
-        : this.prisma.workspace.findFirst({ select: { id: true } }),
-      input.tenantId
-        ? Promise.resolve({ id: input.tenantId })
-        : this.prisma.tenant.findFirst({ select: { id: true } }),
-    ]);
+    const role = input.roleId
+      ? { id: input.roleId }
+      : await this.prisma.role.upsert({
+          where: { name: 'USER' },
+          update: {},
+          create: {
+            name: 'USER',
+            description: 'Default user role',
+          },
+          select: { id: true },
+        });
 
-    if (!role) throw new UnauthorizedException('No USER role found');
-    if (!workspace) throw new UnauthorizedException('No workspace found');
-    if (!tenant) throw new UnauthorizedException('No tenant found');
+    const workspace = input.workspaceId
+      ? { id: input.workspaceId }
+      : await this.prisma.workspace.findFirst({ select: { id: true } }).then((found) => {
+          if (found) {
+            return found;
+          }
+          return this.prisma.workspace.create({
+            data: {
+              name: 'ONX Intelligence Workspace',
+              description: 'Default production workspace',
+            },
+            select: { id: true },
+          });
+        });
+
+    const tenant = input.tenantId
+      ? { id: input.tenantId }
+      : await this.prisma.tenant.findFirst({ select: { id: true } }).then((found) => {
+          if (found) {
+            return found;
+          }
+          return this.prisma.tenant.create({
+            data: {
+              name: 'ONX Intelligence Tenant',
+            },
+            select: { id: true },
+          });
+        });
 
     return {
       roleId: role.id,
