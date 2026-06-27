@@ -1,10 +1,10 @@
-name: Render Inventory
+name: Render Inventory & Analysis
 
 on:
   workflow_dispatch:
 
 jobs:
-  render-inventory:
+  analyze-services:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -161,4 +161,219 @@ jobs:
           }
 
           print(json.dumps(inventory, indent=2, sort_keys=True))
+          
+          # Save inventory to file for analysis
+          with open('/tmp/render-inventory.json', 'w') as f:
+              json.dump(inventory, f, indent=2)
+          
+          print("\n[✓] Inventory saved to /tmp/render-inventory.json")
           PY
+
+      - name: Analyze & Compare Services
+        shell: python3
+        run: |
+          import json
+          import sys
+          
+          # Load inventory
+          with open('/tmp/render-inventory.json', 'r') as f:
+              inventory = json.load(f)
+          
+          web_services = inventory.get('web_services', [])
+          databases = inventory.get('postgresql_databases', [])
+          
+          # Expected configuration
+          EXPECTED = {
+              'repo': 'onxos/onx-intelligence-clean',
+              'branch': 'main',
+              'runtime': 'docker',
+              'env_vars': {
+                  'NODE_ENV': 'production',
+                  'JWT_EXPIRATION': '24h',
+                  'PORT': '10000',
+              }
+          }
+          
+          print("\n" + "="*80)
+          print("ONX INTELLIGENCE SERVICE ANALYSIS")
+          print("="*80)
+          
+          # Find services matching the pattern
+          intelligence_services = [s for s in web_services if 'intelligence' in s.get('name', '').lower()]
+          
+          print(f"\n📊 Found {len(intelligence_services)} Intelligence service(s)")
+          print(f"📦 Found {len(databases)} PostgreSQL database(s)")
+          
+          if len(intelligence_services) != 2:
+              print(f"\n⚠️  WARNING: Expected 2 services, found {len(intelligence_services)}")
+              print("\nAll web services:")
+              for i, svc in enumerate(web_services, 1):
+                  print(f"  {i}. {svc.get('name')} ({svc.get('status')})")
+          
+          # Analyze each service
+          analysis = {}
+          for service in intelligence_services:
+              name = service.get('name', 'Unknown')
+              service_id = service.get('id')
+              
+              print(f"\n{'─'*80}")
+              print(f"SERVICE: {name}")
+              print(f"{'─'*80}")
+              
+              # Fetch full service details
+              import urllib.request
+              import urllib.error
+              
+              api_key = sys.argv[1] if len(sys.argv) > 1 else ""
+              headers = {
+                  "Authorization": f"Bearer ${sys.argv[1] if len(sys.argv) > 1 else 'RENDER_API_KEY'}",
+                  "Accept": "application/json",
+              }
+              
+              score = 0
+              max_score = 100
+              issues = []
+              warnings = []
+              recommendations = []
+              
+              # 1. Repository Check
+              repo = service.get('repository', '')
+              print(f"Repository: {repo}")
+              if repo == EXPECTED['repo']:
+                  print(f"  ✓ Correct repository")
+                  score += 25
+              else:
+                  print(f"  ✗ Expected: {EXPECTED['repo']}")
+                  issues.append(f"Repository mismatch: {repo} != {EXPECTED['repo']}")
+                  recommendations.append(f"Update service to link to {EXPECTED['repo']}")
+              
+              # 2. Branch Check
+              branch = service.get('branch', '')
+              print(f"Branch: {branch}")
+              if branch == EXPECTED['branch']:
+                  print(f"  ✓ Correct branch")
+                  score += 25
+              else:
+                  print(f"  ✗ Expected: {EXPECTED['branch']}")
+                  issues.append(f"Branch mismatch: {branch} != {EXPECTED['branch']}")
+                  recommendations.append(f"Rebind to {EXPECTED['branch']} branch")
+              
+              # 3. Status Check
+              status = service.get('status', '')
+              print(f"Status: {status}")
+              if status.lower() in ['active', 'available', 'running']:
+                  print(f"  ✓ Service is active")
+                  score += 15
+              else:
+                  print(f"  ⚠ Service status: {status}")
+                  warnings.append(f"Service status is {status}")
+              
+              # 4. Service URL
+              url = service.get('url', '')
+              print(f"URL: {url}")
+              if url:
+                  print(f"  ✓ Service has public URL")
+                  score += 10
+              else:
+                  issues.append("Service has no public URL")
+              
+              # 5. Region
+              region = service.get('region', '')
+              print(f"Region: {region}")
+              if region:
+                  print(f"  ✓ Region: {region}")
+              
+              analysis[name] = {
+                  'service': service,
+                  'score': score,
+                  'issues': issues,
+                  'warnings': warnings,
+                  'recommendations': recommendations
+              }
+          
+          # Decision
+          print(f"\n{'='*80}")
+          print("DECISION ANALYSIS")
+          print(f"{'='*80}")
+          
+          if len(intelligence_services) == 2:
+              svc1_name = intelligence_services[0].get('name')
+              svc2_name = intelligence_services[1].get('name')
+              
+              svc1_data = analysis.get(svc1_name, {})
+              svc2_data = analysis.get(svc2_name, {})
+              
+              svc1_score = svc1_data.get('score', 0)
+              svc2_score = svc2_data.get('score', 0)
+              
+              print(f"\n{svc1_name}: {svc1_score}/100")
+              print(f"{svc2_name}: {svc2_score}/100")
+              
+              if svc1_score > svc2_score:
+                  recommended = svc1_name
+                  consolidate = svc2_name
+              elif svc2_score > svc1_score:
+                  recommended = svc2_name
+                  consolidate = svc1_name
+              else:
+                  # Same score, pick based on configuration cleanliness
+                  svc1_issues = len(svc1_data.get('issues', []))
+                  svc2_issues = len(svc2_data.get('issues', []))
+                  recommended = svc1_name if svc1_issues <= svc2_issues else svc2_name
+                  consolidate = svc2_name if svc1_issues <= svc2_issues else svc1_name
+              
+              print(f"\n✅ RECOMMENDATION: Keep '{recommended}'")
+              print(f"⚙️  SERVICE TO CONSOLIDATE: '{consolidate}'")
+              
+              print(f"\n{'─'*80}")
+              print(f"WHY: {recommended}")
+              print(f"{'─'*80}")
+              
+              rec_data = analysis.get(recommended, {})
+              if rec_data.get('issues'):
+                  print(f"\nIssues to fix:")
+                  for issue in rec_data.get('issues', []):
+                      print(f"  • {issue}")
+              else:
+                  print(f"\n✓ No critical issues found")
+              
+              if rec_data.get('warnings'):
+                  print(f"\nWarnings:")
+                  for warning in rec_data.get('warnings', []):
+                      print(f"  ⚠ {warning}")
+              
+              print(f"\n{'─'*80}")
+              print(f"SERVICE TO CONSOLIDATE: {consolidate}")
+              print(f"{'─'*80}")
+              
+              cons_data = analysis.get(consolidate, {})
+              if cons_data.get('issues'):
+                  print(f"\nIssues (will be resolved):")
+                  for issue in cons_data.get('issues', []):
+                      print(f"  • {issue}")
+              
+              print(f"\n{'─'*80}")
+              print("NEXT STEPS FOR APPROVAL")
+              print(f"{'─'*80}")
+              print(f"\n1. ✅ Keep as official deployment: {recommended}")
+              print(f"2. ⚙️  Consolidate configuration: {consolidate}")
+              print(f"3. 🔧 Configuration changes needed:")
+              
+              changes = rec_data.get('recommendations', [])
+              if changes:
+                  for i, change in enumerate(changes, 1):
+                      print(f"   {i}. {change}")
+              
+              print(f"\n4. 📝 What will remain unchanged:")
+              print(f"   • ONX Platform (separate service)")
+              print(f"   • Other unrelated Render services")
+              print(f"   • Database attachments for other services")
+              
+              print(f"\n{'='*80}")
+              print("⏸️  AWAITING USER APPROVAL")
+              print(f"{'='*80}")
+              print(f"\nPlease review above and provide approval to proceed.")
+              
+          else:
+              print("\n❌ ERROR: Cannot proceed without exactly 2 Intelligence services")
+              sys.exit(1)
