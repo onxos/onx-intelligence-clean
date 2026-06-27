@@ -4,19 +4,12 @@ on:
   push:
     branches:
       - main
-    paths:
-      - '.github/workflows/render-deploy-final.yml'
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
-    branches: [main]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    if: github.event_name == 'push' || github.event.workflow_run.conclusion == 'success'
     env:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_OWNER_ID: ${{ secrets.RENDER_OWNER_ID }}
