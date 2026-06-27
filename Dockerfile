@@ -20,4 +20,4 @@ COPY --from=builder /app/prisma ./prisma
 ENV NODE_ENV=production
 ENV PORT=10000
 EXPOSE 10000
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main"]
+CMD ["sh", "-c", "npx prisma generate && (npx prisma migrate deploy || true) && node dist/src/main.js"]
