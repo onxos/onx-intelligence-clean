@@ -70,6 +70,13 @@ jobs:
 
           services = services_data.get('services', []) if isinstance(services_data, dict) else services_data
           
+          # Debug: print the response structure
+          print(f"DEBUG: services_data type = {type(services_data)}")
+          print(f"DEBUG: services length = {len(services)}")
+          if services:
+              print(f"DEBUG: first service = {json.dumps(services[0], indent=2)}")
+          print(f"DEBUG: full response = {json.dumps(services_data, indent=2)[:2000]}")
+          
           # Filter Intelligence services
           intelligence_services = [s for s in services if 'intelligence' in s.get('name', '').lower()]
           
