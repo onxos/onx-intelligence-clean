@@ -335,6 +335,15 @@ export class WorkspaceService {
     this.assertNonEmpty(data.action, 'action');
     this.assertNonEmpty(data.resource, 'resource');
 
+    if (data.resourceId) {
+      const linked = await this.prisma.intelligenceObject.findFirst({
+        where: { id: data.resourceId, workspaceId },
+      });
+      if (!linked) {
+        throw new BadRequestException('resourceId must reference an existing intelligence object');
+      }
+    }
+
     return this.prisma.provenanceRecord.create({
       data: {
         action: data.action.trim(),
@@ -370,6 +379,15 @@ export class WorkspaceService {
     const existing = await this.prisma.provenanceRecord.findFirst({ where: { id, workspaceId } });
     if (!existing) {
       throw new NotFoundException('Source record not found');
+    }
+
+    if (data.resourceId !== undefined && data.resourceId !== null && data.resourceId !== '') {
+      const linked = await this.prisma.intelligenceObject.findFirst({
+        where: { id: data.resourceId, workspaceId },
+      });
+      if (!linked) {
+        throw new BadRequestException('resourceId must reference an existing intelligence object');
+      }
     }
 
     return this.prisma.provenanceRecord.update({

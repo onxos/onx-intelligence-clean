@@ -33,7 +33,11 @@ export default function IntelligencePage() {
         fields={[
           { name: "name", label: "Name", required: true },
           { name: "content", label: "Content", required: true, inputType: "textarea" },
-          { name: "objectType", label: "Object Type", options: ["FACT", "PATTERN", "SIGNAL", "JUDGMENT", "UNDERSTANDING"] },
+          {
+            name: "objectType",
+            label: "Object Type",
+            options: ["SIGNAL", "PATTERN", "JUDGMENT", "UNDERSTANDING", "WISDOM", "EXTERNAL_INTELLIGENCE"],
+          },
           { name: "semanticSummary", label: "Semantic Summary", inputType: "textarea" },
           { name: "privacyLevel", label: "Privacy", options: ["PUBLIC", "INSTITUTIONAL", "PRIVATE"] },
           { name: "confidenceScore", label: "Confidence", inputType: "number" },
@@ -41,7 +45,11 @@ export default function IntelligencePage() {
         ]}
         columns={["id", "name", "objectType", "state", "confidenceScore", "createdAt"]}
         filters={[
-          { name: "type", label: "Type", options: ["FACT", "PATTERN", "SIGNAL", "JUDGMENT", "UNDERSTANDING"] },
+          {
+            name: "type",
+            label: "Type",
+            options: ["SIGNAL", "PATTERN", "JUDGMENT", "UNDERSTANDING", "WISDOM", "EXTERNAL_INTELLIGENCE"],
+          },
         ]}
         defaultSortBy="createdAt"
         listFn={(query) => api.intelligence.list(query) as Promise<any[]>}

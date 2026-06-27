@@ -15,7 +15,7 @@ export default function KnowledgePage() {
         {
           name: "objectType",
           label: "Type",
-          options: ["FACT", "PATTERN", "SIGNAL", "JUDGMENT", "UNDERSTANDING"],
+          options: ["SIGNAL", "PATTERN", "JUDGMENT", "UNDERSTANDING", "WISDOM", "EXTERNAL_INTELLIGENCE"],
         },
         { name: "semanticSummary", label: "Summary", inputType: "textarea" },
         {
@@ -29,7 +29,7 @@ export default function KnowledgePage() {
         {
           name: "objectType",
           label: "Type",
-          options: ["FACT", "PATTERN", "SIGNAL", "JUDGMENT", "UNDERSTANDING"],
+          options: ["SIGNAL", "PATTERN", "JUDGMENT", "UNDERSTANDING", "WISDOM", "EXTERNAL_INTELLIGENCE"],
         },
       ]}
       defaultSortBy="createdAt"

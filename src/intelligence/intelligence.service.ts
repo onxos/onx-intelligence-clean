@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { AuditService } from '../common/audit.service';
 import { IntelligenceObjectType } from '@prisma/client';
@@ -10,6 +10,31 @@ export class IntelligenceService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
   ) {}
+
+  private readonly objectTypes: IntelligenceObjectType[] = [
+    'SIGNAL',
+    'PATTERN',
+    'JUDGMENT',
+    'UNDERSTANDING',
+    'WISDOM',
+    'EXTERNAL_INTELLIGENCE',
+  ];
+
+  private validateCreateInput(data: {
+    name: string;
+    content: string;
+    objectType: IntelligenceObjectType;
+  }) {
+    if (!data.name?.trim()) {
+      throw new BadRequestException('name is required');
+    }
+    if (!data.content?.trim()) {
+      throw new BadRequestException('content is required');
+    }
+    if (!this.objectTypes.includes(data.objectType)) {
+      throw new BadRequestException('objectType is invalid');
+    }
+  }
 
   async create(data: {
     name: string;
@@ -27,6 +52,8 @@ export class IntelligenceService {
     creatorId: string;
     workspaceId: string;
   }) {
+    this.validateCreateInput(data);
+
     const hash = crypto.createHash('sha256').update(data.content).digest('hex');
 
     const obj = await this.prisma.intelligenceObject.create({
@@ -144,6 +171,16 @@ export class IntelligenceService {
       qualityIndex?: number;
     },
   ) {
+    if (data.name !== undefined && !String(data.name).trim()) {
+      throw new BadRequestException('name cannot be empty');
+    }
+    if (data.content !== undefined && !String(data.content).trim()) {
+      throw new BadRequestException('content cannot be empty');
+    }
+    if (data.objectType !== undefined && !this.objectTypes.includes(data.objectType)) {
+      throw new BadRequestException('objectType is invalid');
+    }
+
     const existing = await this.findOne(id, workspaceId);
     const contentHash =
       data.content !== undefined
