@@ -1,6 +1,53 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 
+export const ISES_DIMENSIONS = [
+  { key: 'domainFitness', weight: 0.1 },
+  { key: 'riskFitness', weight: 0.08 },
+  { key: 'historicalPerformance', weight: 0.12 },
+  { key: 'evidenceQuality', weight: 0.08 },
+  { key: 'judgmentQuality', weight: 0.08 },
+  { key: 'hallucinationResistance', weight: 0.08 },
+  { key: 'governanceCompliance', weight: 0.08 },
+  { key: 'costEfficiency', weight: 0.07 },
+  { key: 'latency', weight: 0.07 },
+  { key: 'reliability', weight: 0.08 },
+  { key: 'outcomeSuccess', weight: 0.07 },
+  { key: 'ownershipCompatibility', weight: 0.09 },
+] as const;
+
+type IseDimensionKey = (typeof ISES_DIMENSIONS)[number]['key'];
+
+type IseDimensionScore = {
+  score: number;
+  weight: number;
+  contribution: number;
+};
+
+function clampScore(value: unknown) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(100, numeric));
+}
+
+function buildDimensions(provider: Record<string, unknown>) {
+  return ISES_DIMENSIONS.reduce(
+    (accumulator, dimension) => {
+      const score = clampScore(provider[dimension.key]);
+      accumulator[dimension.key] = {
+        score,
+        weight: dimension.weight,
+        contribution: score * dimension.weight,
+      };
+      return accumulator;
+    },
+    {} as Record<IseDimensionKey, IseDimensionScore>,
+  );
+}
+
 @Injectable()
 export class ProviderService {
   constructor(private readonly prisma: PrismaService) {}
@@ -126,22 +173,9 @@ export class ProviderService {
     });
     if (!provider) return null;
 
-    const dimensions = {
-      domainFitness: { score: provider.domainFitness, weight: 0.1 },
-      riskFitness: { score: provider.riskFitness, weight: 0.08 },
-      historicalPerformance: { score: provider.historicalPerformance, weight: 0.12 },
-      evidenceQuality: { score: provider.evidenceQuality, weight: 0.08 },
-      judgmentQuality: { score: provider.judgmentQuality, weight: 0.08 },
-      hallucinationResistance: { score: provider.hallucinationResistance, weight: 0.08 },
-      governanceCompliance: { score: provider.governanceCompliance, weight: 0.08 },
-      costEfficiency: { score: provider.costEfficiency, weight: 0.07 },
-      latency: { score: provider.latency, weight: 0.07 },
-      reliability: { score: provider.reliability, weight: 0.08 },
-      outcomeSuccess: { score: provider.outcomeSuccess, weight: 0.07 },
-      ownershipCompatibility: { score: provider.ownershipCompatibility, weight: 0.09 },
-    };
+    const dimensions = buildDimensions(provider as Record<string, unknown>);
 
-    const iseScore = Object.values(dimensions).reduce((sum, d) => sum + d.score * d.weight, 0);
+    const iseScore = Object.values(dimensions).reduce((sum, dimension) => sum + dimension.contribution, 0);
 
     await this.prisma.providerEvaluation.create({
       data: {
@@ -157,6 +191,7 @@ export class ProviderService {
       providerId: data.providerId,
       iseScore: Math.round(iseScore * 100) / 100,
       dimensions,
+      dimensionCount: ISES_DIMENSIONS.length,
       rankTier:
         iseScore >= 85
           ? 'TIER_1_PREFERRED'

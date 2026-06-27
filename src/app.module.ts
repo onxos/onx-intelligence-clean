@@ -11,6 +11,7 @@ import { ToolModule } from './tool/tool.module';
 import { SovereigntyModule } from './sovereignty/sovereignty.module';
 import { EvidenceModule } from './evidence/evidence.module';
 import { WorkspaceModule } from './workspace/workspace.module';
+import { CommitModule } from './commit/commit.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { WorkspaceModule } from './workspace/workspace.module';
     SovereigntyModule,
     EvidenceModule,
     WorkspaceModule,
+    CommitModule,
   ],
 })
 export class AppModule {}

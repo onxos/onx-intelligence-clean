@@ -24,6 +24,7 @@
     "db:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
+    "smoke": "bash scripts/smoke.sh",
     "ci": "npm run lint && npm run build && npm run test && npm run test:e2e"
   },
   "dependencies": {

@@ -81,49 +81,9 @@ grep -ri "mock" src/ --include="*.ts" | grep -v "test/" | grep -v ".spec." && ec
 
 ### Smoke Tests
 ```bash
-BASE="https://your-render-url.onrender.com"
-
-# 1. Health
-curl -s "$BASE/health" | jq '{status: .status, has_info: (.info != null)}'
-
-# 2. Commit
-curl -s "$BASE/commit" | jq '{commit: .commit, nodeEnv: .nodeEnv}'
-
-# 3. Register
-curl -s -X POST "$BASE/auth/register" -H "Content-Type: application/json" \
-  -d '{"email":"test@onx.io","password":"TestPass123!","name":"Test"}' | jq '.token'
-
-# 4. Login
-curl -s -X POST "$BASE/auth/login" -H "Content-Type: application/json" \
-  -d '{"email":"test@onx.io","password":"TestPass123!"}' | jq '.token'
-
-# 5. Me (with JWT)
-curl -s "$BASE/auth/me" -H "Authorization: Bearer $JWT" | jq '{id, email, name}'
-
-# 6. POST /intelligence
-curl -s -X POST "$BASE/intelligence" -H "Authorization: Bearer $JWT" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"TestIO","content":"test","objectType":"PATTERN"}' | jq '{id, name}'
-
-# 7. GET /intelligence
-curl -s "$BASE/intelligence" -H "Authorization: Bearer $JWT" | jq 'length'
-
-# 8. GET /providers
-curl -s "$BASE/providers" -H "Authorization: Bearer $JWT" | jq 'length'
-
-# 9. GET /tools
-curl -s "$BASE/tools" -H "Authorization: Bearer $JWT" | jq 'length'
-
-# 10. POST /sovereignty/evaluate
-curl -s -X POST "$BASE/sovereignty/evaluate" -H "Authorization: Bearer $JWT" \
-  -H "Content-Type: application/json" -d '{"intent":"test"}' | jq '.recommendation'
-
-# 11. GET /evidence
-curl -s "$BASE/evidence" -H "Authorization: Bearer $JWT" | jq 'length'
-
-# 12. POST /evidence
-curl -s -X POST "$BASE/evidence" -H "Authorization: Bearer $JWT" \
-  -H "Content-Type: application/json" -d '{"intent":"test"}' | jq '{id, intent}'
+BASE_URL="https://your-render-url.onrender.com" npm run smoke
 ```
 
-All 12 tests MUST return HTTP 200/201 with valid JSON.
+The script lives at [scripts/smoke.sh](scripts/smoke.sh) and exercises health, commit, auth, intelligence, providers, tools, sovereignty, and evidence endpoints.
+
+All 12 checks MUST return HTTP 200/201 with valid JSON.
