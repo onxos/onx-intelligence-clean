@@ -1,7 +1,6 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
-import { execSync } from 'node:child_process';
 import { PrismaService } from '../common/prisma.service';
 
 @Injectable()
@@ -134,12 +133,50 @@ export class AuthService {
     } catch (error: any) {
       const message = String(error?.message ?? '');
       if (allowRetry && message.includes('does not exist in the current database')) {
-        execSync('npx prisma db push --accept-data-loss', { stdio: 'inherit' });
-        execSync('npx prisma migrate deploy', { stdio: 'inherit' });
+        await this.bootstrapLegacyAuthSchema();
         return this.resolveDefaults(input, false);
       }
       throw error;
     }
+  }
+
+  private async bootstrapLegacyAuthSchema() {
+    await this.prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS roles (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        description TEXT,
+        created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await this.prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS workspaces (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await this.prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS tenants (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await this.prisma.$executeRawUnsafe(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS password TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS role_id TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS workspace_id TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS tenant_id TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+    `);
   }
 
   private signToken(userId: string, email: string, workspaceId: string, tenantId: string) {

@@ -476,29 +476,6 @@ jobs:
               }, f, indent=2)
           PYTHON_SCRIPT
 
-      - name: Apply Prisma Schema On Render Database
-        shell: bash
-        run: |
-          DATABASE_URL=$(python3 << 'PYTHON_SCRIPT'
-          import json
-          with open('/tmp/database.json', 'r') as f:
-              data = json.load(f)
-          print(data.get('connection_string', ''))
-          PYTHON_SCRIPT
-          )
-
-          if [ -z "$DATABASE_URL" ]; then
-            echo "❌ Missing DATABASE_URL from Render database discovery"
-            exit 1
-          fi
-
-          echo "🔧 Applying Prisma schema to Render database"
-          npm ci
-          npx prisma generate
-          DATABASE_URL="$DATABASE_URL" npx prisma db push --accept-data-loss
-          DATABASE_URL="$DATABASE_URL" npx prisma migrate deploy
-          echo "✅ Prisma schema applied successfully"
-
       - name: Configure & Deploy Service
         shell: bash
         run: |
