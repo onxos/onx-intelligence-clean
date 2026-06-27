@@ -4,12 +4,14 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
 import { CrudDomainScreen } from "@/components/crud-domain-screen";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useI18n } from "@/lib/i18n";
 
 export default function IntelligencePage() {
+  const { t } = useI18n();
   const statsQuery = useQuery({ queryKey: ["intelligence-stats"], queryFn: api.intelligence.stats });
 
   if (statsQuery.isLoading) {
-    return <Card><CardContent className="py-8 text-sm text-slate-600">Loading intelligence session...</CardContent></Card>;
+    return <Card><CardContent className="py-8 text-sm text-slate-600">{t("domains.intelligence.loading")}</CardContent></Card>;
   }
 
   if (statsQuery.error) {
@@ -20,39 +22,39 @@ export default function IntelligencePage() {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Intelligence Stats</CardTitle>
+          <CardTitle>{t("domains.intelligence.stats")}</CardTitle>
         </CardHeader>
         <CardContent>
           <pre className="text-xs whitespace-pre-wrap break-all">{JSON.stringify(statsQuery.data, null, 2)}</pre>
         </CardContent>
       </Card>
       <CrudDomainScreen
-        title="Intelligence Objects"
-        description="Capture and evolve intelligence objects with ownership and confidence metadata."
+        titleKey="domains.intelligence.title"
+        descriptionKey="domains.intelligence.description"
         queryKey="intelligence"
         fields={[
-          { name: "name", label: "Name", required: true },
-          { name: "content", label: "Content", required: true, inputType: "textarea" },
+          { name: "name", labelKey: "fields.name", required: true },
+          { name: "content", labelKey: "fields.content", required: true, inputType: "textarea" },
           {
             name: "objectType",
-            label: "Object Type",
+            labelKey: "fields.objectType",
             options: ["SIGNAL", "PATTERN", "JUDGMENT", "UNDERSTANDING", "WISDOM", "EXTERNAL_INTELLIGENCE"],
           },
-          { name: "semanticSummary", label: "Semantic Summary", inputType: "textarea" },
-          { name: "privacyLevel", label: "Privacy", options: ["PUBLIC", "INSTITUTIONAL", "PRIVATE"] },
-          { name: "confidenceScore", label: "Confidence", inputType: "number" },
-          { name: "trustScore", label: "Trust", inputType: "number" },
+          { name: "semanticSummary", labelKey: "fields.semanticSummary", inputType: "textarea" },
+          { name: "privacyLevel", labelKey: "fields.privacyLevel", options: ["PUBLIC", "INSTITUTIONAL", "CONFIDENTIAL", "RESTRICTED"] },
+          { name: "confidenceScore", labelKey: "fields.confidenceScore", inputType: "number" },
+          { name: "trustScore", labelKey: "fields.trustScore", inputType: "number" },
         ]}
         columns={["id", "name", "objectType", "state", "confidenceScore", "createdAt"]}
         filters={[
           {
             name: "type",
-            label: "Type",
+            labelKey: "fields.objectType",
             options: ["SIGNAL", "PATTERN", "JUDGMENT", "UNDERSTANDING", "WISDOM", "EXTERNAL_INTELLIGENCE"],
           },
         ]}
         defaultSortBy="createdAt"
-        listFn={(query) => api.intelligence.list(query) as Promise<any[]>}
+        listFn={(query) => api.intelligence.list(query) as Promise<Record<string, unknown>[]>}
         createFn={(payload) => api.intelligence.create(payload)}
         updateFn={(id, payload) => api.intelligence.update(id, payload)}
         deleteFn={(id) => api.intelligence.remove(id)}

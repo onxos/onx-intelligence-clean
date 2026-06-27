@@ -3,16 +3,17 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useI18n } from "@/lib/i18n";
 
-function renderRows(items: any[]) {
+function renderRows(items: Array<Record<string, unknown>>, noRecordsText: string) {
   if (!items.length) {
-    return <p className="text-sm text-slate-600">No records available.</p>;
+    return <p className="text-sm text-slate-600">{noRecordsText}</p>;
   }
 
   return (
     <div className="space-y-2">
       {items.map((item) => (
-        <Card key={item.id}>
+        <Card key={String(item.id || `${item.type || "record"}-${item.createdAt || ""}`)}>
           <CardContent className="grid gap-2 py-3 text-sm md:grid-cols-2">
             {Object.entries(item)
               .slice(0, 8)
@@ -32,6 +33,7 @@ function renderRows(items: any[]) {
 }
 
 export default function ReportsPage() {
+  const { t } = useI18n();
   const snapshot = useQuery({ queryKey: ["reports"], queryFn: api.workspace.reports });
   const governance = useQuery({
     queryKey: ["report-governance"],
@@ -45,7 +47,7 @@ export default function ReportsPage() {
   if (snapshot.isLoading || governance.isLoading || capital.isLoading) {
     return (
       <Card>
-        <CardContent className="py-8 text-sm text-slate-600">Loading reports...</CardContent>
+        <CardContent className="py-8 text-sm text-slate-600">{t("domains.reports.loading")}</CardContent>
       </Card>
     );
   }
@@ -64,7 +66,7 @@ export default function ReportsPage() {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Reports Snapshot</CardTitle>
+          <CardTitle>{t("domains.reports.title")}</CardTitle>
         </CardHeader>
         <CardContent>
           <pre className="whitespace-pre-wrap break-all text-xs">
@@ -75,16 +77,26 @@ export default function ReportsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Governance Records</CardTitle>
+          <CardTitle>{t("domains.reports.governance")}</CardTitle>
         </CardHeader>
-        <CardContent>{renderRows((governance.data as any[]) || [])}</CardContent>
+        <CardContent>
+          {renderRows(
+            (governance.data as Array<Record<string, unknown>>) || [],
+            t("common.noRecords"),
+          )}
+        </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Capital Records</CardTitle>
+          <CardTitle>{t("domains.reports.capital")}</CardTitle>
         </CardHeader>
-        <CardContent>{renderRows((capital.data as any[]) || [])}</CardContent>
+        <CardContent>
+          {renderRows(
+            (capital.data as Array<Record<string, unknown>>) || [],
+            t("common.noRecords"),
+          )}
+        </CardContent>
       </Card>
     </div>
   );

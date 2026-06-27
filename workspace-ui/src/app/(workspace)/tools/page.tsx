@@ -6,25 +6,25 @@ import { api } from "@/lib/api/client";
 export default function ToolsPage() {
   return (
     <CrudDomainScreen
-      title="Tools"
-      description="Manage tools with category/status, capabilities, and cost controls."
+      titleKey="domains.tools.title"
+      descriptionKey="domains.tools.description"
       queryKey="tools"
       fields={[
-        { name: "toolId", label: "Tool ID", required: true },
-        { name: "toolName", label: "Tool Name", required: true },
-        { name: "category", label: "Category", options: ["ANALYTICS", "AUTOMATION", "DATA", "SECURITY"] },
-        { name: "status", label: "Status", options: ["ACTIVE", "INACTIVE", "DEPRECATED"] },
-        { name: "capabilities", label: "Capabilities (comma separated)" },
-        { name: "costPerCall", label: "Cost Per Call", inputType: "number" },
-        { name: "totalCapital", label: "Total Capital", inputType: "number" },
+        { name: "toolId", labelKey: "fields.toolId", required: true },
+        { name: "toolName", labelKey: "fields.toolName", required: true },
+        { name: "category", labelKey: "fields.category", options: ["ANALYTICS", "AUTOMATION", "SEARCH", "KNOWLEDGE"] },
+        { name: "status", labelKey: "fields.status", options: ["ACTIVE", "INACTIVE", "EXPERIMENTAL"] },
+        { name: "capabilities", labelKey: "fields.capabilities" },
+        { name: "costPerCall", labelKey: "fields.costPerCall", inputType: "number" },
+        { name: "totalCapital", labelKey: "fields.totalCapital", inputType: "number" },
       ]}
       columns={["id", "toolId", "toolName", "category", "status", "costPerCall"]}
       filters={[
-        { name: "status", label: "Status", options: ["ACTIVE", "INACTIVE", "DEPRECATED"] },
-        { name: "category", label: "Category", options: ["ANALYTICS", "AUTOMATION", "DATA", "SECURITY"] },
+        { name: "status", labelKey: "fields.status", options: ["ACTIVE", "INACTIVE", "EXPERIMENTAL"] },
+        { name: "category", labelKey: "fields.category", options: ["ANALYTICS", "AUTOMATION", "SEARCH", "KNOWLEDGE"] },
       ]}
       defaultSortBy="createdAt"
-      listFn={(query) => api.tools.list(query) as Promise<any[]>}
+      listFn={(query) => api.tools.list(query) as Promise<Record<string, unknown>[]>}
       createFn={(payload) => api.tools.create(payload)}
       updateFn={(id, payload) => api.tools.update(id, payload)}
       deleteFn={(id) => api.tools.remove(id)}

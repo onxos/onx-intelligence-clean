@@ -6,20 +6,20 @@ import { api } from "@/lib/api/client";
 export default function AgentsPage() {
   return (
     <CrudDomainScreen
-      title="Agents"
-      description="Create, update, and manage agents with workspace-level controls."
+      titleKey="domains.agents.title"
+      descriptionKey="domains.agents.description"
       queryKey="agents"
       fields={[
-        { name: "name", label: "Name", required: true },
-        { name: "description", label: "Description", inputType: "textarea" },
-        { name: "status", label: "Status", options: ["ACTIVE", "ARCHIVED", "DISABLED"] },
-        { name: "model", label: "Model" },
-        { name: "providerId", label: "Provider ID" },
+        { name: "name", labelKey: "fields.name", required: true },
+        { name: "description", labelKey: "fields.description", inputType: "textarea" },
+        { name: "status", labelKey: "fields.status", options: ["ACTIVE", "ARCHIVED", "DISABLED"] },
+        { name: "model", labelKey: "fields.model" },
+        { name: "providerId", labelKey: "fields.providerId" },
       ]}
       columns={["id", "name", "status", "model", "providerId", "createdAt"]}
-      filters={[{ name: "status", label: "Status", options: ["ACTIVE", "ARCHIVED", "DISABLED"] }]}
+      filters={[{ name: "status", labelKey: "fields.status", options: ["ACTIVE", "ARCHIVED", "DISABLED"] }]}
       defaultSortBy="createdAt"
-      listFn={(query) => api.workspace.agents(query) as Promise<any[]>}
+      listFn={(query) => api.workspace.agents(query) as Promise<Record<string, unknown>[]>}
       createFn={(payload) => api.workspace.createAgent(payload)}
       updateFn={(id, payload) => api.workspace.updateAgent(id, payload)}
       deleteFn={(id) => api.workspace.deleteAgent(id)}

@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PendingState } from "@/components/pending-state";
 import { Badge } from "@/components/ui/badge";
+import { useI18n } from "@/lib/i18n";
 
 type PendingResponse = {
   pending?: boolean;
@@ -32,12 +33,13 @@ export function DomainScreen({
   queryKey: string[];
   queryFn: () => Promise<unknown>;
 }) {
+  const { t } = useI18n();
   const { data, isLoading, error } = useQuery({ queryKey, queryFn });
 
   if (isLoading) {
     return (
       <Card>
-        <CardContent className="py-8 text-sm text-slate-600">Loading {title}...</CardContent>
+        <CardContent className="py-8 text-sm text-slate-600">{t("common.loadingDomain", undefined, { domain: title })}</CardContent>
       </Card>
     );
   }
@@ -58,7 +60,7 @@ export function DomainScreen({
   const pendingData = data as PendingResponse | undefined;
 
   if (pendingData?.pending) {
-    return <PendingState message={pendingData.message ?? `${title} endpoint is pending.`} />;
+    return <PendingState message={pendingData.message ?? `${title} ${t("common.loading")}`} />;
   }
 
   const items = Array.isArray(data) ? data : pendingData?.items;
@@ -69,7 +71,7 @@ export function DomainScreen({
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
             <span>{title}</span>
-            <Badge>{Array.isArray(items) ? `${items.length} records` : "Live"}</Badge>
+            <Badge>{Array.isArray(items) ? t("common.recordsCount", undefined, { count: items.length }) : t("common.live")}</Badge>
           </CardTitle>
           <p className="text-sm text-slate-600">{description}</p>
         </CardHeader>
@@ -78,7 +80,7 @@ export function DomainScreen({
       {Array.isArray(items) ? (
         items.length === 0 ? (
           <Card>
-            <CardContent className="py-8 text-sm text-slate-600">No records available.</CardContent>
+            <CardContent className="py-8 text-sm text-slate-600">{t("common.noRecords")}</CardContent>
           </Card>
         ) : (
           items.map((item, idx) => (

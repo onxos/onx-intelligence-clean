@@ -3,17 +3,26 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useI18n } from "@/lib/i18n";
+import { rememberAsset, rememberProject } from "@/lib/workspace-memory";
+import { useEffect } from "react";
 
 export function ProjectDetailsClient({ id }: { id: string }) {
+  const { t } = useI18n();
   const { data, isLoading, error } = useQuery({
     queryKey: ["project-details", id],
     queryFn: () => api.workspace.projectDetails(id),
   });
 
+  useEffect(() => {
+    rememberProject(id);
+    rememberAsset({ id, domain: "projects", label: id });
+  }, [id]);
+
   if (isLoading) {
     return (
       <Card>
-        <CardContent className="py-8 text-sm text-slate-600">Loading project...</CardContent>
+        <CardContent className="py-8 text-sm text-slate-600">{t("domains.projectDetails.loading")}</CardContent>
       </Card>
     );
   }
@@ -29,7 +38,7 @@ export function ProjectDetailsClient({ id }: { id: string }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Project Details: {id}</CardTitle>
+        <CardTitle>{t("domains.projectDetails.title", undefined, { id })}</CardTitle>
       </CardHeader>
       <CardContent>
         <pre className="text-xs whitespace-pre-wrap">{JSON.stringify(data, null, 2)}</pre>

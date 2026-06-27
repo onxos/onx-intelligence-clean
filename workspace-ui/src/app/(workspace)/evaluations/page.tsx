@@ -6,18 +6,18 @@ import { api } from "@/lib/api/client";
 export default function EvaluationsPage() {
   return (
     <CrudDomainScreen
-      title="Evaluations"
-      description="Evaluate provider performance with persisted ISES records."
+      titleKey="domains.evaluations.title"
+      descriptionKey="domains.evaluations.description"
       queryKey="evaluations"
       fields={[
-        { name: "providerId", label: "Provider ID", required: true },
-        { name: "intent", label: "Intent", required: true },
-        { name: "context", label: "Context", inputType: "textarea" },
-        { name: "iseScore", label: "ISE Score", inputType: "number" },
+        { name: "providerId", labelKey: "fields.providerId", required: true },
+        { name: "intent", labelKey: "fields.intent", required: true },
+        { name: "context", labelKey: "fields.context", inputType: "textarea" },
+        { name: "iseScore", labelKey: "fields.iseScore", inputType: "number" },
       ]}
       columns={["id", "intent", "iseScore", "provider", "createdAt"]}
       defaultSortBy="createdAt"
-      listFn={(query) => api.workspace.evaluations(query) as Promise<any[]>}
+      listFn={(query) => api.workspace.evaluations(query) as Promise<Record<string, unknown>[]>}
       createFn={(payload) => api.workspace.createEvaluation(payload)}
       updateFn={(id, payload) => api.workspace.updateEvaluation(id, payload)}
       deleteFn={(id) => api.workspace.deleteEvaluation(id)}

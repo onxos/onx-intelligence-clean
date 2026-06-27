@@ -5,25 +5,24 @@ import { api } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useI18n } from "@/lib/i18n";
+import { rememberLanguage } from "@/lib/workspace-memory";
 
 export default function SettingsPage() {
+  const { t, locale, setLocale } = useI18n();
   const queryClient = useQueryClient();
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.workspace.settings });
   const me = useQuery({ queryKey: ["me"], queryFn: api.auth.me });
   const [name, setName] = useState("");
   const [status, setStatus] = useState("ACTIVE");
 
-  useEffect(() => {
-    const user = (settings.data as any)?.user;
-    if (user) {
-      setName(user.name || "");
-      setStatus(user.status || "ACTIVE");
-    }
-  }, [settings.data]);
+  const user = (settings.data as { user?: { name?: string; status?: string } } | undefined)?.user;
+  const currentName = name || user?.name || "";
+  const currentStatus = status === "ACTIVE" && user?.status ? user.status : status;
 
   const saveMutation = useMutation({
-    mutationFn: () => api.workspace.updateSettings({ name, status }),
+    mutationFn: () => api.workspace.updateSettings({ name: currentName, status: currentStatus }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["settings"] });
       await queryClient.invalidateQueries({ queryKey: ["me"] });
@@ -31,7 +30,7 @@ export default function SettingsPage() {
   });
 
   if (settings.isLoading || me.isLoading) {
-    return <Card><CardContent className="py-8 text-sm text-slate-600">Loading settings...</CardContent></Card>;
+    return <Card><CardContent className="py-8 text-sm text-slate-600">{t("domains.settings.loading")}</CardContent></Card>;
   }
 
   if (settings.error || me.error) {
@@ -42,27 +41,42 @@ export default function SettingsPage() {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Settings Editor</CardTitle>
+          <CardTitle>{t("domains.settings.title")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div>
-            <p className="mb-1 text-xs uppercase tracking-wide text-slate-500">Display Name</p>
-            <Input value={name} onChange={(e) => setName(e.target.value)} />
+            <p className="mb-1 text-xs uppercase tracking-wide text-slate-500">{t("domains.settings.displayName")}</p>
+            <Input value={currentName} onChange={(e) => setName(e.target.value)} />
           </div>
           <div>
-            <p className="mb-1 text-xs uppercase tracking-wide text-slate-500">Status</p>
+            <p className="mb-1 text-xs uppercase tracking-wide text-slate-500">{t("domains.settings.status")}</p>
             <select
-              value={status}
+              value={currentStatus}
               onChange={(e) => setStatus(e.target.value)}
               className="h-9 w-full rounded-md border border-slate-300 px-3 text-sm"
             >
-              <option value="ACTIVE">ACTIVE</option>
-              <option value="INACTIVE">INACTIVE</option>
-              <option value="SUSPENDED">SUSPENDED</option>
+              <option value="ACTIVE">{t("enum.ACTIVE")}</option>
+              <option value="INACTIVE">{t("enum.INACTIVE")}</option>
+              <option value="SUSPENDED">{t("enum.SUSPENDED")}</option>
+            </select>
+          </div>
+          <div>
+            <p className="mb-1 text-xs uppercase tracking-wide text-slate-500">{t("common.language")}</p>
+            <select
+              value={locale}
+              onChange={(e) => {
+                const next = e.target.value as "en" | "ar";
+                setLocale(next);
+                rememberLanguage(next);
+              }}
+              className="h-9 w-full rounded-md border border-slate-300 px-3 text-sm"
+            >
+              <option value="en">English</option>
+              <option value="ar">العربية</option>
             </select>
           </div>
           <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
-            {saveMutation.isPending ? "Saving..." : "Save Settings"}
+            {saveMutation.isPending ? t("common.saving") : t("common.saveSettings")}
           </Button>
           {saveMutation.error ? (
             <p className="text-sm text-red-600">{(saveMutation.error as Error).message}</p>
@@ -71,7 +85,7 @@ export default function SettingsPage() {
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle>Authenticated User</CardTitle>
+          <CardTitle>{t("common.authenticatedUser")}</CardTitle>
         </CardHeader>
         <CardContent>
           <pre className="text-xs whitespace-pre-wrap break-all">{JSON.stringify(me.data, null, 2)}</pre>
