@@ -34,6 +34,20 @@
 	- Render: https://github.com/onxos/onx-intelligence-clean/actions/runs/28295133223
 	- Smoke: PASS (`BASE_URL=https://onx-intelligence-clean.onrender.com npm run smoke`)
 	- Live practical proof: PASS (intelligence soft delete returns 404 after delete, evidence hidden from list after delete)
+- Sprint 2 (MO-012): Full Audit Trail Coverage (unified event model + mutating-path coverage)
+	- Scope delivered:
+		- Unified audit schema fields (`eventId`, `timestamp`, `resourceType`, `before`, `after`, `requestId`, `userAgent`, `status`, `success`, `metadata`).
+		- Centralized logging contract in `AuditService` and request-context extraction utility.
+		- Success/failure audit logging across mutating endpoints in `auth`, `intelligence`, `evidence`, `provider`, `tool`, `workspace`, `sovereignty`.
+		- E2E audit assertions for Create/Update/Delete, soft delete paths, failure-path logging, and unauthorized-no-audit behavior.
+	- Production-ready status: COMPLETED
+	- Implementation commit: ddf2c5f1116ee9bf768e92c84f35bdbb0e052143 (`feat(v2): complete audit trail coverage`)
+	- CI hardening follow-up: b957f10156fa9aba1170fe7ba4ba500324b9d0e6 (`fix(ci): apply lint formatting for MO-012 audit coverage`)
+	- CI (final deployed SHA): https://github.com/onxos/onx-intelligence-clean/actions/runs/28295889275
+	- Render (final deployed SHA): https://github.com/onxos/onx-intelligence-clean/actions/runs/28295889279
+	- Production `/commit`: `{"commit":"b957f10156fa9aba1170fe7ba4ba500324b9d0e6","nodeEnv":"production"}`
+	- Production `/health`: `{"status":"ok","database":{"status":"up","version":"1.0.0"}}`
+	- Smoke: PASS (`BASE_URL=https://onx-intelligence-clean.onrender.com npm run smoke`)
 
 ## Blocked Work Items
 
@@ -47,3 +61,4 @@
 - Production URL: https://onx-intelligence-clean.onrender.com
 - Unlock timestamp (UTC): 2026-06-27T16:18:50Z
 - 2026-06-27 Sprint 1 complete: soft delete implementation verified on production commit c4201cd804946f0129861513b3eb1b425ad1fd73
+- 2026-06-27 Sprint 2 complete: full audit trail coverage verified on production commit b957f10156fa9aba1170fe7ba4ba500324b9d0e6

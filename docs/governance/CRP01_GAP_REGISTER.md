@@ -7,7 +7,7 @@
 - Soft delete: closed (MO-011, production-verified)
 - Automated smoke tests: installed as executable repository behavior
 - Full constitutional CRUD completeness: partial
-- Full audit trail coverage: partial
+- Full audit trail coverage: closed (MO-012, production-verified)
 - Memory governance: partial
 - Reporting depth: partial
 - Workspace domain completeness: partial
@@ -92,3 +92,28 @@
 	- Practical closure proof:
 		- Intelligence soft delete: delete then `GET /intelligence/:id` => `404`
 		- Evidence soft delete: delete then `GET /evidence` excludes deleted id
+
+## Mission Order 012 Sprint 2 Record (2026-06-27)
+
+- Selected V2 item: Full audit trail coverage
+- Scope implemented (no architecture redesign):
+	- Migrated audit persistence to unified event structure with canonical fields.
+	- Added request-context capture (`requestId`, `ipAddress`, `userAgent`) and success/failure semantics.
+	- Added/standardized audit writes for mutating flows across `auth`, `intelligence`, `evidence`, `provider`, `tool`, `workspace`, `sovereignty`.
+	- Added e2e verification for:
+		- Create -> Audit
+		- Update -> Audit
+		- Delete/Soft Delete -> Audit
+		- Failure -> Audit (FAILED + success=false)
+		- Unauthorized -> No Audit
+- Verification evidence:
+	- Implementation commit: `ddf2c5f1116ee9bf768e92c84f35bdbb0e052143`
+	- CI formatting follow-up commit: `b957f10156fa9aba1170fe7ba4ba500324b9d0e6`
+	- Build: success (`npm run build`)
+	- Unit tests: success (`npm test`)
+	- E2E tests: success (`npm run test:e2e`)
+	- CI (final SHA): success https://github.com/onxos/onx-intelligence-clean/actions/runs/28295889275
+	- Render deploy (final SHA): success https://github.com/onxos/onx-intelligence-clean/actions/runs/28295889279
+	- Production `/commit`: `{"commit":"b957f10156fa9aba1170fe7ba4ba500324b9d0e6","nodeEnv":"production"}`
+	- Production `/health`: `{"status":"ok","database":{"status":"up","version":"1.0.0"}}`
+	- Production smoke: success (`BASE_URL=https://onx-intelligence-clean.onrender.com npm run smoke`)
