@@ -27,6 +27,7 @@ jobs:
           import urllib.request
           import urllib.error
           import urllib.parse
+          import urllib.parse
           import sys
 
           api_key = os.environ.get("RENDER_API_KEY", "")
@@ -443,16 +444,17 @@ jobs:
           # Fetch full database details to get connection string when list payload does not include it
           if not connection_string:
               detail_endpoints = [
+                  f"https://api.render.com/v1/postgres/{db_id}/connection-info",
                   f"https://api.render.com/v1/databases/{db_id}",
                   f"https://api.render.com/v1/postgres/{db_id}",
                   f"https://api.render.com/v1/databases/{db_id}/connection",
-                  f"https://api.render.com/v1/postgres/{db_id}/connection-info",
                   f"https://api.render.com/v1/postgres/{db_id}/connectionInfo",
                   f"https://api.render.com/v1/postgres/{db_id}/credentials",
               ]
 
               for detail_url in detail_endpoints:
                   status, db_details = fetch_json(detail_url)
+                  print(f"DEBUG: DB detail endpoint {detail_url} -> HTTP {status}")
                   if status == 200 and db_details:
                       if isinstance(db_details, dict):
                           print(f"DEBUG: DB detail keys from {detail_url}: {list(db_details.keys())[:12]}")
@@ -549,9 +551,9 @@ jobs:
           # Prepare update payload
           update_payload = {
               'envVars': [
-                  {'key': 'NODE_ENV', 'value': 'production', 'sync': False},
-                  {'key': 'PORT', 'value': '10000', 'sync': False},
-                  {'key': 'JWT_EXPIRATION', 'value': '24h', 'sync': False},
+                  {'key': 'NODE_ENV', 'value': 'production'},
+                  {'key': 'PORT', 'value': '10000'},
+                  {'key': 'JWT_EXPIRATION', 'value': '24h'},
               ]
           }
           
@@ -559,17 +561,7 @@ jobs:
           if db_info.get('connection_string'):
               update_payload['envVars'].append({
                   'key': 'DATABASE_URL',
-                  'value': db_info['connection_string'],
-                  'sync': False
-              })
-          elif db_info.get('name'):
-              update_payload['envVars'].append({
-                  'key': 'DATABASE_URL',
-                  'fromDatabase': {
-                      'name': db_info['name'],
-                      'property': 'connectionString'
-                  },
-                  'sync': False
+                  'value': db_info['connection_string']
               })
           else:
               print("❌ DATABASE_URL not available from selected database")
@@ -619,6 +611,25 @@ jobs:
           else:
               print(f"⚠️  Service update returned HTTP {status}")
               print(json.dumps(response, indent=2))
+
+          # Official endpoint from Render API spec: PUT /services/{serviceId}/env-vars with array payload
+          env_put_payload = [
+              {'key': 'NODE_ENV', 'value': 'production'},
+              {'key': 'PORT', 'value': '10000'},
+              {'key': 'JWT_EXPIRATION', 'value': '24h'},
+              {'key': 'DATABASE_URL', 'value': db_info['connection_string']},
+          ]
+          if not has_jwt_secret:
+              env_put_payload.append({'key': 'JWT_SECRET', 'generateValue': True})
+
+          env_put_status, env_put_response = fetch_json(
+              f"https://api.render.com/v1/services/{service_id}/env-vars",
+              method='PUT',
+              data=env_put_payload
+          )
+          print(f"Env vars PUT /services/{{serviceId}}/env-vars -> HTTP {env_put_status}")
+          if env_put_status not in [200, 201]:
+              print(json.dumps(env_put_response, indent=2))
 
           verify_status, verify_payload = fetch_json(f"https://api.render.com/v1/services/{service_id}")
           database_url_present = verify_status == 200 and has_database_url(verify_payload)
