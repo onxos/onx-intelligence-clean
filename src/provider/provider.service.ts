@@ -97,6 +97,18 @@ export class ProviderService {
     });
   }
 
+  async findOne(workspaceId: string, id: string) {
+    const provider = await this.prisma.providerProfile.findFirst({
+      where: { id, workspaceId, status: { not: 'INACTIVE' } },
+    });
+
+    if (!provider) {
+      throw new NotFoundException('Provider profile not found');
+    }
+
+    return provider;
+  }
+
   async create(workspaceId: string, data: any, auditContext: MutationAuditContext) {
     try {
       const created = await this.prisma.providerProfile.create({

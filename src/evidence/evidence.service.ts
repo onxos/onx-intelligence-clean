@@ -51,6 +51,18 @@ export class EvidenceService {
     });
   }
 
+  async findOne(id: string, workspaceId: string, ownerId: string) {
+    const record = await this.prisma.evidenceRecord.findFirst({
+      where: { id, workspaceId, ownerId, deletedAt: null },
+    });
+
+    if (!record) {
+      throw new NotFoundException('Evidence record not found');
+    }
+
+    return record;
+  }
+
   async create(
     data: {
       intent: string;

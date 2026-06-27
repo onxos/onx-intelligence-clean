@@ -67,6 +67,12 @@ export class EvidenceController {
     return this.svc.findAll(req.user.workspaceId, req.user.userId, query);
   }
 
+  @Get(':id')
+  @ApiOperation({ summary: 'Get evidence record details' })
+  async get(@Param('id') id: string, @Req() req: any) {
+    return this.svc.findOne(id, req.user.workspaceId, req.user.userId);
+  }
+
   @Post()
   @ApiOperation({ summary: 'Create evidence record' })
   async create(@Body() body: CreateEvidenceDto, @Req() req: any) {

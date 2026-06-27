@@ -28,6 +28,12 @@ export class ProviderController {
     return this.svc.findAll(req.user.workspaceId, query);
   }
 
+  @Get(':id')
+  @ApiOperation({ summary: 'Get provider profile details' })
+  async get(@Param('id') id: string, @Req() req: any) {
+    return this.svc.findOne(req.user.workspaceId, id);
+  }
+
   @Post()
   @ApiOperation({ summary: 'Create provider profile' })
   async create(@Body() body: any, @Req() req: any) {

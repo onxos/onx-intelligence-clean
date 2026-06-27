@@ -1154,6 +1154,23 @@ export class WorkspaceService {
     }
   }
 
+  async getAgentDetails(agentId: string, workspaceId: string) {
+    const item = await this.prisma.agent.findFirst({
+      where: { id: agentId, workspaceId, status: { not: 'ARCHIVED' } },
+      include: {
+        owner: {
+          select: { id: true, email: true, name: true },
+        },
+      },
+    });
+
+    if (!item) {
+      throw new NotFoundException('Agent not found');
+    }
+
+    return item;
+  }
+
   async updateAgent(
     agentId: string,
     workspaceId: string,
@@ -1296,6 +1313,25 @@ export class WorkspaceService {
       skip: normalized.skip,
       take: normalized.pageSize,
     });
+  }
+
+  async getMemoryDetails(memoryId: string, workspaceId: string, actorId: string) {
+    await this.syncExpiredMemoryEntries(workspaceId);
+
+    const item = await this.prisma.memoryEntry.findFirst({
+      where: {
+        id: memoryId,
+        workspaceId,
+        deletedAt: null,
+        AND: [{ OR: [{ accessScope: 'WORKSPACE' }, { ownerId: actorId }] }],
+      },
+    });
+
+    if (!item) {
+      throw new NotFoundException('Memory entry not found');
+    }
+
+    return item;
   }
 
   async createMemory(

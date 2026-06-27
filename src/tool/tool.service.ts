@@ -52,6 +52,18 @@ export class ToolService {
     });
   }
 
+  async findOne(workspaceId: string, id: string) {
+    const tool = await this.prisma.toolProfile.findFirst({
+      where: { id, workspaceId, status: { not: 'INACTIVE' } },
+    });
+
+    if (!tool) {
+      throw new NotFoundException('Tool profile not found');
+    }
+
+    return tool;
+  }
+
   async create(workspaceId: string, data: any, auditContext: MutationAuditContext) {
     try {
       const created = await this.prisma.toolProfile.create({

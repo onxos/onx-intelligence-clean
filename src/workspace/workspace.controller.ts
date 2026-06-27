@@ -160,6 +160,12 @@ export class WorkspaceController {
     });
   }
 
+  @Get('agents/:id')
+  @ApiOperation({ summary: 'Get agent details' })
+  async agentDetails(@Param('id') id: string, @Req() req: any) {
+    return this.svc.getAgentDetails(id, req.user.workspaceId);
+  }
+
   @Put('agents/:id')
   @ApiOperation({ summary: 'Update agent' })
   async updateAgent(@Param('id') id: string, @Req() req: any, @Body() body: any) {
@@ -182,6 +188,12 @@ export class WorkspaceController {
   @ApiOperation({ summary: 'List memory entries' })
   async memory(@Req() req: any, @Query() query: any) {
     return this.svc.listMemory(req.user.workspaceId, req.user.userId, query);
+  }
+
+  @Get('memory/:id')
+  @ApiOperation({ summary: 'Get memory entry details' })
+  async memoryDetails(@Param('id') id: string, @Req() req: any) {
+    return this.svc.getMemoryDetails(id, req.user.workspaceId, req.user.userId);
   }
 
   @Post('memory')

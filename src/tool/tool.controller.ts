@@ -28,6 +28,12 @@ export class ToolController {
     return this.svc.findAll(req.user.workspaceId, query);
   }
 
+  @Get(':id')
+  @ApiOperation({ summary: 'Get tool profile details' })
+  async get(@Param('id') id: string, @Req() req: any) {
+    return this.svc.findOne(req.user.workspaceId, id);
+  }
+
   @Post()
   @ApiOperation({ summary: 'Create tool profile' })
   async create(@Body() body: any, @Req() req: any) {

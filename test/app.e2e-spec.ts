@@ -12,6 +12,7 @@ describe('ONX Intelligence (e2e)', () => {
   let createdProviderId: string;
   let createdToolId: string;
   let createdProjectId: string;
+  let createdAgentId: string;
   let createdMemoryId: string;
   const password = 'StrongPass123!';
   const email = `e2e-${Date.now()}@onx.test`;
@@ -254,6 +255,12 @@ describe('ONX Intelligence (e2e)', () => {
     expect(createRes.body.id).toBeDefined();
     createdEvidenceId = createRes.body.id;
 
+    const getRes = await request(app.getHttpServer())
+      .get(`/evidence/${createdEvidenceId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(getRes.body.id).toBe(createdEvidenceId);
+
     const listRes = await request(app.getHttpServer())
       .get('/evidence')
       .set('Authorization', `Bearer ${authToken}`)
@@ -298,6 +305,12 @@ describe('ONX Intelligence (e2e)', () => {
       .expect(201);
     createdProviderId = providerCreate.body.id;
 
+    const providerGet = await request(app.getHttpServer())
+      .get(`/providers/${createdProviderId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(providerGet.body.id).toBe(createdProviderId);
+
     await request(app.getHttpServer())
       .put(`/providers/${createdProviderId}`)
       .set('Authorization', `Bearer ${authToken}`)
@@ -321,6 +334,12 @@ describe('ONX Intelligence (e2e)', () => {
       .send({ toolId: `tool-${Date.now()}`, toolName: 'Audit Tool' })
       .expect(201);
     createdToolId = toolCreate.body.id;
+
+    const toolGet = await request(app.getHttpServer())
+      .get(`/tools/${createdToolId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(toolGet.body.id).toBe(createdToolId);
 
     await request(app.getHttpServer())
       .put(`/tools/${createdToolId}`)
@@ -351,6 +370,24 @@ describe('ONX Intelligence (e2e)', () => {
       .set('Authorization', `Bearer ${authToken}`)
       .expect(200);
 
+    const agentCreate = await request(app.getHttpServer())
+      .post('/agents')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ name: 'Audit Agent', description: 'CRUD completeness agent' })
+      .expect(201);
+    createdAgentId = agentCreate.body.id;
+
+    const agentGet = await request(app.getHttpServer())
+      .get(`/agents/${createdAgentId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(agentGet.body.id).toBe(createdAgentId);
+
+    await request(app.getHttpServer())
+      .delete(`/agents/${createdAgentId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+
     await request(app.getHttpServer())
       .post('/sovereignty/evaluate')
       .set('Authorization', `Bearer ${authToken}`)
@@ -365,12 +402,14 @@ describe('ONX Intelligence (e2e)', () => {
     const providerAudit = await listAudit('PROVIDER_');
     const toolAudit = await listAudit('TOOL_');
     const projectAudit = await listAudit('PROJECT_');
+    const agentAudit = await listAudit('AGENT_');
     const sovereigntyAudit = await listAudit('SOVEREIGNTY_EVALUATED');
     const revokeAudit = await listAudit('AUTH_REVOKED');
 
     expect(providerAudit.length).toBeGreaterThan(0);
     expect(toolAudit.length).toBeGreaterThan(0);
     expect(projectAudit.length).toBeGreaterThan(0);
+    expect(agentAudit.length).toBeGreaterThan(0);
     expect(sovereigntyAudit.length).toBeGreaterThan(0);
     expect(revokeAudit.length).toBeGreaterThan(0);
     expectUnifiedAuditShape(providerAudit[0]);
@@ -445,6 +484,12 @@ describe('ONX Intelligence (e2e)', () => {
       .expect(200);
     expect(ownerList.body.some((item: { id: string }) => item.id === createdMemoryId)).toBe(true);
 
+    const ownerDetails = await request(app.getHttpServer())
+      .get(`/memory/${createdMemoryId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(ownerDetails.body.id).toBe(createdMemoryId);
+
     const lockRes = await request(app.getHttpServer())
       .put(`/memory/${createdMemoryId}`)
       .set('Authorization', `Bearer ${authToken}`)
@@ -466,6 +511,11 @@ describe('ONX Intelligence (e2e)', () => {
     expect(secondUserList.body.some((item: { id: string }) => item.id === createdMemoryId)).toBe(
       false,
     );
+
+    await request(app.getHttpServer())
+      .get(`/memory/${createdMemoryId}`)
+      .set('Authorization', `Bearer ${secondToken}`)
+      .expect(404);
 
     await request(app.getHttpServer())
       .put(`/memory/${createdMemoryId}`)
