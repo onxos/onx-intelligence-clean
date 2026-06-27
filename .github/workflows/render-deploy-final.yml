@@ -363,32 +363,50 @@ jobs:
           
           if status in [200, 201]:
               print(f"✓ Service configured successfully")
-              
-              # Save final configuration
-              with open('/tmp/deployed-service.json', 'w') as f:
-                  json.dump({
-                      'name': service_name,
-                      'id': service_id,
-                      'status': response.get('status', 'unknown'),
-                      'url': response.get('serviceUrl') or service_info.get('url'),
-                      'database': db_info.get('name'),
-                      'database_id': db_info.get('id')
-                  }, f, indent=2)
           else:
               print(f"⚠️  Service update returned HTTP {status}")
               print(json.dumps(response, indent=2))
-              
-              # Still save what we have
-              with open('/tmp/deployed-service.json', 'w') as f:
-                  json.dump({
-                      'name': service_name,
-                      'id': service_id,
-                      'status': service_data.get('status', 'unknown'),
-                      'url': service_info.get('url'),
-                      'database': db_info.get('name'),
-                      'database_id': db_info.get('id'),
-                      'config_update_status': status
-                  }, f, indent=2)
+
+          print(f"\n🚀 Triggering Render deployment...")
+          deploy_id = None
+          deploy_status, deploy_response = fetch_json(
+              f"https://api.render.com/v1/services/{service_id}/deploys",
+              method='POST',
+              data={}
+          )
+
+          if deploy_status in [200, 201]:
+              print("✓ Deployment triggered successfully")
+              deploy_id = deploy_response.get('id') or deploy_response.get('deploy', {}).get('id')
+              if deploy_id:
+                  print(f"   Deploy ID: {deploy_id}")
+          else:
+              print(f"⚠️  Deploy trigger returned HTTP {deploy_status}")
+              print(json.dumps(deploy_response, indent=2))
+
+          resolved_url = (
+              response.get('serviceUrl')
+              or response.get('url')
+              or service_info.get('url')
+              or f"https://{service_name}.onrender.com"
+          )
+          resolved_status = (
+              response.get('status')
+              or deploy_response.get('status')
+              or service_data.get('status', 'unknown')
+          )
+
+          with open('/tmp/deployed-service.json', 'w') as f:
+              json.dump({
+                  'name': service_name,
+                  'id': service_id,
+                  'status': resolved_status,
+                  'url': resolved_url,
+                  'database': db_info.get('name'),
+                  'database_id': db_info.get('id'),
+                  'deploy_id': deploy_id,
+                  'config_update_status': status
+              }, f, indent=2)
 
       - name: Wait for Deployment
         shell: bash
@@ -413,6 +431,10 @@ jobs:
               service_info = json.load(f)
           
           service_url = service_info.get('url')
+          service_name = service_info.get('name')
+          
+          if not service_url and service_name:
+              service_url = f"https://{service_name}.onrender.com"
           
           if not service_url:
               print("⚠️  No service URL available for health check")
