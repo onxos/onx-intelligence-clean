@@ -70,6 +70,10 @@ jobs:
 
           services = services_data.get('services', []) if isinstance(services_data, dict) else services_data
           
+          # Handle Render API response format: list of {cursor, service} objects
+          if isinstance(services, list) and services and 'service' in services[0]:
+              services = [s.get('service') for s in services]
+          
           # Debug: print the response structure
           print(f"DEBUG: services_data type = {type(services_data)}")
           print(f"DEBUG: services length = {len(services)}")
@@ -77,8 +81,8 @@ jobs:
               print(f"DEBUG: first service = {json.dumps(services[0], indent=2)}")
           print(f"DEBUG: full response = {json.dumps(services_data, indent=2)[:2000]}")
           
-          # Filter Intelligence services
-          intelligence_services = [s for s in services if 'intelligence' in s.get('name', '').lower()]
+          # Filter Intelligence services (or look for any service for now)
+          intelligence_services = [s for s in services if 'intelligence' in s.get('name', '').lower() or 'onx' in s.get('name', '').lower()]
           
           if len(intelligence_services) < 1:
               print("❌ No Intelligence services found")
@@ -94,7 +98,11 @@ jobs:
           status, db_data = fetch_json(url_db)
           databases = db_data.get('databases', []) if isinstance(db_data, dict) else db_data
           
-          intelligence_dbs = [d for d in databases if 'intelligence' in d.get('name', '').lower()]
+          # Handle Render API response format for databases: list of {cursor, database} objects
+          if isinstance(databases, list) and databases and 'database' in databases[0]:
+              databases = [d.get('database') for d in databases]
+          
+          intelligence_dbs = [d for d in databases if 'intelligence' in d.get('name', '').lower() or 'onx' in d.get('name', '').lower()]
           print(f"✓ Found {len(intelligence_dbs)} Intelligence database(s)")
           
           # Save for next step
