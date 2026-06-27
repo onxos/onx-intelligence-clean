@@ -13,6 +13,7 @@ describe('ONX Intelligence (e2e)', () => {
   let createdToolId: string;
   let createdProjectId: string;
   let createdAgentId: string;
+  let createdSourceId: string;
   let createdMemoryId: string;
   const password = 'StrongPass123!';
   const email = `e2e-${Date.now()}@onx.test`;
@@ -658,5 +659,194 @@ describe('ONX Intelligence (e2e)', () => {
 
     await request(app.getHttpServer()).get('/reports').expect(401);
     await request(app.getHttpServer()).get('/monitoring').expect(401);
+  });
+
+  it('workspace domain completeness covers CRUD, restore, ownership, pagination/filter/sort, validation, and compatibility', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).get('/projects').expect(401);
+      return;
+    }
+
+    await request(app.getHttpServer())
+      .get('/projects?sortOrder=sideways')
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .get('/agents?page=0')
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(400);
+
+    const projectName = `Workspace Project ${Date.now()}`;
+    const projectCreate = await request(app.getHttpServer())
+      .post('/projects')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ name: projectName, description: 'workspace completeness project' })
+      .expect(201);
+    createdProjectId = projectCreate.body.id;
+
+    await request(app.getHttpServer())
+      .get(`/projects/${createdProjectId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .get(`/projects?search=${encodeURIComponent('Workspace Project')}&page=1&pageSize=5&sortBy=createdAt&sortOrder=desc`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .put(`/projects/${createdProjectId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ description: 'updated completeness project' })
+      .expect(200);
+
+    const peerToken = await registerAndLogin(`e2e-workspace-peer-${Date.now()}@onx.test`);
+    await request(app.getHttpServer())
+      .put(`/projects/${createdProjectId}`)
+      .set('Authorization', `Bearer ${peerToken}`)
+      .send({ description: 'unauthorized update' })
+      .expect(404);
+
+    await request(app.getHttpServer())
+      .delete(`/projects/${createdProjectId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .get(`/projects/${createdProjectId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(404);
+
+    await request(app.getHttpServer())
+      .post(`/projects/${createdProjectId}/restore`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .get(`/projects/${createdProjectId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+
+    const agentCreate = await request(app.getHttpServer())
+      .post('/agents')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        name: `Workspace Agent ${Date.now()}`,
+        description: 'workspace completeness agent',
+      })
+      .expect(201);
+    createdAgentId = agentCreate.body.id;
+
+    await request(app.getHttpServer())
+      .delete(`/agents/${createdAgentId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post(`/agents/${createdAgentId}/restore`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(201);
+
+    const sourceCreate = await request(app.getHttpServer())
+      .post('/sources')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        action: 'WORKSPACE_COMPLETENESS',
+        resource: 'PROJECT',
+      })
+      .expect(201);
+    createdSourceId = sourceCreate.body.id;
+
+    await request(app.getHttpServer())
+      .get(`/sources/${createdSourceId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .put(`/sources/${createdSourceId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ action: 'WORKSPACE_COMPLETENESS_UPDATED' })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .delete(`/sources/${createdSourceId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .get(`/sources/${createdSourceId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(404);
+
+    await request(app.getHttpServer())
+      .post(`/sources/${createdSourceId}/restore`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .get(`/sources/${createdSourceId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+
+    const workspaceMemory = await request(app.getHttpServer())
+      .post('/memory')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        title: `Workspace Memory ${Date.now()}`,
+        content: 'workspace memory integration record',
+        classification: 'INSTITUTIONAL',
+        accessScope: 'WORKSPACE',
+      })
+      .expect(201);
+    createdMemoryId = workspaceMemory.body.id;
+
+    await request(app.getHttpServer())
+      .get(`/memory/${createdMemoryId}`)
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .put(`/memory/${createdMemoryId}`)
+      .set('Authorization', `Bearer ${peerToken}`)
+      .send({ title: 'peer mutation should fail' })
+      .expect(404);
+
+    await request(app.getHttpServer())
+      .delete(`/memory/${createdMemoryId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post(`/memory/${createdMemoryId}/restore`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .get('/monitoring')
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+
+    const reportsRes = await request(app.getHttpServer())
+      .get('/reports?includeDetails=true&module=workspace&page=1&pageSize=5&sortBy=createdAt&sortOrder=desc')
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(reportsRes.body.workspaceSummary).toBeDefined();
+    expect(reportsRes.body.details.workspace).toBeDefined();
+
+    const workspaceAudit = await request(app.getHttpServer())
+      .get('/monitoring/audit?search=RESTORED&sortBy=createdAt&sortOrder=desc&page=1&pageSize=20')
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(Array.isArray(workspaceAudit.body)).toBe(true);
+    expect(
+      workspaceAudit.body.some((item: any) =>
+        ['PROJECT_RESTORED', 'AGENT_RESTORED', 'SOURCE_RESTORED', 'MEMORY_RESTORED'].includes(
+          item.action,
+        ),
+      ),
+    ).toBe(true);
+
+    await request(app.getHttpServer()).get('/projects').expect(401);
   });
 });

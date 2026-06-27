@@ -210,7 +210,7 @@ export class WorkspaceController {
   @Put('projects/:id')
   @ApiOperation({ summary: 'Update project' })
   async updateProject(@Param('id') id: string, @Req() req: any, @Body() body: any) {
-    return this.svc.updateProject(id, req.user.workspaceId, body, {
+    return this.svc.updateProject(id, req.user.workspaceId, req.user.userId, body, {
       actorId: req.user.userId,
       ...getRequestAuditContext(req),
     });
@@ -219,7 +219,16 @@ export class WorkspaceController {
   @Delete('projects/:id')
   @ApiOperation({ summary: 'Delete project' })
   async deleteProject(@Param('id') id: string, @Req() req: any) {
-    return this.svc.deleteProject(id, req.user.workspaceId, {
+    return this.svc.deleteProject(id, req.user.workspaceId, req.user.userId, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
+  }
+
+  @Post('projects/:id/restore')
+  @ApiOperation({ summary: 'Restore archived project' })
+  async restoreProject(@Param('id') id: string, @Req() req: any) {
+    return this.svc.restoreProject(id, req.user.workspaceId, req.user.userId, {
       actorId: req.user.userId,
       ...getRequestAuditContext(req),
     });
@@ -288,7 +297,7 @@ export class WorkspaceController {
   @Put('sources/:id')
   @ApiOperation({ summary: 'Update source/provenance record' })
   async updateSource(@Param('id') id: string, @Req() req: any, @Body() body: any) {
-    return this.svc.updateSource(id, req.user.workspaceId, body, {
+    return this.svc.updateSource(id, req.user.workspaceId, req.user.userId, body, {
       actorId: req.user.userId,
       ...getRequestAuditContext(req),
     });
@@ -297,7 +306,16 @@ export class WorkspaceController {
   @Delete('sources/:id')
   @ApiOperation({ summary: 'Delete source/provenance record' })
   async deleteSource(@Param('id') id: string, @Req() req: any) {
-    return this.svc.deleteSource(id, req.user.workspaceId, {
+    return this.svc.deleteSource(id, req.user.workspaceId, req.user.userId, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
+  }
+
+  @Post('sources/:id/restore')
+  @ApiOperation({ summary: 'Restore deleted source/provenance record' })
+  async restoreSource(@Param('id') id: string, @Req() req: any) {
+    return this.svc.restoreSource(id, req.user.workspaceId, req.user.userId, {
       actorId: req.user.userId,
       ...getRequestAuditContext(req),
     });
@@ -327,7 +345,7 @@ export class WorkspaceController {
   @Put('agents/:id')
   @ApiOperation({ summary: 'Update agent' })
   async updateAgent(@Param('id') id: string, @Req() req: any, @Body() body: any) {
-    return this.svc.updateAgent(id, req.user.workspaceId, body, {
+    return this.svc.updateAgent(id, req.user.workspaceId, req.user.userId, body, {
       actorId: req.user.userId,
       ...getRequestAuditContext(req),
     });
@@ -336,7 +354,16 @@ export class WorkspaceController {
   @Delete('agents/:id')
   @ApiOperation({ summary: 'Delete agent' })
   async deleteAgent(@Param('id') id: string, @Req() req: any) {
-    return this.svc.deleteAgent(id, req.user.workspaceId, {
+    return this.svc.deleteAgent(id, req.user.workspaceId, req.user.userId, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
+  }
+
+  @Post('agents/:id/restore')
+  @ApiOperation({ summary: 'Restore archived agent' })
+  async restoreAgent(@Param('id') id: string, @Req() req: any) {
+    return this.svc.restoreAgent(id, req.user.workspaceId, req.user.userId, {
       actorId: req.user.userId,
       ...getRequestAuditContext(req),
     });
@@ -376,6 +403,15 @@ export class WorkspaceController {
   @ApiOperation({ summary: 'Delete memory entry' })
   async deleteMemory(@Param('id') id: string, @Req() req: any) {
     return this.svc.deleteMemory(id, req.user.workspaceId, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
+  }
+
+  @Post('memory/:id/restore')
+  @ApiOperation({ summary: 'Restore deleted memory entry' })
+  async restoreMemory(@Param('id') id: string, @Req() req: any) {
+    return this.svc.restoreMemory(id, req.user.workspaceId, {
       actorId: req.user.userId,
       ...getRequestAuditContext(req),
     });

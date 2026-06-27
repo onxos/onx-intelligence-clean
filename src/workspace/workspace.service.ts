@@ -133,6 +133,56 @@ export class WorkspaceService {
     return parsed;
   }
 
+  private normalizeWorkspaceListQuery(
+    query: {
+      search?: string;
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc' | string;
+      page?: number | string;
+      pageSize?: number | string;
+    } | undefined,
+    options: {
+      allowedSortFields: readonly string[];
+      defaultSortBy: string;
+      defaultPageSize?: number;
+    },
+  ) {
+    const pageSize = this.parseBoundedInteger(
+      query?.pageSize,
+      'pageSize',
+      options.defaultPageSize ?? 50,
+      100,
+    );
+    const page = this.parseBoundedInteger(query?.page, 'page', 1, 10000);
+    const sortBy = query?.sortBy || options.defaultSortBy;
+    if (!options.allowedSortFields.includes(sortBy)) {
+      throw new BadRequestException(
+        `sortBy must be one of: ${options.allowedSortFields.join(', ')}`,
+      );
+    }
+
+    const sortOrder = query?.sortOrder || 'desc';
+    if (sortOrder !== 'asc' && sortOrder !== 'desc') {
+      throw new BadRequestException('sortOrder must be asc or desc');
+    }
+
+    const search = query?.search?.trim();
+    if (search && search.length > MAX_MEMORY_SEARCH_LENGTH) {
+      throw new BadRequestException(
+        `search must be at most ${MAX_MEMORY_SEARCH_LENGTH} characters`,
+      );
+    }
+
+    return {
+      page,
+      pageSize,
+      skip: (page - 1) * pageSize,
+      sortBy,
+      sortOrder,
+      search,
+    };
+  }
+
   private normalizeMemoryCategory(value: unknown, fallback = 'GENERAL') {
     if (value === undefined || value === null || value === '') {
       return fallback;
@@ -460,20 +510,19 @@ export class WorkspaceService {
       pageSize?: number;
     },
   ) {
-    const pageSize = Number(query?.pageSize || 50);
-    const page = Number(query?.page || 1);
-    const skip = (page - 1) * pageSize;
-    const sortBy = query?.sortBy || 'createdAt';
-    const sortOrder = query?.sortOrder || 'desc';
+    const normalized = this.normalizeWorkspaceListQuery(query, {
+      allowedSortFields: ['createdAt', 'updatedAt', 'name', 'status'],
+      defaultSortBy: 'createdAt',
+    });
 
     return this.prisma.project.findMany({
       where: {
         workspaceId,
         ...(query?.status ? { status: query.status } : { status: { not: 'ARCHIVED' } }),
-        ...(query?.search && {
+        ...(normalized.search && {
           OR: [
-            { name: { contains: query.search, mode: 'insensitive' } },
-            { description: { contains: query.search, mode: 'insensitive' } },
+            { name: { contains: normalized.search, mode: 'insensitive' } },
+            { description: { contains: normalized.search, mode: 'insensitive' } },
           ],
         }),
       },
@@ -482,9 +531,9 @@ export class WorkspaceService {
           select: { id: true, email: true, name: true },
         },
       },
-      orderBy: { [sortBy]: sortOrder } as any,
-      skip,
-      take: pageSize,
+      orderBy: { [normalized.sortBy]: normalized.sortOrder } as any,
+      skip: normalized.skip,
+      take: normalized.pageSize,
     });
   }
 
@@ -549,13 +598,14 @@ export class WorkspaceService {
   async updateProject(
     projectId: string,
     workspaceId: string,
+    actorId: string,
     data: { name?: string; description?: string; status?: string },
     auditContext: MutationAuditContext,
   ) {
     let existing: any = null;
     try {
       existing = await this.prisma.project.findFirst({
-        where: { id: projectId, workspaceId, status: { not: 'ARCHIVED' } },
+        where: { id: projectId, workspaceId, ownerId: actorId, status: { not: 'ARCHIVED' } },
       });
       if (!existing) {
         throw new NotFoundException('Project not found');
@@ -595,11 +645,16 @@ export class WorkspaceService {
     }
   }
 
-  async deleteProject(projectId: string, workspaceId: string, auditContext: MutationAuditContext) {
+  async deleteProject(
+    projectId: string,
+    workspaceId: string,
+    actorId: string,
+    auditContext: MutationAuditContext,
+  ) {
     let existing: any = null;
     try {
       existing = await this.prisma.project.findFirst({
-        where: { id: projectId, workspaceId, status: { not: 'ARCHIVED' } },
+        where: { id: projectId, workspaceId, ownerId: actorId, status: { not: 'ARCHIVED' } },
       });
       if (!existing) {
         throw new NotFoundException('Project not found');
@@ -634,6 +689,51 @@ export class WorkspaceService {
     }
   }
 
+  async restoreProject(
+    projectId: string,
+    workspaceId: string,
+    actorId: string,
+    auditContext: MutationAuditContext,
+  ) {
+    let existing: any = null;
+    try {
+      existing = await this.prisma.project.findFirst({
+        where: { id: projectId, workspaceId, ownerId: actorId, status: 'ARCHIVED' },
+      });
+      if (!existing) {
+        throw new NotFoundException('Project not found');
+      }
+
+      const restored = await this.prisma.project.update({
+        where: { id: existing.id },
+        data: { status: 'ACTIVE' },
+      });
+
+      await this.logMutationSuccess({
+        action: 'PROJECT_RESTORED',
+        resourceType: 'Project',
+        resourceId: restored.id,
+        workspaceId,
+        before: { status: existing.status },
+        after: { status: restored.status },
+        context: auditContext,
+      });
+
+      return restored;
+    } catch (error: any) {
+      await this.logMutationFailure({
+        action: 'PROJECT_RESTORED',
+        resourceType: 'Project',
+        resourceId: existing?.id ?? projectId,
+        workspaceId,
+        before: existing ? { status: existing.status } : null,
+        context: auditContext,
+        error,
+      });
+      throw error;
+    }
+  }
+
   async listKnowledgeAssets(
     workspaceId: string,
     query?: {
@@ -645,28 +745,27 @@ export class WorkspaceService {
       pageSize?: number;
     },
   ) {
-    const pageSize = Number(query?.pageSize || 50);
-    const page = Number(query?.page || 1);
-    const skip = (page - 1) * pageSize;
-    const sortBy = query?.sortBy || 'createdAt';
-    const sortOrder = query?.sortOrder || 'desc';
+    const normalized = this.normalizeWorkspaceListQuery(query, {
+      allowedSortFields: ['createdAt', 'updatedAt', 'name', 'objectType', 'state'],
+      defaultSortBy: 'createdAt',
+    });
 
     const items = await this.prisma.intelligenceObject.findMany({
       where: {
         workspaceId,
         state: { not: 'ARCHIVED' },
         ...(query?.objectType && { objectType: query.objectType as any }),
-        ...(query?.search && {
+        ...(normalized.search && {
           OR: [
-            { name: { contains: query.search, mode: 'insensitive' } },
-            { content: { contains: query.search, mode: 'insensitive' } },
-            { semanticSummary: { contains: query.search, mode: 'insensitive' } },
+            { name: { contains: normalized.search, mode: 'insensitive' } },
+            { content: { contains: normalized.search, mode: 'insensitive' } },
+            { semanticSummary: { contains: normalized.search, mode: 'insensitive' } },
           ],
         }),
       },
-      orderBy: { [sortBy]: sortOrder } as any,
-      skip,
-      take: pageSize,
+      orderBy: { [normalized.sortBy]: normalized.sortOrder } as any,
+      skip: normalized.skip,
+      take: normalized.pageSize,
     });
 
     return items;
@@ -853,11 +952,10 @@ export class WorkspaceService {
       pageSize?: number;
     },
   ) {
-    const pageSize = Number(query?.pageSize || 50);
-    const page = Number(query?.page || 1);
-    const skip = (page - 1) * pageSize;
-    const sortBy = query?.sortBy || 'createdAt';
-    const sortOrder = query?.sortOrder || 'desc';
+    const normalized = this.normalizeWorkspaceListQuery(query, {
+      allowedSortFields: ['createdAt', 'action', 'resource', 'actorId'],
+      defaultSortBy: 'createdAt',
+    });
 
     const items = await this.prisma.provenanceRecord.findMany({
       where: {
@@ -865,18 +963,18 @@ export class WorkspaceService {
         deletedAt: null,
         ...(query?.action && { action: { equals: query.action, mode: 'insensitive' } }),
         ...(query?.resource && { resource: { equals: query.resource, mode: 'insensitive' } }),
-        ...(query?.search && {
+        ...(normalized.search && {
           OR: [
-            { action: { contains: query.search, mode: 'insensitive' } },
-            { resource: { contains: query.search, mode: 'insensitive' } },
-            { resourceId: { contains: query.search, mode: 'insensitive' } },
-            { actorId: { contains: query.search, mode: 'insensitive' } },
+            { action: { contains: normalized.search, mode: 'insensitive' } },
+            { resource: { contains: normalized.search, mode: 'insensitive' } },
+            { resourceId: { contains: normalized.search, mode: 'insensitive' } },
+            { actorId: { contains: normalized.search, mode: 'insensitive' } },
           ],
         }),
       },
-      orderBy: { [sortBy]: sortOrder } as any,
-      skip,
-      take: pageSize,
+      orderBy: { [normalized.sortBy]: normalized.sortOrder } as any,
+      skip: normalized.skip,
+      take: normalized.pageSize,
     });
 
     return items;
@@ -958,6 +1056,7 @@ export class WorkspaceService {
   async updateSource(
     id: string,
     workspaceId: string,
+    actorId: string,
     data: {
       action?: string;
       resource?: string;
@@ -970,7 +1069,7 @@ export class WorkspaceService {
     let existing: any = null;
     try {
       existing = await this.prisma.provenanceRecord.findFirst({
-        where: { id, workspaceId, deletedAt: null },
+        where: { id, workspaceId, actorId, deletedAt: null },
       });
       if (!existing) {
         throw new NotFoundException('Source record not found');
@@ -1023,11 +1122,16 @@ export class WorkspaceService {
     }
   }
 
-  async deleteSource(id: string, workspaceId: string, auditContext: MutationAuditContext) {
+  async deleteSource(
+    id: string,
+    workspaceId: string,
+    actorId: string,
+    auditContext: MutationAuditContext,
+  ) {
     let existing: any = null;
     try {
       existing = await this.prisma.provenanceRecord.findFirst({
-        where: { id, workspaceId, deletedAt: null },
+        where: { id, workspaceId, actorId, deletedAt: null },
       });
       if (!existing) {
         throw new NotFoundException('Source record not found');
@@ -1062,6 +1166,51 @@ export class WorkspaceService {
     }
   }
 
+  async restoreSource(
+    id: string,
+    workspaceId: string,
+    actorId: string,
+    auditContext: MutationAuditContext,
+  ) {
+    let existing: any = null;
+    try {
+      existing = await this.prisma.provenanceRecord.findFirst({
+        where: { id, workspaceId, actorId, deletedAt: { not: null } },
+      });
+      if (!existing) {
+        throw new NotFoundException('Source record not found');
+      }
+
+      const restored = await this.prisma.provenanceRecord.update({
+        where: { id: existing.id },
+        data: { deletedAt: null },
+      });
+
+      await this.logMutationSuccess({
+        action: 'SOURCE_RESTORED',
+        resourceType: 'ProvenanceRecord',
+        resourceId: restored.id,
+        workspaceId,
+        before: { deletedAt: existing.deletedAt },
+        after: { deletedAt: restored.deletedAt },
+        context: auditContext,
+      });
+
+      return restored;
+    } catch (error: any) {
+      await this.logMutationFailure({
+        action: 'SOURCE_RESTORED',
+        resourceType: 'ProvenanceRecord',
+        resourceId: existing?.id ?? id,
+        workspaceId,
+        before: existing ? { deletedAt: existing.deletedAt } : null,
+        context: auditContext,
+        error,
+      });
+      throw error;
+    }
+  }
+
   async listAgents(
     workspaceId: string,
     query?: {
@@ -1073,20 +1222,19 @@ export class WorkspaceService {
       pageSize?: number;
     },
   ) {
-    const pageSize = Number(query?.pageSize || 50);
-    const page = Number(query?.page || 1);
-    const skip = (page - 1) * pageSize;
-    const sortBy = query?.sortBy || 'createdAt';
-    const sortOrder = query?.sortOrder || 'desc';
+    const normalized = this.normalizeWorkspaceListQuery(query, {
+      allowedSortFields: ['createdAt', 'updatedAt', 'name', 'status', 'model'],
+      defaultSortBy: 'createdAt',
+    });
 
     return this.prisma.agent.findMany({
       where: {
         workspaceId,
         ...(query?.status ? { status: query.status } : { status: { not: 'ARCHIVED' } }),
-        ...(query?.search && {
+        ...(normalized.search && {
           OR: [
-            { name: { contains: query.search, mode: 'insensitive' } },
-            { description: { contains: query.search, mode: 'insensitive' } },
+            { name: { contains: normalized.search, mode: 'insensitive' } },
+            { description: { contains: normalized.search, mode: 'insensitive' } },
           ],
         }),
       },
@@ -1095,9 +1243,9 @@ export class WorkspaceService {
           select: { id: true, email: true, name: true },
         },
       },
-      orderBy: { [sortBy]: sortOrder } as any,
-      skip,
-      take: pageSize,
+      orderBy: { [normalized.sortBy]: normalized.sortOrder } as any,
+      skip: normalized.skip,
+      take: normalized.pageSize,
     });
   }
 
@@ -1174,6 +1322,7 @@ export class WorkspaceService {
   async updateAgent(
     agentId: string,
     workspaceId: string,
+    actorId: string,
     data: {
       name?: string;
       description?: string;
@@ -1187,7 +1336,7 @@ export class WorkspaceService {
     let existing: any = null;
     try {
       existing = await this.prisma.agent.findFirst({
-        where: { id: agentId, workspaceId, status: { not: 'ARCHIVED' } },
+        where: { id: agentId, workspaceId, ownerId: actorId, status: { not: 'ARCHIVED' } },
       });
       if (!existing) {
         throw new NotFoundException('Agent not found');
@@ -1230,11 +1379,16 @@ export class WorkspaceService {
     }
   }
 
-  async deleteAgent(agentId: string, workspaceId: string, auditContext: MutationAuditContext) {
+  async deleteAgent(
+    agentId: string,
+    workspaceId: string,
+    actorId: string,
+    auditContext: MutationAuditContext,
+  ) {
     let existing: any = null;
     try {
       existing = await this.prisma.agent.findFirst({
-        where: { id: agentId, workspaceId, status: { not: 'ARCHIVED' } },
+        where: { id: agentId, workspaceId, ownerId: actorId, status: { not: 'ARCHIVED' } },
       });
       if (!existing) {
         throw new NotFoundException('Agent not found');
@@ -1259,6 +1413,51 @@ export class WorkspaceService {
         resourceId: existing?.id ?? agentId,
         workspaceId,
         before: existing ? { name: existing.name, status: existing.status } : null,
+        context: auditContext,
+        error,
+      });
+      throw error;
+    }
+  }
+
+  async restoreAgent(
+    agentId: string,
+    workspaceId: string,
+    actorId: string,
+    auditContext: MutationAuditContext,
+  ) {
+    let existing: any = null;
+    try {
+      existing = await this.prisma.agent.findFirst({
+        where: { id: agentId, workspaceId, ownerId: actorId, status: 'ARCHIVED' },
+      });
+      if (!existing) {
+        throw new NotFoundException('Agent not found');
+      }
+
+      const restored = await this.prisma.agent.update({
+        where: { id: existing.id },
+        data: { status: 'ACTIVE' },
+      });
+
+      await this.logMutationSuccess({
+        action: 'AGENT_RESTORED',
+        resourceType: 'Agent',
+        resourceId: restored.id,
+        workspaceId,
+        before: { status: existing.status },
+        after: { status: restored.status },
+        context: auditContext,
+      });
+
+      return restored;
+    } catch (error: any) {
+      await this.logMutationFailure({
+        action: 'AGENT_RESTORED',
+        resourceType: 'Agent',
+        resourceId: existing?.id ?? agentId,
+        workspaceId,
+        before: existing ? { status: existing.status } : null,
         context: auditContext,
         error,
       });
@@ -1432,7 +1631,7 @@ export class WorkspaceService {
           id: memoryId,
           workspaceId,
           deletedAt: null,
-          AND: [{ OR: [{ accessScope: 'WORKSPACE' }, { ownerId: auditContext.actorId }] }],
+          ownerId: auditContext.actorId,
         },
       });
       if (!existing) {
@@ -1527,7 +1726,7 @@ export class WorkspaceService {
           id: memoryId,
           workspaceId,
           deletedAt: null,
-          AND: [{ OR: [{ accessScope: 'WORKSPACE' }, { ownerId: auditContext.actorId }] }],
+          ownerId: auditContext.actorId,
         },
       });
       if (!existing) {
@@ -1578,6 +1777,70 @@ export class WorkspaceService {
     }
   }
 
+  async restoreMemory(memoryId: string, workspaceId: string, auditContext: MutationAuditContext) {
+    let existing: any = null;
+    try {
+      await this.syncExpiredMemoryEntries(workspaceId);
+      existing = await this.prisma.memoryEntry.findFirst({
+        where: {
+          id: memoryId,
+          workspaceId,
+          ownerId: auditContext.actorId,
+          deletedAt: { not: null },
+        },
+      });
+      if (!existing) {
+        throw new NotFoundException('Memory entry not found');
+      }
+
+      const restored = await this.prisma.memoryEntry.update({
+        where: { id: existing.id },
+        data: {
+          deletedAt: null,
+          lifecycleStatus: existing.expiresAt <= new Date() ? 'EXPIRED' : existing.lifecycleStatus,
+        },
+      });
+
+      await this.logMutationSuccess({
+        action: 'MEMORY_RESTORED',
+        resourceType: 'MemoryEntry',
+        resourceId: restored.id,
+        workspaceId,
+        before: {
+          deletedAt: existing.deletedAt,
+          lifecycleStatus: existing.lifecycleStatus,
+        },
+        after: {
+          deletedAt: restored.deletedAt,
+          lifecycleStatus: restored.lifecycleStatus,
+        },
+        context: auditContext,
+        metadata: {
+          classification: restored.classification,
+          accessScope: restored.accessScope,
+          lifecycleStatus: restored.lifecycleStatus,
+          retentionDays: restored.retentionDays,
+          expiresAt: restored.expiresAt?.toISOString?.() ?? restored.expiresAt,
+        },
+      });
+
+      return restored;
+    } catch (error: any) {
+      await this.logMutationFailure({
+        action: 'MEMORY_RESTORED',
+        resourceType: 'MemoryEntry',
+        resourceId: existing?.id ?? memoryId,
+        workspaceId,
+        before: existing
+          ? { deletedAt: existing.deletedAt, lifecycleStatus: existing.lifecycleStatus }
+          : null,
+        context: auditContext,
+        error,
+      });
+      throw error;
+    }
+  }
+
   async listModels(
     workspaceId: string,
     query?: {
@@ -1589,6 +1852,11 @@ export class WorkspaceService {
       pageSize?: number;
     },
   ) {
+    this.normalizeWorkspaceListQuery(query, {
+      allowedSortFields: ['providerName', 'providerId', 'model'],
+      defaultSortBy: 'providerName',
+    });
+
     const providers = await this.prisma.providerProfile.findMany({
       where: { workspaceId, status: { not: 'INACTIVE' } },
       orderBy: { priority: 'asc' },
@@ -1633,8 +1901,8 @@ export class WorkspaceService {
       return sortOrder === 'asc' ? (av > bv ? 1 : -1) : av > bv ? -1 : 1;
     });
 
-    const pageSize = Number(query?.pageSize || 50);
-    const page = Number(query?.page || 1);
+    const pageSize = this.parseBoundedInteger(query?.pageSize, 'pageSize', 50, 100);
+    const page = this.parseBoundedInteger(query?.page, 'page', 1, 10000);
     const skip = (page - 1) * pageSize;
     return items.slice(skip, skip + pageSize);
   }
@@ -1825,11 +2093,10 @@ export class WorkspaceService {
       pageSize?: number;
     },
   ) {
-    const pageSize = Number(query?.pageSize || 50);
-    const page = Number(query?.page || 1);
-    const skip = (page - 1) * pageSize;
-    const sortBy = query?.sortBy || 'createdAt';
-    const sortOrder = query?.sortOrder || 'desc';
+    const normalized = this.normalizeWorkspaceListQuery(query, {
+      allowedSortFields: ['createdAt', 'intent', 'iseScore'],
+      defaultSortBy: 'createdAt',
+    });
 
     const items = await this.prisma.providerEvaluation.findMany({
       where: {
@@ -1845,8 +2112,8 @@ export class WorkspaceService {
             ],
           }),
         },
-        ...(query?.search && {
-          OR: [{ intent: { contains: query.search, mode: 'insensitive' } }],
+        ...(normalized.search && {
+          OR: [{ intent: { contains: normalized.search, mode: 'insensitive' } }],
         }),
       },
       include: {
@@ -1857,9 +2124,9 @@ export class WorkspaceService {
           },
         },
       },
-      orderBy: { [sortBy]: sortOrder } as any,
-      skip,
-      take: pageSize,
+      orderBy: { [normalized.sortBy]: normalized.sortOrder } as any,
+      skip: normalized.skip,
+      take: normalized.pageSize,
     });
 
     return items;
