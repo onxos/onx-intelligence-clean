@@ -691,7 +691,9 @@ describe('ONX Intelligence (e2e)', () => {
       .expect(200);
 
     await request(app.getHttpServer())
-      .get(`/projects?search=${encodeURIComponent('Workspace Project')}&page=1&pageSize=5&sortBy=createdAt&sortOrder=desc`)
+      .get(
+        `/projects?search=${encodeURIComponent('Workspace Project')}&page=1&pageSize=5&sortBy=createdAt&sortOrder=desc`,
+      )
       .set('Authorization', `Bearer ${authToken}`)
       .expect(200);
 
@@ -828,7 +830,9 @@ describe('ONX Intelligence (e2e)', () => {
       .expect(200);
 
     const reportsRes = await request(app.getHttpServer())
-      .get('/reports?includeDetails=true&module=workspace&page=1&pageSize=5&sortBy=createdAt&sortOrder=desc')
+      .get(
+        '/reports?includeDetails=true&module=workspace&page=1&pageSize=5&sortBy=createdAt&sortOrder=desc',
+      )
       .set('Authorization', `Bearer ${authToken}`)
       .expect(200);
     expect(reportsRes.body.workspaceSummary).toBeDefined();

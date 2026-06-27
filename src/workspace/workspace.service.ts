@@ -134,13 +134,15 @@ export class WorkspaceService {
   }
 
   private normalizeWorkspaceListQuery(
-    query: {
-      search?: string;
-      sortBy?: string;
-      sortOrder?: 'asc' | 'desc' | string;
-      page?: number | string;
-      pageSize?: number | string;
-    } | undefined,
+    query:
+      | {
+          search?: string;
+          sortBy?: string;
+          sortOrder?: 'asc' | 'desc' | string;
+          page?: number | string;
+          pageSize?: number | string;
+        }
+      | undefined,
     options: {
       allowedSortFields: readonly string[];
       defaultSortBy: string;
