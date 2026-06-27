@@ -588,7 +588,9 @@ describe('ONX Intelligence (e2e)', () => {
     );
 
     const reportsDetails = await request(app.getHttpServer())
-      .get('/reports?includeDetails=true&module=memory&page=1&pageSize=5&sortBy=createdAt&sortOrder=desc')
+      .get(
+        '/reports?includeDetails=true&module=memory&page=1&pageSize=5&sortBy=createdAt&sortOrder=desc',
+      )
       .set('Authorization', `Bearer ${authToken}`)
       .expect(200);
 
@@ -604,7 +606,9 @@ describe('ONX Intelligence (e2e)', () => {
 
     const today = new Date().toISOString().slice(0, 10);
     await request(app.getHttpServer())
-      .get(`/reports?from=${today}&to=${today}&includeDetails=true&module=evidence&page=1&pageSize=5`)
+      .get(
+        `/reports?from=${today}&to=${today}&includeDetails=true&module=evidence&page=1&pageSize=5`,
+      )
       .set('Authorization', `Bearer ${authToken}`)
       .expect(200);
 

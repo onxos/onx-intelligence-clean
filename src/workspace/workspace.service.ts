@@ -2148,7 +2148,9 @@ export class WorkspaceService {
     const search = value.trim();
     if (!search) return undefined;
     if (search.length > MAX_MEMORY_SEARCH_LENGTH) {
-      throw new BadRequestException(`search must be at most ${MAX_MEMORY_SEARCH_LENGTH} characters`);
+      throw new BadRequestException(
+        `search must be at most ${MAX_MEMORY_SEARCH_LENGTH} characters`,
+      );
     }
     return search;
   }
@@ -2216,7 +2218,10 @@ export class WorkspaceService {
     const { fromDate, toDate } = this.normalizeReportingDateRange(query?.from, query?.to);
     const createdAt = this.buildCreatedAtFilter(fromDate, toDate);
     const search = this.normalizeReportingSearch(query?.search);
-    const { page, pageSize, skip } = this.normalizeReportingPagination(query?.page, query?.pageSize);
+    const { page, pageSize, skip } = this.normalizeReportingPagination(
+      query?.page,
+      query?.pageSize,
+    );
     const sortOrder = this.normalizeReportingSortOrder(query?.sortOrder);
     const includeDetails = Boolean(query?.includeDetails);
     const moduleFilter = query?.module || 'all';
@@ -2403,7 +2408,9 @@ export class WorkspaceService {
     ] = await Promise.all([
       this.prisma.intelligenceObject.count({ where: intelligenceWhere }),
       this.prisma.evidenceRecord.count({ where: evidenceWhere }),
-      this.prisma.providerProfile.count({ where: { ...providerWhere, status: { not: 'INACTIVE' } } }),
+      this.prisma.providerProfile.count({
+        where: { ...providerWhere, status: { not: 'INACTIVE' } },
+      }),
       this.prisma.providerProfile.count({ where: { ...providerWhere, status: 'INACTIVE' } }),
       this.prisma.toolProfile.count({ where: { ...toolWhere, status: { not: 'INACTIVE' } } }),
       this.prisma.toolProfile.count({ where: { ...toolWhere, status: 'INACTIVE' } }),
@@ -2413,12 +2420,28 @@ export class WorkspaceService {
       this.prisma.providerEvaluation.count({ where: evaluationWhere }),
       this.prisma.memoryEntry.count({ where: memoryWhere }),
       this.prisma.governanceDecision.count({ where: governanceWhere }),
-      this.prisma.capitalRecord.aggregate({ where: capitalWhere, _sum: { amount: true }, _avg: { amount: true } }),
-      this.prisma.evidenceRecord.aggregate({ where: evidenceWhere, _avg: { confidence: true }, _sum: { cost: true } }),
-      this.prisma.intelligenceObject.aggregate({ where: intelligenceWhere, _avg: { amanahScore: true, qualityIndex: true }, _sum: { capitalValue: true } }),
+      this.prisma.capitalRecord.aggregate({
+        where: capitalWhere,
+        _sum: { amount: true },
+        _avg: { amount: true },
+      }),
+      this.prisma.evidenceRecord.aggregate({
+        where: evidenceWhere,
+        _avg: { confidence: true },
+        _sum: { cost: true },
+      }),
+      this.prisma.intelligenceObject.aggregate({
+        where: intelligenceWhere,
+        _avg: { amanahScore: true, qualityIndex: true },
+        _sum: { capitalValue: true },
+      }),
       this.prisma.auditLog.count({ where: auditWhere }),
       this.prisma.sovereigntyMetric.count({ where: sovereigntyMetricWhere }),
-      this.prisma.sovereigntyMetric.findMany({ where: sovereigntyMetricWhere, orderBy: { createdAt: 'desc' }, take: 5 }),
+      this.prisma.sovereigntyMetric.findMany({
+        where: sovereigntyMetricWhere,
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      }),
       this.prisma.providerProfile.findMany({
         where: { ...providerWhere, status: { not: 'INACTIVE' } },
         orderBy: { iseScore: 'desc' },
@@ -2500,7 +2523,9 @@ export class WorkspaceService {
       healthSummary: {
         status: healthStatus,
         auditFailureRate:
-          auditRows.length > 0 ? Math.round((failedAuditCount / auditRows.length) * 10000) / 100 : 0,
+          auditRows.length > 0
+            ? Math.round((failedAuditCount / auditRows.length) * 10000) / 100
+            : 0,
         totalAuditedEvents: auditTotalCount,
       },
       auditSummary: {
@@ -2522,6 +2547,10 @@ export class WorkspaceService {
         active: providerActiveCount,
         inactive: providerInactiveCount,
         topByIseScore: topProviders,
+      },
+      toolSummary: {
+        active: toolActiveCount,
+        inactive: toolInactiveCount,
       },
       workspaceSummary: {
         projectsActive: projectActiveCount,
@@ -2555,7 +2584,11 @@ export class WorkspaceService {
     const includeAll = moduleFilter === 'all';
 
     if (includeAll || moduleFilter === 'intelligence') {
-      const sortBy = this.normalizeReportingSortBy(query?.sortBy, ['createdAt', 'updatedAt', 'name', 'amanahScore', 'qualityIndex'], 'createdAt');
+      const sortBy = this.normalizeReportingSortBy(
+        query?.sortBy,
+        ['createdAt', 'updatedAt', 'name', 'amanahScore', 'qualityIndex'],
+        'createdAt',
+      );
       const [total, items] = await Promise.all([
         this.prisma.intelligenceObject.count({ where: intelligenceWhere }),
         this.prisma.intelligenceObject.findMany({
@@ -2569,7 +2602,11 @@ export class WorkspaceService {
     }
 
     if (includeAll || moduleFilter === 'evidence') {
-      const sortBy = this.normalizeReportingSortBy(query?.sortBy, ['createdAt', 'intent', 'confidence', 'cost'], 'createdAt');
+      const sortBy = this.normalizeReportingSortBy(
+        query?.sortBy,
+        ['createdAt', 'intent', 'confidence', 'cost'],
+        'createdAt',
+      );
       const [total, items] = await Promise.all([
         this.prisma.evidenceRecord.count({ where: evidenceWhere }),
         this.prisma.evidenceRecord.findMany({
@@ -2583,7 +2620,11 @@ export class WorkspaceService {
     }
 
     if (includeAll || moduleFilter === 'provider') {
-      const sortBy = this.normalizeReportingSortBy(query?.sortBy, ['createdAt', 'priority', 'iseScore', 'providerName'], 'createdAt');
+      const sortBy = this.normalizeReportingSortBy(
+        query?.sortBy,
+        ['createdAt', 'priority', 'iseScore', 'providerName'],
+        'createdAt',
+      );
       const [total, items] = await Promise.all([
         this.prisma.providerProfile.count({ where: providerWhere }),
         this.prisma.providerProfile.findMany({
@@ -2597,7 +2638,11 @@ export class WorkspaceService {
     }
 
     if (includeAll || moduleFilter === 'tool') {
-      const sortBy = this.normalizeReportingSortBy(query?.sortBy, ['createdAt', 'toolName', 'category', 'costPerCall'], 'createdAt');
+      const sortBy = this.normalizeReportingSortBy(
+        query?.sortBy,
+        ['createdAt', 'toolName', 'category', 'costPerCall'],
+        'createdAt',
+      );
       const [total, items] = await Promise.all([
         this.prisma.toolProfile.count({ where: toolWhere }),
         this.prisma.toolProfile.findMany({
@@ -2611,19 +2656,60 @@ export class WorkspaceService {
     }
 
     if (includeAll || moduleFilter === 'workspace') {
-      const sortByProject = this.normalizeReportingSortBy(query?.sortBy, ['createdAt', 'name', 'status'], 'createdAt');
-      const sortBySource = this.normalizeReportingSortBy(query?.sortBy, ['createdAt', 'action', 'resource'], 'createdAt');
-      const sortByEvaluation = this.normalizeReportingSortBy(query?.sortBy, ['createdAt', 'intent', 'iseScore'], 'createdAt');
+      const sortByProject = this.normalizeReportingSortBy(
+        query?.sortBy,
+        ['createdAt', 'name', 'status'],
+        'createdAt',
+      );
+      const sortBySource = this.normalizeReportingSortBy(
+        query?.sortBy,
+        ['createdAt', 'action', 'resource'],
+        'createdAt',
+      );
+      const sortByEvaluation = this.normalizeReportingSortBy(
+        query?.sortBy,
+        ['createdAt', 'intent', 'iseScore'],
+        'createdAt',
+      );
 
-      const [projectsTotal, projects, agentsTotal, agents, sourcesTotal, sources, evaluationsTotal, evaluations] = await Promise.all([
+      const [
+        projectsTotal,
+        projects,
+        agentsTotal,
+        agents,
+        sourcesTotal,
+        sources,
+        evaluationsTotal,
+        evaluations,
+      ] = await Promise.all([
         this.prisma.project.count({ where: projectWhere }),
-        this.prisma.project.findMany({ where: projectWhere, orderBy: { [sortByProject]: sortOrder } as any, skip, take: pageSize }),
+        this.prisma.project.findMany({
+          where: projectWhere,
+          orderBy: { [sortByProject]: sortOrder } as any,
+          skip,
+          take: pageSize,
+        }),
         this.prisma.agent.count({ where: agentWhere }),
-        this.prisma.agent.findMany({ where: agentWhere, orderBy: { [sortByProject]: sortOrder } as any, skip, take: pageSize }),
+        this.prisma.agent.findMany({
+          where: agentWhere,
+          orderBy: { [sortByProject]: sortOrder } as any,
+          skip,
+          take: pageSize,
+        }),
         this.prisma.provenanceRecord.count({ where: sourceWhere }),
-        this.prisma.provenanceRecord.findMany({ where: sourceWhere, orderBy: { [sortBySource]: sortOrder } as any, skip, take: pageSize }),
+        this.prisma.provenanceRecord.findMany({
+          where: sourceWhere,
+          orderBy: { [sortBySource]: sortOrder } as any,
+          skip,
+          take: pageSize,
+        }),
         this.prisma.providerEvaluation.count({ where: evaluationWhere }),
-        this.prisma.providerEvaluation.findMany({ where: evaluationWhere, orderBy: { [sortByEvaluation]: sortOrder } as any, skip, take: pageSize }),
+        this.prisma.providerEvaluation.findMany({
+          where: evaluationWhere,
+          orderBy: { [sortByEvaluation]: sortOrder } as any,
+          skip,
+          take: pageSize,
+        }),
       ]);
 
       details.workspace = {
@@ -2635,7 +2721,11 @@ export class WorkspaceService {
     }
 
     if (includeAll || moduleFilter === 'memory') {
-      const sortBy = this.normalizeReportingSortBy(query?.sortBy, ['createdAt', 'updatedAt', 'title', 'classification', 'lifecycleStatus', 'expiresAt'], 'createdAt');
+      const sortBy = this.normalizeReportingSortBy(
+        query?.sortBy,
+        ['createdAt', 'updatedAt', 'title', 'classification', 'lifecycleStatus', 'expiresAt'],
+        'createdAt',
+      );
       const [total, items] = await Promise.all([
         this.prisma.memoryEntry.count({ where: memoryWhere }),
         this.prisma.memoryEntry.findMany({
@@ -2649,7 +2739,11 @@ export class WorkspaceService {
     }
 
     if (includeAll || moduleFilter === 'sovereignty') {
-      const sortBy = this.normalizeReportingSortBy(query?.sortBy, ['createdAt', 'value', 'ksr', 'pdr', 'krr', 'kor', 'scg', 'sai'], 'createdAt');
+      const sortBy = this.normalizeReportingSortBy(
+        query?.sortBy,
+        ['createdAt', 'value', 'ksr', 'pdr', 'krr', 'kor', 'scg', 'sai'],
+        'createdAt',
+      );
       const [total, items] = await Promise.all([
         this.prisma.sovereigntyMetric.count({ where: sovereigntyMetricWhere }),
         this.prisma.sovereigntyMetric.findMany({
@@ -2696,7 +2790,9 @@ export class WorkspaceService {
       where: {
         workspaceId,
         ...(createdAt && { createdAt }),
-        ...(query?.decisionType && { decisionType: { equals: query.decisionType, mode: 'insensitive' } }),
+        ...(query?.decisionType && {
+          decisionType: { equals: query.decisionType, mode: 'insensitive' },
+        }),
         ...(query?.outcome && { outcome: { equals: query.outcome, mode: 'insensitive' } }),
         ...(query?.actorId && { actorId: query.actorId }),
         ...(search && {
@@ -2776,7 +2872,11 @@ export class WorkspaceService {
     const { fromDate, toDate } = this.normalizeReportingDateRange(query?.from, query?.to);
     const createdAt = this.buildCreatedAtFilter(fromDate, toDate);
     const search = this.normalizeReportingSearch(query?.search);
-    const sortBy = this.normalizeReportingSortBy(query?.sortBy, ['createdAt', 'action', 'status'], 'createdAt');
+    const sortBy = this.normalizeReportingSortBy(
+      query?.sortBy,
+      ['createdAt', 'action', 'status'],
+      'createdAt',
+    );
     const sortOrder = this.normalizeReportingSortOrder(query?.sortOrder);
 
     const auditWhere: any = {
@@ -2793,23 +2893,26 @@ export class WorkspaceService {
       }),
     };
 
-    const [auditCount, recentAudit, evidenceCount, memoryCount, providerCount, toolCount] = await Promise.all([
-      this.prisma.auditLog.count({ where: auditWhere }),
-      this.prisma.auditLog.findMany({
-        where: auditWhere,
-        orderBy: { [sortBy]: sortOrder } as any,
-        take: 20,
-      }),
-      this.prisma.evidenceRecord.count({ where: { workspaceId, deletedAt: null } }),
-      this.prisma.memoryEntry.count({ where: { workspaceId, deletedAt: null } }),
-      this.prisma.providerProfile.count({ where: { workspaceId, status: { not: 'INACTIVE' } } }),
-      this.prisma.toolProfile.count({ where: { workspaceId, status: { not: 'INACTIVE' } } }),
-    ]);
+    const [auditCount, recentAudit, evidenceCount, memoryCount, providerCount, toolCount] =
+      await Promise.all([
+        this.prisma.auditLog.count({ where: auditWhere }),
+        this.prisma.auditLog.findMany({
+          where: auditWhere,
+          orderBy: { [sortBy]: sortOrder } as any,
+          take: 20,
+        }),
+        this.prisma.evidenceRecord.count({ where: { workspaceId, deletedAt: null } }),
+        this.prisma.memoryEntry.count({ where: { workspaceId, deletedAt: null } }),
+        this.prisma.providerProfile.count({ where: { workspaceId, status: { not: 'INACTIVE' } } }),
+        this.prisma.toolProfile.count({ where: { workspaceId, status: { not: 'INACTIVE' } } }),
+      ]);
 
     const failedCount = recentAudit.filter((entry) => entry.status === 'FAILED').length;
     const validationCount = recentAudit.filter((entry) => {
       const message = String((entry as any).metadata?.error || '').toLowerCase();
-      return message.includes('must') || message.includes('required') || message.includes('invalid');
+      return (
+        message.includes('must') || message.includes('required') || message.includes('invalid')
+      );
     }).length;
 
     return {

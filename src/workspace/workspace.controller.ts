@@ -69,9 +69,30 @@ class BaseReportingQueryDto {
 }
 
 class ReportingQueryDto extends BaseReportingQueryDto {
-  @ApiPropertyOptional({ enum: ['all', 'intelligence', 'evidence', 'provider', 'tool', 'workspace', 'memory', 'sovereignty'], default: 'all' })
+  @ApiPropertyOptional({
+    enum: [
+      'all',
+      'intelligence',
+      'evidence',
+      'provider',
+      'tool',
+      'workspace',
+      'memory',
+      'sovereignty',
+    ],
+    default: 'all',
+  })
   @IsOptional()
-  @IsIn(['all', 'intelligence', 'evidence', 'provider', 'tool', 'workspace', 'memory', 'sovereignty'])
+  @IsIn([
+    'all',
+    'intelligence',
+    'evidence',
+    'provider',
+    'tool',
+    'workspace',
+    'memory',
+    'sovereignty',
+  ])
   module?:
     | 'all'
     | 'intelligence'

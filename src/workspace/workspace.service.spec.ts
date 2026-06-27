@@ -14,7 +14,10 @@ describe('WorkspaceService memory governance', () => {
       },
       intelligenceObject: {
         count: jest.fn().mockResolvedValue(0),
-        aggregate: jest.fn().mockResolvedValue({ _avg: { amanahScore: 0, qualityIndex: 0 }, _sum: { capitalValue: 0 } }),
+        aggregate: jest.fn().mockResolvedValue({
+          _avg: { amanahScore: 0, qualityIndex: 0 },
+          _sum: { capitalValue: 0 },
+        }),
         findMany: jest.fn().mockResolvedValue([]),
       },
       evidenceRecord: {
@@ -236,7 +239,12 @@ describe('WorkspaceService memory governance', () => {
     prisma.auditLog.findMany
       .mockResolvedValueOnce([
         { action: 'MEMORY_CREATED', status: 'SUCCESS', metadata: {}, createdAt: new Date() },
-        { action: 'MEMORY_UPDATED', status: 'FAILED', metadata: { error: 'invalid payload' }, createdAt: new Date() },
+        {
+          action: 'MEMORY_UPDATED',
+          status: 'FAILED',
+          metadata: { error: 'invalid payload' },
+          createdAt: new Date(),
+        },
       ])
       .mockResolvedValueOnce([]);
 
