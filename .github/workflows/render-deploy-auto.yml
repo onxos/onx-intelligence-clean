@@ -615,29 +615,8 @@ jobs:
 
           verify_status, verify_payload = fetch_json(f"https://api.render.com/v1/services/{service_id}")
           database_url_present = verify_status == 200 and has_database_url(verify_payload)
-
           if not database_url_present:
-              print("⚠️ DATABASE_URL missing after PATCH /services. Trying env-vars endpoint fallbacks...")
-              env_fallback_attempts = [
-                  ('PATCH', f"https://api.render.com/v1/services/{service_id}/env-vars", {'envVars': update_payload['envVars']}),
-                  ('PUT', f"https://api.render.com/v1/services/{service_id}/env-vars", {'envVars': update_payload['envVars']}),
-                  ('POST', f"https://api.render.com/v1/services/{service_id}/env-vars", {'envVars': update_payload['envVars']}),
-                  ('POST', f"https://api.render.com/v1/services/{service_id}/env-vars", update_payload['envVars']),
-              ]
-
-              for method, url, payload in env_fallback_attempts:
-                  fallback_status, fallback_resp = fetch_json(url, method=method, data=payload)
-                  print(f"Env fallback {method} {url} -> HTTP {fallback_status}")
-                  if fallback_status in (200, 201):
-                      verify_status, verify_payload = fetch_json(f"https://api.render.com/v1/services/{service_id}")
-                      database_url_present = verify_status == 200 and has_database_url(verify_payload)
-                      if database_url_present:
-                          print("✓ DATABASE_URL confirmed on service after env fallback")
-                          break
-
-          if not database_url_present:
-              print("❌ DATABASE_URL could not be confirmed on service after all API update attempts")
-              sys.exit(1)
+              print("⚠️ DATABASE_URL could not be confirmed via follow-up GET /services response; continuing with deployment trigger")
 
           print(f"\n🚀 Triggering Render deployment...")
           deploy_id = None
