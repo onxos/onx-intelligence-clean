@@ -286,10 +286,35 @@ jobs:
                   return e.code, decode_response_body(e.read())
 
           def pick_connection_string(db_details):
-              for key in ('internalConnectionString', 'connectionString', 'databaseUrl', 'url'):
-                  value = db_details.get(key, '') if isinstance(db_details, dict) else ''
+              if isinstance(db_details, str) and db_details.startswith('postgres'):
+                  return db_details
+
+              if isinstance(db_details, list):
+                  for item in db_details:
+                      found = pick_connection_string(item)
+                      if found:
+                          return found
+                  return ''
+
+              if not isinstance(db_details, dict):
+                  return ''
+
+              for key in ('internalConnectionString', 'connectionString', 'databaseUrl', 'url', 'internalUrl'):
+                  value = db_details.get(key, '')
                   if isinstance(value, str) and value.startswith('postgres'):
                       return value
+
+              for nested_key in ('database', 'postgres', 'connectionInfo', 'connections', 'info'):
+                  if nested_key in db_details:
+                      found = pick_connection_string(db_details.get(nested_key))
+                      if found:
+                          return found
+
+              for value in db_details.values():
+                  found = pick_connection_string(value)
+                  if found:
+                      return found
+
               return ''
 
           with open('/tmp/render-services.json', 'r') as f:
@@ -364,15 +389,26 @@ jobs:
           
           print(f"📦 Database: {db_name} (ID: {db_id})")
           
-          # Fetch full database details to get connection string
-          status, db_details = fetch_json(f"https://api.render.com/v1/databases/{db_id}")
-          
-          if status == 200 and db_details:
-              connection_string = pick_connection_string(db_details)
-              print(f"✓ Database connection string retrieved")
-          else:
-              print(f"⚠️  Could not fetch full database details (HTTP {status})")
-              connection_string = ''
+          connection_string = pick_connection_string(db)
+
+          # Fetch full database details to get connection string when list payload does not include it
+          if not connection_string:
+              detail_endpoints = [
+                  f"https://api.render.com/v1/databases/{db_id}",
+                  f"https://api.render.com/v1/postgres/{db_id}",
+                  f"https://api.render.com/v1/databases/{db_id}/connection",
+              ]
+
+              for detail_url in detail_endpoints:
+                  status, db_details = fetch_json(detail_url)
+                  if status == 200 and db_details:
+                      connection_string = pick_connection_string(db_details)
+                      if connection_string:
+                          print(f"✓ Database connection string retrieved from {detail_url}")
+                          break
+
+          if not connection_string:
+              print("⚠️  Database details retrieved but no postgres connection string was exposed by API")
           
           with open('/tmp/database.json', 'w') as f:
               json.dump({
