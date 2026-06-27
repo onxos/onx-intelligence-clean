@@ -32,6 +32,7 @@ jobs:
 
           api_key = os.environ.get("RENDER_API_KEY", "")
           owner_id = os.environ.get("RENDER_OWNER_ID", "")
+          github_sha = os.environ.get("GITHUB_SHA", "").strip()
           
           if not api_key or not owner_id:
               print("❌ Missing RENDER_API_KEY or RENDER_OWNER_ID")
@@ -594,6 +595,12 @@ jobs:
                   {'key': 'JWT_EXPIRATION', 'value': '24h'},
               ]
           }
+
+          if github_sha:
+              update_payload['envVars'].append({
+                  'key': 'ONX_DEPLOY_COMMIT',
+                  'value': github_sha
+              })
           
           # Add DATABASE_URL if available
           if db_info.get('connection_string'):
@@ -657,6 +664,8 @@ jobs:
               {'key': 'JWT_EXPIRATION', 'value': '24h'},
               {'key': 'DATABASE_URL', 'value': db_info['connection_string']},
           ]
+          if github_sha:
+              env_put_payload.append({'key': 'ONX_DEPLOY_COMMIT', 'value': github_sha})
           if not has_jwt_secret:
               env_put_payload.append({'key': 'JWT_SECRET', 'generateValue': True})
 

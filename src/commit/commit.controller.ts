@@ -9,6 +9,8 @@ export class CommitController {
   @ApiOperation({ summary: 'Get build commit metadata' })
   getCommit() {
     const commit =
+      process.env.ONX_DEPLOY_COMMIT ||
+      process.env.SOURCE_VERSION ||
       process.env.RENDER_GIT_COMMIT ||
       process.env.GIT_COMMIT ||
       process.env.VERCEL_GIT_COMMIT_SHA ||
