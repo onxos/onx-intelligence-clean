@@ -10,20 +10,41 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt.guard';
 
 class RegisterDto {
+  @IsEmail()
   email: string;
+
+  @IsString()
+  @MinLength(8)
   password: string;
+
+  @IsString()
+  @MinLength(2)
   name: string;
+
+  @IsOptional()
+  @IsString()
   roleId?: string;
+
+  @IsOptional()
+  @IsString()
   workspaceId?: string;
+
+  @IsOptional()
+  @IsString()
   tenantId?: string;
 }
 
 class LoginDto {
+  @IsEmail()
   email: string;
+
+  @IsString()
+  @MinLength(8)
   password: string;
 }
 
