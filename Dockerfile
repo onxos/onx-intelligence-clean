@@ -3,6 +3,8 @@ WORKDIR /app
 RUN apk add --no-cache openssl
 COPY package*.json ./
 RUN npm ci
+COPY workspace-ui/package*.json ./workspace-ui/
+RUN npm --prefix workspace-ui ci
 COPY prisma ./prisma/
 RUN npx prisma generate
 COPY . .
@@ -17,6 +19,7 @@ COPY --from=builder /app/node_modules/.prisma /app/node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma /app/node_modules/@prisma
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/workspace-ui/out ./workspace-ui/out
 ENV NODE_ENV=production
 ENV PORT=10000
 EXPOSE 10000
