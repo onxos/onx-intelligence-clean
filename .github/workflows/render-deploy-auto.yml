@@ -19,8 +19,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Fetch Render Inventory & Select Service
-        shell: python3
+        shell: bash
         run: |
+          python3 << 'PYTHON_SCRIPT'
           import os
           import json
           import urllib.request
@@ -103,10 +104,12 @@ jobs:
               status = db.get('status', 'N/A')
               print(f"  {i}. {db.get('name')} (ID: {db.get('id')})")
               print(f"     Status: {status}")
+          PYTHON_SCRIPT
 
       - name: Analyze & Select Service
-        shell: python3
+        shell: bash
         run: |
+          python3 << 'PYTHON_SCRIPT'
           import json
           import sys
 
@@ -185,8 +188,9 @@ jobs:
           print(f"🌐 URL: {selected_service.get('serviceUrl') or selected_service.get('url')}")
 
       - name: Fetch Database Connection Details
-        shell: python3
+        shell: bash
         run: |
+          python3 << 'PYTHON_SCRIPT'
           import os
           import json
           import urllib.request
@@ -244,10 +248,12 @@ jobs:
                   'id': db_id,
                   'connection_string': connection_string
               }, f, indent=2)
+          PYTHON_SCRIPT
 
       - name: Configure & Deploy Service
-        shell: python3
+        shell: bash
         run: |
+          python3 << 'PYTHON_SCRIPT'
           import os
           import json
           import urllib.request
@@ -379,6 +385,7 @@ jobs:
                       'database_id': db_info.get('id'),
                       'config_update_status': status
                   }, f, indent=2)
+          PYTHON_SCRIPT
 
       - name: Wait for Deployment
         shell: bash
@@ -388,8 +395,9 @@ jobs:
           sleep 30
 
       - name: Verify Health Check
-        shell: python3
+        shell: bash
         run: |
+          python3 << 'PYTHON_SCRIPT'
           import json
           import urllib.request
           import urllib.error
@@ -455,10 +463,12 @@ jobs:
                       print(f"✅ API docs available at {docs_url}")
           except Exception as e:
               print(f"⚠️  API docs not yet available: {str(e)[:100]}")
+          PYTHON_SCRIPT
 
       - name: Final Report
-        shell: python3
+        shell: bash
         run: |
+          python3 << 'PYTHON_SCRIPT'
           import json
           import os
 
@@ -503,3 +513,4 @@ jobs:
           print(f"\n{'='*80}")
           print(f"✅ DEPLOYMENT COMPLETE")
           print(f"{'='*80}\n")
+          PYTHON_SCRIPT
