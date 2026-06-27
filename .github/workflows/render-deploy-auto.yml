@@ -46,11 +46,21 @@ jobs:
                   with urllib.request.urlopen(req, timeout=30) as resp:
                       return resp.status, json.loads(resp.read().decode("utf-8"))
               except urllib.error.HTTPError as e:
-                  return e.code, json.loads(e.read().decode("utf-8"))
+                  try:
+                      error_data = json.loads(e.read().decode("utf-8"))
+                      return e.code, error_data
+                  except:
+                      return e.code, {"error": f"HTTP {e.code}: {e.reason}"}
+          
+          # Debug: print the owner_id and api_key status
+          print(f"DEBUG: owner_id = {owner_id}")
+          print(f"DEBUG: api_key set = {bool(api_key)}")
 
           # Fetch services
           print("🔍 Fetching Render services...")
-          status, services_data = fetch_json(f"https://api.render.com/v1/owners/{owner_id}/services")
+          url = f"https://api.render.com/v1/owners/{owner_id}/services"
+          print(f"DEBUG: URL = {url}")
+          status, services_data = fetch_json(url)
           
           if status != 200:
               print(f"❌ Failed to fetch services: HTTP {status}")
@@ -71,7 +81,9 @@ jobs:
           
           # Fetch databases
           print("🔍 Fetching PostgreSQL databases...")
-          status, db_data = fetch_json(f"https://api.render.com/v1/owners/{owner_id}/databases")
+          url_db = f"https://api.render.com/v1/owners/{owner_id}/databases"
+          print(f"DEBUG: URL = {url_db}")
+          status, db_data = fetch_json(url_db)
           databases = db_data.get('databases', []) if isinstance(db_data, dict) else db_data
           
           intelligence_dbs = [d for d in databases if 'intelligence' in d.get('name', '').lower()]
