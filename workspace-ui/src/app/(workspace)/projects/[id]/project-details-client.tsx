@@ -3,12 +3,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { PendingState } from "@/components/pending-state";
-
-type PendingResponse = {
-  pending?: boolean;
-  message?: string;
-};
 
 export function ProjectDetailsClient({ id }: { id: string }) {
   const { data, isLoading, error } = useQuery({
@@ -32,16 +26,10 @@ export function ProjectDetailsClient({ id }: { id: string }) {
     );
   }
 
-  const pendingData = data as PendingResponse | undefined;
-
-  if (pendingData?.pending) {
-    return <PendingState message={pendingData.message ?? "Project details endpoint is pending."} />;
-  }
-
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Project Details</CardTitle>
+        <CardTitle>Project Details: {id}</CardTitle>
       </CardHeader>
       <CardContent>
         <pre className="text-xs whitespace-pre-wrap">{JSON.stringify(data, null, 2)}</pre>

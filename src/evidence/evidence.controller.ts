@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Req, UseGuards } from '@nestjs/common';
+import { Controller, Delete, Get, Post, Put, Body, Param, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { EvidenceService } from './evidence.service';
 import { JwtAuthGuard } from '../auth/jwt.guard';
@@ -12,8 +12,8 @@ export class EvidenceController {
 
   @Get()
   @ApiOperation({ summary: 'List evidence records' })
-  async list(@Req() req: any) {
-    return this.svc.findAll(req.user.workspaceId);
+  async list(@Req() req: any, @Query() query: any) {
+    return this.svc.findAll(req.user.workspaceId, query);
   }
 
   @Post()
@@ -25,5 +25,17 @@ export class EvidenceController {
       ownerId: req.user.userId,
       workspaceId: req.user.workspaceId,
     });
+  }
+
+  @Put(':id')
+  @ApiOperation({ summary: 'Update evidence record' })
+  async update(@Param('id') id: string, @Body() body: any, @Req() req: any) {
+    return this.svc.update(id, req.user.workspaceId, body);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete evidence record' })
+  async remove(@Param('id') id: string, @Req() req: any) {
+    return this.svc.remove(id, req.user.workspaceId);
   }
 }

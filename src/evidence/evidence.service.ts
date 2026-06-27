@@ -1,15 +1,40 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 
 @Injectable()
 export class EvidenceService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(workspaceId: string) {
+  async findAll(
+    workspaceId: string,
+    query?: {
+      search?: string;
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
+      page?: number;
+      pageSize?: number;
+    },
+  ) {
+    const pageSize = Number(query?.pageSize || 50);
+    const page = Number(query?.page || 1);
+    const skip = (page - 1) * pageSize;
+    const sortBy = query?.sortBy || 'createdAt';
+    const sortOrder = query?.sortOrder || 'desc';
+
     return this.prisma.evidenceRecord.findMany({
-      where: { workspaceId },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
+      where: {
+        workspaceId,
+        ...(query?.search && {
+          OR: [
+            { intent: { contains: query.search, mode: 'insensitive' } },
+            { judgment: { contains: query.search, mode: 'insensitive' } },
+            { outcome: { contains: query.search, mode: 'insensitive' } },
+          ],
+        }),
+      },
+      orderBy: { [sortBy]: sortOrder } as any,
+      take: pageSize,
+      skip,
     });
   }
 
@@ -29,5 +54,43 @@ export class EvidenceService {
         toolCandidates: [],
       },
     });
+  }
+
+  async update(
+    id: string,
+    workspaceId: string,
+    data: {
+      intent?: string;
+      confidence?: number;
+      judgment?: string;
+      outcome?: string;
+      learning?: string;
+    },
+  ) {
+    const existing = await this.prisma.evidenceRecord.findFirst({ where: { id, workspaceId } });
+    if (!existing) {
+      throw new NotFoundException('Evidence record not found');
+    }
+
+    return this.prisma.evidenceRecord.update({
+      where: { id: existing.id },
+      data: {
+        ...(data.intent !== undefined && { intent: data.intent }),
+        ...(data.confidence !== undefined && { confidence: data.confidence }),
+        ...(data.judgment !== undefined && { judgment: data.judgment }),
+        ...(data.outcome !== undefined && { outcome: data.outcome }),
+        ...(data.learning !== undefined && { learning: data.learning }),
+      },
+    });
+  }
+
+  async remove(id: string, workspaceId: string) {
+    const existing = await this.prisma.evidenceRecord.findFirst({ where: { id, workspaceId } });
+    if (!existing) {
+      throw new NotFoundException('Evidence record not found');
+    }
+
+    await this.prisma.evidenceRecord.delete({ where: { id: existing.id } });
+    return { success: true, id: existing.id };
   }
 }

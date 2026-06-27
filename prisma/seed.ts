@@ -135,10 +135,75 @@ async function main() {
     });
   }
 
+  let seedOwner = await prisma.user.findFirst({ where: { workspaceId: workspace.id } });
+  if (!seedOwner) {
+    seedOwner = await prisma.user.create({
+      data: {
+        email: `seed.admin.${Date.now()}@onx.local`,
+        password: 'seed-managed-account',
+        name: 'Seed Admin',
+        roleId: adminRole.id,
+        workspaceId: workspace.id,
+        tenantId: tenant.id,
+      },
+    });
+  }
+
+  await prisma.project.upsert({
+    where: { id: 'prj_onx_workspace' },
+    update: {},
+    create: {
+      id: 'prj_onx_workspace',
+      name: 'ONX Workspace Enablement',
+      description: 'Core production project for ONX Intelligence workspace operations.',
+      status: 'ACTIVE',
+      workspaceId: workspace.id,
+      ownerId: seedOwner.id,
+    },
+  });
+
+  if (seedOwner) {
+    await prisma.agent.upsert({
+      where: { id: 'agt_onx_orchestrator' },
+      update: {},
+      create: {
+        id: 'agt_onx_orchestrator',
+        name: 'ONX Orchestrator',
+        description: 'Coordinates workspace workflows and delegation.',
+        status: 'ACTIVE',
+        model: 'gpt-4o',
+        providerId: 'openai',
+        workspaceId: workspace.id,
+        ownerId: seedOwner.id,
+        config: {
+          mode: 'assist',
+          guardrails: 'strict',
+        },
+      },
+    });
+
+    await prisma.memoryEntry.upsert({
+      where: { id: 'mem_onx_bootstrap' },
+      update: {},
+      create: {
+        id: 'mem_onx_bootstrap',
+        title: 'Workspace Bootstrap',
+        content: 'Initial production workspace bootstrap completed.',
+        category: 'OPERATIONS',
+        tags: ['bootstrap', 'production', 'workspace'],
+        workspaceId: workspace.id,
+        ownerId: seedOwner.id,
+      },
+    });
+  }
+
   console.log('Seed complete:');
   console.log(`  Roles: ${(await prisma.role.count())}`);
   console.log(`  Tenants: ${(await prisma.tenant.count())}`);
   console.log(`  Workspaces: ${(await prisma.workspace.count())}`);
+  console.log(`  Projects: ${(await prisma.project.count())}`);
+  console.log(`  Agents: ${(await prisma.agent.count())}`);
+  console.log(`  Memory Entries: ${(await prisma.memoryEntry.count())}`);
   console.log(`  Providers: ${(await prisma.providerProfile.count())}`);
   console.log(`  Tools: ${(await prisma.toolProfile.count())}`);
 }

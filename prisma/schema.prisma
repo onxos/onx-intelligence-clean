@@ -24,6 +24,9 @@ model User {
   evidence    EvidenceRecord[]
   intelligenceObjects IntelligenceObject[]
   governanceDecisions GovernanceDecision[]
+  projects    Project[]
+  agents      Agent[]
+  memoryItems MemoryEntry[]
 
   role      Role      @relation(fields: [roleId], references: [id])
   workspace Workspace @relation(fields: [workspaceId], references: [id])
@@ -72,6 +75,9 @@ model Workspace {
   tools       ToolProfile[]
   governanceDecisions GovernanceDecision[]
   capitalRecords CapitalRecord[]
+  projects Project[]
+  agents   Agent[]
+  memoryItems MemoryEntry[]
 
   @@map("workspaces")
 }
@@ -86,6 +92,61 @@ model Tenant {
   users User[]
 
   @@map("tenants")
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  status      String   @default("ACTIVE")
+  workspaceId String   @map("workspace_id")
+  ownerId     String   @map("owner_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  owner     User      @relation(fields: [ownerId], references: [id])
+
+  @@index([workspaceId, createdAt])
+  @@map("projects")
+}
+
+model Agent {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  status      String   @default("ACTIVE")
+  model       String?
+  providerId  String?  @map("provider_id")
+  config      Json?    @default("{}")
+  workspaceId String   @map("workspace_id")
+  ownerId     String   @map("owner_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  owner     User      @relation(fields: [ownerId], references: [id])
+
+  @@index([workspaceId, createdAt])
+  @@map("agents")
+}
+
+model MemoryEntry {
+  id          String   @id @default(cuid())
+  title       String
+  content     String
+  category    String   @default("GENERAL")
+  tags        String[] @default([])
+  workspaceId String   @map("workspace_id")
+  ownerId     String   @map("owner_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  owner     User      @relation(fields: [ownerId], references: [id])
+
+  @@index([workspaceId, createdAt])
+  @@map("memory_entries")
 }
 
 model Session {

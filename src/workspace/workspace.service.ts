@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 
 @Injectable()
@@ -42,20 +42,103 @@ export class WorkspaceService {
     };
   }
 
-  listProjects() {
-    return {
-      pending: true,
-      message: 'Projects backend model is pending in production API.',
-      items: [],
-    };
+  async listProjects(
+    workspaceId: string,
+    query?: {
+      search?: string;
+      status?: string;
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
+      page?: number;
+      pageSize?: number;
+    },
+  ) {
+    const pageSize = Number(query?.pageSize || 50);
+    const page = Number(query?.page || 1);
+    const skip = (page - 1) * pageSize;
+    const sortBy = query?.sortBy || 'createdAt';
+    const sortOrder = query?.sortOrder || 'desc';
+
+    return this.prisma.project.findMany({
+      where: {
+        workspaceId,
+        ...(query?.status && { status: query.status }),
+        ...(query?.search && {
+          OR: [
+            { name: { contains: query.search, mode: 'insensitive' } },
+            { description: { contains: query.search, mode: 'insensitive' } },
+          ],
+        }),
+      },
+      include: {
+        owner: {
+          select: { id: true, email: true, name: true },
+        },
+      },
+      orderBy: { [sortBy]: sortOrder } as any,
+      skip,
+      take: pageSize,
+    });
   }
 
-  getProjectDetails(projectId: string) {
-    return {
-      pending: true,
-      projectId,
-      message: 'Project details backend endpoint is pending in production API.',
-    };
+  async createProject(
+    workspaceId: string,
+    ownerId: string,
+    data: { name: string; description?: string; status?: string },
+  ) {
+    return this.prisma.project.create({
+      data: {
+        name: data.name,
+        description: data.description,
+        status: data.status || 'ACTIVE',
+        workspaceId,
+        ownerId,
+      },
+    });
+  }
+
+  async getProjectDetails(projectId: string, workspaceId: string) {
+    const item = await this.prisma.project.findFirst({
+      where: { id: projectId, workspaceId },
+      include: {
+        owner: {
+          select: { id: true, email: true, name: true },
+        },
+      },
+    });
+    if (!item) {
+      throw new NotFoundException('Project not found');
+    }
+    return item;
+  }
+
+  async updateProject(
+    projectId: string,
+    workspaceId: string,
+    data: { name?: string; description?: string; status?: string },
+  ) {
+    const existing = await this.prisma.project.findFirst({ where: { id: projectId, workspaceId } });
+    if (!existing) {
+      throw new NotFoundException('Project not found');
+    }
+
+    return this.prisma.project.update({
+      where: { id: existing.id },
+      data: {
+        ...(data.name !== undefined && { name: data.name }),
+        ...(data.description !== undefined && { description: data.description }),
+        ...(data.status !== undefined && { status: data.status }),
+      },
+    });
+  }
+
+  async deleteProject(projectId: string, workspaceId: string) {
+    const existing = await this.prisma.project.findFirst({ where: { id: projectId, workspaceId } });
+    if (!existing) {
+      throw new NotFoundException('Project not found');
+    }
+    await this.prisma.project.delete({ where: { id: existing.id } });
+    return { success: true, id: existing.id };
   }
 
   async listKnowledgeAssets(workspaceId: string) {
@@ -78,12 +161,189 @@ export class WorkspaceService {
     return { pending: false, items };
   }
 
-  listAgents() {
-    return {
-      pending: true,
-      message: 'Agents registry backend endpoint is pending in production API.',
-      items: [],
-    };
+  async listAgents(
+    workspaceId: string,
+    query?: {
+      search?: string;
+      status?: string;
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
+      page?: number;
+      pageSize?: number;
+    },
+  ) {
+    const pageSize = Number(query?.pageSize || 50);
+    const page = Number(query?.page || 1);
+    const skip = (page - 1) * pageSize;
+    const sortBy = query?.sortBy || 'createdAt';
+    const sortOrder = query?.sortOrder || 'desc';
+
+    return this.prisma.agent.findMany({
+      where: {
+        workspaceId,
+        ...(query?.status && { status: query.status }),
+        ...(query?.search && {
+          OR: [
+            { name: { contains: query.search, mode: 'insensitive' } },
+            { description: { contains: query.search, mode: 'insensitive' } },
+          ],
+        }),
+      },
+      include: {
+        owner: {
+          select: { id: true, email: true, name: true },
+        },
+      },
+      orderBy: { [sortBy]: sortOrder } as any,
+      skip,
+      take: pageSize,
+    });
+  }
+
+  async createAgent(
+    workspaceId: string,
+    ownerId: string,
+    data: {
+      name: string;
+      description?: string;
+      status?: string;
+      model?: string;
+      providerId?: string;
+      config?: Record<string, any>;
+    },
+  ) {
+    return this.prisma.agent.create({
+      data: {
+        name: data.name,
+        description: data.description,
+        status: data.status || 'ACTIVE',
+        model: data.model,
+        providerId: data.providerId,
+        config: data.config || {},
+        workspaceId,
+        ownerId,
+      },
+    });
+  }
+
+  async updateAgent(
+    agentId: string,
+    workspaceId: string,
+    data: {
+      name?: string;
+      description?: string;
+      status?: string;
+      model?: string;
+      providerId?: string;
+      config?: Record<string, any>;
+    },
+  ) {
+    const existing = await this.prisma.agent.findFirst({ where: { id: agentId, workspaceId } });
+    if (!existing) {
+      throw new NotFoundException('Agent not found');
+    }
+
+    return this.prisma.agent.update({
+      where: { id: existing.id },
+      data: {
+        ...(data.name !== undefined && { name: data.name }),
+        ...(data.description !== undefined && { description: data.description }),
+        ...(data.status !== undefined && { status: data.status }),
+        ...(data.model !== undefined && { model: data.model }),
+        ...(data.providerId !== undefined && { providerId: data.providerId }),
+        ...(data.config !== undefined && { config: data.config }),
+      },
+    });
+  }
+
+  async deleteAgent(agentId: string, workspaceId: string) {
+    const existing = await this.prisma.agent.findFirst({ where: { id: agentId, workspaceId } });
+    if (!existing) {
+      throw new NotFoundException('Agent not found');
+    }
+    await this.prisma.agent.delete({ where: { id: existing.id } });
+    return { success: true, id: existing.id };
+  }
+
+  async listMemory(
+    workspaceId: string,
+    query?: {
+      search?: string;
+      category?: string;
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
+      page?: number;
+      pageSize?: number;
+    },
+  ) {
+    const pageSize = Number(query?.pageSize || 50);
+    const page = Number(query?.page || 1);
+    const skip = (page - 1) * pageSize;
+    const sortBy = query?.sortBy || 'createdAt';
+    const sortOrder = query?.sortOrder || 'desc';
+
+    return this.prisma.memoryEntry.findMany({
+      where: {
+        workspaceId,
+        ...(query?.category && { category: query.category }),
+        ...(query?.search && {
+          OR: [
+            { title: { contains: query.search, mode: 'insensitive' } },
+            { content: { contains: query.search, mode: 'insensitive' } },
+          ],
+        }),
+      },
+      orderBy: { [sortBy]: sortOrder } as any,
+      skip,
+      take: pageSize,
+    });
+  }
+
+  async createMemory(
+    workspaceId: string,
+    ownerId: string,
+    data: { title: string; content: string; category?: string; tags?: string[] },
+  ) {
+    return this.prisma.memoryEntry.create({
+      data: {
+        title: data.title,
+        content: data.content,
+        category: data.category || 'GENERAL',
+        tags: data.tags || [],
+        workspaceId,
+        ownerId,
+      },
+    });
+  }
+
+  async updateMemory(
+    memoryId: string,
+    workspaceId: string,
+    data: { title?: string; content?: string; category?: string; tags?: string[] },
+  ) {
+    const existing = await this.prisma.memoryEntry.findFirst({ where: { id: memoryId, workspaceId } });
+    if (!existing) {
+      throw new NotFoundException('Memory entry not found');
+    }
+
+    return this.prisma.memoryEntry.update({
+      where: { id: existing.id },
+      data: {
+        ...(data.title !== undefined && { title: data.title }),
+        ...(data.content !== undefined && { content: data.content }),
+        ...(data.category !== undefined && { category: data.category }),
+        ...(data.tags !== undefined && { tags: data.tags }),
+      },
+    });
+  }
+
+  async deleteMemory(memoryId: string, workspaceId: string) {
+    const existing = await this.prisma.memoryEntry.findFirst({ where: { id: memoryId, workspaceId } });
+    if (!existing) {
+      throw new NotFoundException('Memory entry not found');
+    }
+    await this.prisma.memoryEntry.delete({ where: { id: existing.id } });
+    return { success: true, id: existing.id };
   }
 
   async listModels(workspaceId: string) {
@@ -179,6 +439,35 @@ export class WorkspaceService {
   async getSettings(userId: string, workspaceId: string) {
     const user = await this.prisma.user.findFirst({
       where: { id: userId, workspaceId },
+      include: {
+        role: true,
+        workspace: true,
+        tenant: true,
+      },
+    });
+
+    return {
+      pending: false,
+      user,
+    };
+  }
+
+  async updateSettings(
+    userId: string,
+    workspaceId: string,
+    data: { name?: string; status?: string },
+  ) {
+    const existing = await this.prisma.user.findFirst({ where: { id: userId, workspaceId } });
+    if (!existing) {
+      throw new NotFoundException('User not found in workspace');
+    }
+
+    const user = await this.prisma.user.update({
+      where: { id: existing.id },
+      data: {
+        ...(data.name !== undefined && { name: data.name }),
+        ...(data.status !== undefined && { status: data.status as any }),
+      },
       include: {
         role: true,
         workspace: true,

@@ -61,15 +61,40 @@ export class IntelligenceService {
     return obj;
   }
 
-  async findAll(workspaceId: string, filters?: { type?: string; limit?: number; offset?: number }) {
+  async findAll(
+    workspaceId: string,
+    filters?: {
+      type?: string;
+      search?: string;
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
+      page?: number;
+      pageSize?: number;
+      limit?: number;
+      offset?: number;
+    },
+  ) {
+    const pageSize = Number(filters?.pageSize || filters?.limit || 50);
+    const page = Number(filters?.page || 1);
+    const offset = Number(filters?.offset ?? (page - 1) * pageSize);
+    const sortBy = filters?.sortBy || 'createdAt';
+    const sortOrder = filters?.sortOrder || 'desc';
+
     return this.prisma.intelligenceObject.findMany({
       where: {
         workspaceId,
         ...(filters?.type && { objectType: filters.type as IntelligenceObjectType }),
+        ...(filters?.search && {
+          OR: [
+            { name: { contains: filters.search, mode: 'insensitive' } },
+            { content: { contains: filters.search, mode: 'insensitive' } },
+            { semanticSummary: { contains: filters.search, mode: 'insensitive' } },
+          ],
+        }),
       },
-      take: filters?.limit || 50,
-      skip: filters?.offset || 0,
-      orderBy: { createdAt: 'desc' },
+      take: pageSize,
+      skip: offset,
+      orderBy: { [sortBy]: sortOrder } as any,
     });
   }
 
@@ -101,5 +126,81 @@ export class IntelligenceService {
       totalCapital,
       krr: all.length > 0 ? Math.round((reusableCount / all.length) * 10000) / 100 : 0,
     };
+  }
+
+  async update(
+    id: string,
+    workspaceId: string,
+    actorId: string,
+    data: {
+      name?: string;
+      content?: string;
+      objectType?: IntelligenceObjectType;
+      semanticSummary?: string;
+      state?: string;
+      privacyLevel?: string;
+      confidenceScore?: number;
+      trustScore?: number;
+      qualityIndex?: number;
+    },
+  ) {
+    const existing = await this.findOne(id, workspaceId);
+    const contentHash =
+      data.content !== undefined
+        ? crypto.createHash('sha256').update(data.content).digest('hex')
+        : existing.contentHash;
+
+    const updated = await this.prisma.intelligenceObject.update({
+      where: { id: existing.id },
+      data: {
+        ...(data.name !== undefined && { name: data.name }),
+        ...(data.content !== undefined && { content: data.content }),
+        ...(data.objectType !== undefined && { objectType: data.objectType }),
+        ...(data.semanticSummary !== undefined && { semanticSummary: data.semanticSummary }),
+        ...(data.state !== undefined && { state: data.state as any }),
+        ...(data.privacyLevel !== undefined && { privacyLevel: data.privacyLevel as any }),
+        ...(data.confidenceScore !== undefined && { confidenceScore: data.confidenceScore }),
+        ...(data.trustScore !== undefined && { trustScore: data.trustScore }),
+        ...(data.qualityIndex !== undefined && { qualityIndex: data.qualityIndex }),
+        contentHash,
+      },
+    });
+
+    await this.audit.log({
+      action: 'INTELLIGENCE_UPDATED',
+      resource: 'IntelligenceObject',
+      resourceId: updated.id,
+      actorId,
+      workspaceId,
+      oldValue: JSON.stringify({
+        name: existing.name,
+        objectType: existing.objectType,
+        state: existing.state,
+      }),
+      newValue: JSON.stringify({
+        name: updated.name,
+        objectType: updated.objectType,
+        state: updated.state,
+      }),
+    });
+
+    return updated;
+  }
+
+  async remove(id: string, workspaceId: string, actorId: string) {
+    const existing = await this.findOne(id, workspaceId);
+
+    await this.prisma.intelligenceObject.delete({ where: { id: existing.id } });
+
+    await this.audit.log({
+      action: 'INTELLIGENCE_DELETED',
+      resource: 'IntelligenceObject',
+      resourceId: existing.id,
+      actorId,
+      workspaceId,
+      oldValue: JSON.stringify({ name: existing.name, objectType: existing.objectType }),
+    });
+
+    return { success: true, id: existing.id };
   }
 }
