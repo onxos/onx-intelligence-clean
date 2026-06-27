@@ -15,6 +15,7 @@ import { IntelligenceObjectType } from '@prisma/client';
 import { IsEnum, IsNumber, IsOptional, IsString } from 'class-validator';
 import { IntelligenceService } from './intelligence.service';
 import { JwtAuthGuard } from '../auth/jwt.guard';
+import { getRequestAuditContext } from '../common/audit-context.util';
 
 class CreateIntelligenceDto {
   @ApiProperty({ example: 'Weekly Risk Summary' })
@@ -127,7 +128,7 @@ export class IntelligenceController {
       ownerId: req.user.userId,
       creatorId: req.user.userId,
       workspaceId: req.user.workspaceId,
-    });
+    }, getRequestAuditContext(req));
   }
 
   @Get()
@@ -151,12 +152,12 @@ export class IntelligenceController {
   @Put(':id')
   @ApiOperation({ summary: 'Update intelligence object' })
   async update(@Param('id') id: string, @Body() body: UpdateIntelligenceDto, @Req() req: any) {
-    return this.svc.update(id, req.user.workspaceId, req.user.userId, body);
+    return this.svc.update(id, req.user.workspaceId, req.user.userId, body, getRequestAuditContext(req));
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Delete intelligence object' })
   async remove(@Param('id') id: string, @Req() req: any) {
-    return this.svc.remove(id, req.user.workspaceId, req.user.userId);
+    return this.svc.remove(id, req.user.workspaceId, req.user.userId, getRequestAuditContext(req));
   }
 }

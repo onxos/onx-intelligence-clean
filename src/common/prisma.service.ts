@@ -5,6 +5,10 @@ import { PrismaClient } from '@prisma/client';
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   private connected = false;
 
+  isConnected() {
+    return this.connected;
+  }
+
   async onModuleInit() {
     if (this.connected) {
       return;

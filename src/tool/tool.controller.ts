@@ -13,6 +13,7 @@ import {
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { ToolService } from './tool.service';
 import { JwtAuthGuard } from '../auth/jwt.guard';
+import { getRequestAuditContext } from '../common/audit-context.util';
 
 @ApiTags('Tool')
 @Controller('tools')
@@ -30,18 +31,27 @@ export class ToolController {
   @Post()
   @ApiOperation({ summary: 'Create tool profile' })
   async create(@Body() body: any, @Req() req: any) {
-    return this.svc.create(req.user.workspaceId, body);
+    return this.svc.create(req.user.workspaceId, body, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
   }
 
   @Put(':id')
   @ApiOperation({ summary: 'Update tool profile' })
   async update(@Param('id') id: string, @Body() body: any, @Req() req: any) {
-    return this.svc.update(req.user.workspaceId, id, body);
+    return this.svc.update(req.user.workspaceId, id, body, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Delete tool profile' })
   async remove(@Param('id') id: string, @Req() req: any) {
-    return this.svc.remove(req.user.workspaceId, id);
+    return this.svc.remove(req.user.workspaceId, id, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
   }
 }

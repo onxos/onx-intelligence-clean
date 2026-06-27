@@ -1,5 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import { AuditService } from '../common/audit.service';
+
+type MutationAuditContext = {
+  actorId: string;
+  requestId?: string;
+  ip?: string;
+  userAgent?: string;
+};
 
 const OWNED_OBJECT_CLASSES = ['INSTITUTIONAL', 'CIVILIZATION'];
 const REUSABLE_OBJECT_TYPES = ['PATTERN', 'JUDGMENT', 'UNDERSTANDING', 'WISDOM'];
@@ -121,61 +129,100 @@ export function calculateSovereigntyMetrics(objects: SovereigntySnapshot[]) {
 
 @Injectable()
 export class SovereigntyService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
-  async evaluate(intent: string, workspaceId: string) {
-    const objects = await this.prisma.intelligenceObject.findMany({
-      where: { workspaceId },
-      select: {
-        objectType: true,
-        ownershipClass: true,
-        confidenceScore: true,
-        trustScore: true,
-        qualityIndex: true,
-        ficValidated: true,
-      },
-    });
+  async evaluate(intent: string, workspaceId: string, auditContext: MutationAuditContext) {
+    try {
+      const objects = await this.prisma.intelligenceObject.findMany({
+        where: { workspaceId },
+        select: {
+          objectType: true,
+          ownershipClass: true,
+          confidenceScore: true,
+          trustScore: true,
+          qualityIndex: true,
+          ficValidated: true,
+        },
+      });
 
-    const metrics = calculateSovereigntyMetrics(objects);
+      const metrics = calculateSovereigntyMetrics(objects);
 
-    return {
-      timestamp: new Date().toISOString(),
-      metrics,
-      metricCount: ISMF6_METRICS.length,
-      metricNames: ISMF6_METRICS.map((metric) => metric.key),
-      questions: {
-        doWeKnowThis: {
-          answer: metrics.ksr.value > 0.5,
-          confidence: metrics.ksr.value,
-          reason: `KSR ${(metrics.ksr.value * 100).toFixed(1)}%`,
+      const response = {
+        timestamp: new Date().toISOString(),
+        metrics,
+        metricCount: ISMF6_METRICS.length,
+        metricNames: ISMF6_METRICS.map((metric) => metric.key),
+        questions: {
+          doWeKnowThis: {
+            answer: metrics.ksr.value > 0.5,
+            confidence: metrics.ksr.value,
+            reason: `KSR ${(metrics.ksr.value * 100).toFixed(1)}%`,
+          },
+          doWeOwnKnowledge: {
+            answer: metrics.kor.value > 0.6,
+            confidence: metrics.kor.value,
+            reason: `KOR ${(metrics.kor.value * 100).toFixed(1)}%`,
+          },
+          reusableJudgment: {
+            answer: metrics.krr.value > 0.3,
+            confidence: metrics.krr.value,
+            reason: `KRR ${(metrics.krr.value * 100).toFixed(1)}%`,
+          },
+          externalRequired: {
+            answer: metrics.pdr.value > 0.5 ? 'EVALUATE' : 'NO',
+            confidence: metrics.pdr.value,
+            reason: `PDR ${(metrics.pdr.value * 100).toFixed(1)}%`,
+          },
         },
-        doWeOwnKnowledge: {
-          answer: metrics.kor.value > 0.6,
-          confidence: metrics.kor.value,
-          reason: `KOR ${(metrics.kor.value * 100).toFixed(1)}%`,
-        },
-        reusableJudgment: {
-          answer: metrics.krr.value > 0.3,
-          confidence: metrics.krr.value,
-          reason: `KRR ${(metrics.krr.value * 100).toFixed(1)}%`,
-        },
-        externalRequired: {
-          answer: metrics.pdr.value > 0.5 ? 'EVALUATE' : 'NO',
-          confidence: metrics.pdr.value,
-          reason: `PDR ${(metrics.pdr.value * 100).toFixed(1)}%`,
-        },
-      },
-      recommendation:
-        metrics.pdr.value > 0.5
-          ? 'External intelligence may be required. Evaluate sources via ISES.'
-          : 'Internal knowledge is sufficient. Use owned intelligence.',
-      internalKnowledgeScore: Math.round(metrics.ksr.value * 100),
-      externalNecessityScore: Math.round(metrics.pdr.value * 100),
-      reuseOpportunityScore: Math.round(metrics.krr.value * 100),
-      ownershipCoverageScore: Math.round(metrics.kor.value * 100),
-      confidenceGradientScore: Math.round(metrics.scg.value * 100),
-      sovereigntyAlignmentScore: Math.round(metrics.sai.value * 100),
-    };
+        recommendation:
+          metrics.pdr.value > 0.5
+            ? 'External intelligence may be required. Evaluate sources via ISES.'
+            : 'Internal knowledge is sufficient. Use owned intelligence.',
+        internalKnowledgeScore: Math.round(metrics.ksr.value * 100),
+        externalNecessityScore: Math.round(metrics.pdr.value * 100),
+        reuseOpportunityScore: Math.round(metrics.krr.value * 100),
+        ownershipCoverageScore: Math.round(metrics.kor.value * 100),
+        confidenceGradientScore: Math.round(metrics.scg.value * 100),
+        sovereigntyAlignmentScore: Math.round(metrics.sai.value * 100),
+      };
+
+      await this.audit.log({
+        actorId: auditContext.actorId,
+        action: 'SOVEREIGNTY_EVALUATED',
+        resourceType: 'Sovereignty',
+        resourceId: workspaceId,
+        workspaceId,
+        before: null,
+        after: { metricCount: response.metricCount, sovereigntyAlignmentScore: response.sovereigntyAlignmentScore },
+        requestId: auditContext.requestId,
+        ip: auditContext.ip,
+        userAgent: auditContext.userAgent,
+        status: 'SUCCESS',
+        success: true,
+      });
+
+      return response;
+    } catch (error: any) {
+      await this.audit.log({
+        actorId: auditContext.actorId,
+        action: 'SOVEREIGNTY_EVALUATED',
+        resourceType: 'Sovereignty',
+        resourceId: workspaceId,
+        workspaceId,
+        before: null,
+        after: null,
+        requestId: auditContext.requestId,
+        ip: auditContext.ip,
+        userAgent: auditContext.userAgent,
+        status: 'FAILED',
+        success: false,
+        metadata: { error: String(error?.message || error), intent },
+      });
+      throw error;
+    }
   }
 
   async report(workspaceId: string) {

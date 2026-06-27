@@ -1,9 +1,20 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import { AuditService } from '../common/audit.service';
+
+type MutationAuditContext = {
+  actorId: string;
+  requestId?: string;
+  ip?: string;
+  userAgent?: string;
+};
 
 @Injectable()
 export class ToolService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   async findAll(
     workspaceId: string,
@@ -41,56 +52,164 @@ export class ToolService {
     });
   }
 
-  async create(workspaceId: string, data: any) {
-    return this.prisma.toolProfile.create({
-      data: {
-        toolId: data.toolId,
-        toolName: data.toolName,
-        category: (data.category as any) || 'ANALYTICS',
-        status: (data.status as any) || 'ACTIVE',
-        capabilities: Array.isArray(data.capabilities) ? data.capabilities : [],
-        costPerCall: data.costPerCall ?? 0,
-        totalCapital: data.totalCapital ?? 0,
-        workspaceId,
-      },
-    });
-  }
-
-  async update(workspaceId: string, id: string, data: any) {
-    const existing = await this.prisma.toolProfile.findFirst({
-      where: { id, workspaceId, status: { not: 'INACTIVE' } },
-    });
-    if (!existing) {
-      throw new NotFoundException('Tool profile not found');
-    }
-
-    return this.prisma.toolProfile.update({
-      where: { id: existing.id },
-      data: {
-        ...(data.toolName !== undefined && { toolName: data.toolName }),
-        ...(data.category !== undefined && { category: data.category as any }),
-        ...(data.status !== undefined && { status: data.status as any }),
-        ...(data.capabilities !== undefined && {
+  async create(workspaceId: string, data: any, auditContext: MutationAuditContext) {
+    try {
+      const created = await this.prisma.toolProfile.create({
+        data: {
+          toolId: data.toolId,
+          toolName: data.toolName,
+          category: (data.category as any) || 'ANALYTICS',
+          status: (data.status as any) || 'ACTIVE',
           capabilities: Array.isArray(data.capabilities) ? data.capabilities : [],
-        }),
-        ...(data.costPerCall !== undefined && { costPerCall: data.costPerCall }),
-        ...(data.totalCapital !== undefined && { totalCapital: data.totalCapital }),
-      },
-    });
+          costPerCall: data.costPerCall ?? 0,
+          totalCapital: data.totalCapital ?? 0,
+          workspaceId,
+        },
+      });
+
+      await this.audit.log({
+        actorId: auditContext.actorId,
+        action: 'TOOL_CREATED',
+        resourceType: 'ToolProfile',
+        resourceId: created.id,
+        workspaceId,
+        before: null,
+        after: { id: created.id, toolId: created.toolId, status: created.status },
+        requestId: auditContext.requestId,
+        ip: auditContext.ip,
+        userAgent: auditContext.userAgent,
+        status: 'SUCCESS',
+        success: true,
+      });
+
+      return created;
+    } catch (error: any) {
+      await this.audit.log({
+        actorId: auditContext.actorId,
+        action: 'TOOL_CREATED',
+        resourceType: 'ToolProfile',
+        workspaceId,
+        before: null,
+        after: null,
+        requestId: auditContext.requestId,
+        ip: auditContext.ip,
+        userAgent: auditContext.userAgent,
+        status: 'FAILED',
+        success: false,
+        metadata: { error: String(error?.message || error) },
+      });
+      throw error;
+    }
   }
 
-  async remove(workspaceId: string, id: string) {
-    const existing = await this.prisma.toolProfile.findFirst({
-      where: { id, workspaceId, status: { not: 'INACTIVE' } },
-    });
-    if (!existing) {
-      throw new NotFoundException('Tool profile not found');
-    }
+  async update(workspaceId: string, id: string, data: any, auditContext: MutationAuditContext) {
+    let existing: any = null;
+    try {
+      existing = await this.prisma.toolProfile.findFirst({
+        where: { id, workspaceId, status: { not: 'INACTIVE' } },
+      });
+      if (!existing) {
+        throw new NotFoundException('Tool profile not found');
+      }
 
-    await this.prisma.toolProfile.update({
-      where: { id: existing.id },
-      data: { status: 'INACTIVE' },
-    });
-    return { success: true, id: existing.id };
+      const updated = await this.prisma.toolProfile.update({
+        where: { id: existing.id },
+        data: {
+          ...(data.toolName !== undefined && { toolName: data.toolName }),
+          ...(data.category !== undefined && { category: data.category as any }),
+          ...(data.status !== undefined && { status: data.status as any }),
+          ...(data.capabilities !== undefined && {
+            capabilities: Array.isArray(data.capabilities) ? data.capabilities : [],
+          }),
+          ...(data.costPerCall !== undefined && { costPerCall: data.costPerCall }),
+          ...(data.totalCapital !== undefined && { totalCapital: data.totalCapital }),
+        },
+      });
+
+      await this.audit.log({
+        actorId: auditContext.actorId,
+        action: 'TOOL_UPDATED',
+        resourceType: 'ToolProfile',
+        resourceId: updated.id,
+        workspaceId,
+        before: { toolName: existing.toolName, status: existing.status },
+        after: { toolName: updated.toolName, status: updated.status },
+        requestId: auditContext.requestId,
+        ip: auditContext.ip,
+        userAgent: auditContext.userAgent,
+        status: 'SUCCESS',
+        success: true,
+      });
+
+      return updated;
+    } catch (error: any) {
+      await this.audit.log({
+        actorId: auditContext.actorId,
+        action: 'TOOL_UPDATED',
+        resourceType: 'ToolProfile',
+        resourceId: existing?.id ?? id,
+        workspaceId,
+        before: existing ? { toolName: existing.toolName, status: existing.status } : null,
+        after: null,
+        requestId: auditContext.requestId,
+        ip: auditContext.ip,
+        userAgent: auditContext.userAgent,
+        status: 'FAILED',
+        success: false,
+        metadata: { error: String(error?.message || error) },
+      });
+      throw error;
+    }
+  }
+
+  async remove(workspaceId: string, id: string, auditContext: MutationAuditContext) {
+    let existing: any = null;
+    try {
+      existing = await this.prisma.toolProfile.findFirst({
+        where: { id, workspaceId, status: { not: 'INACTIVE' } },
+      });
+      if (!existing) {
+        throw new NotFoundException('Tool profile not found');
+      }
+
+      await this.prisma.toolProfile.update({
+        where: { id: existing.id },
+        data: { status: 'INACTIVE' },
+      });
+
+      await this.audit.log({
+        actorId: auditContext.actorId,
+        action: 'TOOL_DELETED',
+        resourceType: 'ToolProfile',
+        resourceId: existing.id,
+        workspaceId,
+        before: { toolName: existing.toolName, status: existing.status },
+        after: { status: 'INACTIVE' },
+        requestId: auditContext.requestId,
+        ip: auditContext.ip,
+        userAgent: auditContext.userAgent,
+        status: 'SUCCESS',
+        success: true,
+      });
+
+      return { success: true, id: existing.id };
+    } catch (error: any) {
+      await this.audit.log({
+        actorId: auditContext.actorId,
+        action: 'TOOL_DELETED',
+        resourceType: 'ToolProfile',
+        resourceId: existing?.id ?? id,
+        workspaceId,
+        before: existing ? { toolName: existing.toolName, status: existing.status } : null,
+        after: null,
+        requestId: auditContext.requestId,
+        ip: auditContext.ip,
+        userAgent: auditContext.userAgent,
+        status: 'FAILED',
+        success: false,
+        metadata: { error: String(error?.message || error) },
+      });
+      throw error;
+    }
   }
 }

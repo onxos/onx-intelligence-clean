@@ -45,8 +45,8 @@ describe('SovereigntyService', () => {
       },
     } as any;
 
-    const service = new SovereigntyService(prisma);
-    const evaluation = await service.evaluate('assess intent', 'workspace-1');
+    const service = new SovereigntyService(prisma, { log: jest.fn() } as any);
+    const evaluation = await service.evaluate('assess intent', 'workspace-1', { actorId: 'user-1' });
     const report = await service.report('workspace-1');
 
     expect(evaluation.metricCount).toBe(ISMF6_METRICS.length);

@@ -13,6 +13,7 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import { WorkspaceService } from './workspace.service';
+import { getRequestAuditContext } from '../common/audit-context.util';
 
 @ApiTags('Workspace')
 @Controller()
@@ -36,7 +37,10 @@ export class WorkspaceController {
   @Post('projects')
   @ApiOperation({ summary: 'Create project' })
   async createProject(@Req() req: any, @Body() body: any) {
-    return this.svc.createProject(req.user.workspaceId, req.user.userId, body);
+    return this.svc.createProject(req.user.workspaceId, req.user.userId, body, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
   }
 
   @Get('projects/:id')
@@ -48,13 +52,19 @@ export class WorkspaceController {
   @Put('projects/:id')
   @ApiOperation({ summary: 'Update project' })
   async updateProject(@Param('id') id: string, @Req() req: any, @Body() body: any) {
-    return this.svc.updateProject(id, req.user.workspaceId, body);
+    return this.svc.updateProject(id, req.user.workspaceId, body, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
   }
 
   @Delete('projects/:id')
   @ApiOperation({ summary: 'Delete project' })
   async deleteProject(@Param('id') id: string, @Req() req: any) {
-    return this.svc.deleteProject(id, req.user.workspaceId);
+    return this.svc.deleteProject(id, req.user.workspaceId, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
   }
 
   @Get('knowledge/assets')
@@ -66,7 +76,10 @@ export class WorkspaceController {
   @Post('knowledge/assets')
   @ApiOperation({ summary: 'Create knowledge asset' })
   async createKnowledge(@Req() req: any, @Body() body: any) {
-    return this.svc.createKnowledgeAsset(req.user.workspaceId, req.user.userId, body);
+    return this.svc.createKnowledgeAsset(req.user.workspaceId, req.user.userId, body, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
   }
 
   @Get('knowledge/assets/:id')
@@ -78,13 +91,19 @@ export class WorkspaceController {
   @Put('knowledge/assets/:id')
   @ApiOperation({ summary: 'Update knowledge asset' })
   async updateKnowledge(@Param('id') id: string, @Req() req: any, @Body() body: any) {
-    return this.svc.updateKnowledgeAsset(id, req.user.workspaceId, body);
+    return this.svc.updateKnowledgeAsset(id, req.user.workspaceId, body, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
   }
 
   @Delete('knowledge/assets/:id')
   @ApiOperation({ summary: 'Delete knowledge asset' })
   async deleteKnowledge(@Param('id') id: string, @Req() req: any) {
-    return this.svc.deleteKnowledgeAsset(id, req.user.workspaceId);
+    return this.svc.deleteKnowledgeAsset(id, req.user.workspaceId, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
   }
 
   @Get('sources')
@@ -96,7 +115,10 @@ export class WorkspaceController {
   @Post('sources')
   @ApiOperation({ summary: 'Create source/provenance record' })
   async createSource(@Req() req: any, @Body() body: any) {
-    return this.svc.createSource(req.user.workspaceId, req.user.userId, body);
+    return this.svc.createSource(req.user.workspaceId, req.user.userId, body, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
   }
 
   @Get('sources/:id')
@@ -108,13 +130,19 @@ export class WorkspaceController {
   @Put('sources/:id')
   @ApiOperation({ summary: 'Update source/provenance record' })
   async updateSource(@Param('id') id: string, @Req() req: any, @Body() body: any) {
-    return this.svc.updateSource(id, req.user.workspaceId, body);
+    return this.svc.updateSource(id, req.user.workspaceId, body, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
   }
 
   @Delete('sources/:id')
   @ApiOperation({ summary: 'Delete source/provenance record' })
   async deleteSource(@Param('id') id: string, @Req() req: any) {
-    return this.svc.deleteSource(id, req.user.workspaceId);
+    return this.svc.deleteSource(id, req.user.workspaceId, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
   }
 
   @Get('agents')
@@ -126,19 +154,28 @@ export class WorkspaceController {
   @Post('agents')
   @ApiOperation({ summary: 'Create agent' })
   async createAgent(@Req() req: any, @Body() body: any) {
-    return this.svc.createAgent(req.user.workspaceId, req.user.userId, body);
+    return this.svc.createAgent(req.user.workspaceId, req.user.userId, body, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
   }
 
   @Put('agents/:id')
   @ApiOperation({ summary: 'Update agent' })
   async updateAgent(@Param('id') id: string, @Req() req: any, @Body() body: any) {
-    return this.svc.updateAgent(id, req.user.workspaceId, body);
+    return this.svc.updateAgent(id, req.user.workspaceId, body, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
   }
 
   @Delete('agents/:id')
   @ApiOperation({ summary: 'Delete agent' })
   async deleteAgent(@Param('id') id: string, @Req() req: any) {
-    return this.svc.deleteAgent(id, req.user.workspaceId);
+    return this.svc.deleteAgent(id, req.user.workspaceId, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
   }
 
   @Get('memory')
@@ -150,19 +187,28 @@ export class WorkspaceController {
   @Post('memory')
   @ApiOperation({ summary: 'Create memory entry' })
   async createMemory(@Req() req: any, @Body() body: any) {
-    return this.svc.createMemory(req.user.workspaceId, req.user.userId, body);
+    return this.svc.createMemory(req.user.workspaceId, req.user.userId, body, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
   }
 
   @Put('memory/:id')
   @ApiOperation({ summary: 'Update memory entry' })
   async updateMemory(@Param('id') id: string, @Req() req: any, @Body() body: any) {
-    return this.svc.updateMemory(id, req.user.workspaceId, body);
+    return this.svc.updateMemory(id, req.user.workspaceId, body, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
   }
 
   @Delete('memory/:id')
   @ApiOperation({ summary: 'Delete memory entry' })
   async deleteMemory(@Param('id') id: string, @Req() req: any) {
-    return this.svc.deleteMemory(id, req.user.workspaceId);
+    return this.svc.deleteMemory(id, req.user.workspaceId, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
   }
 
   @Get('models')
@@ -174,7 +220,10 @@ export class WorkspaceController {
   @Post('models')
   @ApiOperation({ summary: 'Create model entry on provider' })
   async createModel(@Req() req: any, @Body() body: any) {
-    return this.svc.createModel(req.user.workspaceId, body);
+    return this.svc.createModel(req.user.workspaceId, body, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
   }
 
   @Get('models/:id')
@@ -186,13 +235,19 @@ export class WorkspaceController {
   @Put('models/:id')
   @ApiOperation({ summary: 'Rename/update model entry on provider' })
   async updateModel(@Param('id') id: string, @Req() req: any, @Body() body: any) {
-    return this.svc.updateModel(id, req.user.workspaceId, body);
+    return this.svc.updateModel(id, req.user.workspaceId, body, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
   }
 
   @Delete('models/:id')
   @ApiOperation({ summary: 'Delete model entry from provider' })
   async deleteModel(@Param('id') id: string, @Req() req: any) {
-    return this.svc.deleteModel(id, req.user.workspaceId);
+    return this.svc.deleteModel(id, req.user.workspaceId, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
   }
 
   @Get('evaluations')
@@ -204,7 +259,10 @@ export class WorkspaceController {
   @Post('evaluations')
   @ApiOperation({ summary: 'Create provider evaluation' })
   async createEvaluation(@Req() req: any, @Body() body: any) {
-    return this.svc.createEvaluation(req.user.workspaceId, body);
+    return this.svc.createEvaluation(req.user.workspaceId, body, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
   }
 
   @Get('evaluations/:id')
@@ -216,13 +274,19 @@ export class WorkspaceController {
   @Put('evaluations/:id')
   @ApiOperation({ summary: 'Update provider evaluation' })
   async updateEvaluation(@Param('id') id: string, @Req() req: any, @Body() body: any) {
-    return this.svc.updateEvaluation(id, req.user.workspaceId, body);
+    return this.svc.updateEvaluation(id, req.user.workspaceId, body, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
   }
 
   @Delete('evaluations/:id')
   @ApiOperation({ summary: 'Delete provider evaluation' })
   async deleteEvaluation(@Param('id') id: string, @Req() req: any) {
-    return this.svc.deleteEvaluation(id, req.user.workspaceId);
+    return this.svc.deleteEvaluation(id, req.user.workspaceId, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
   }
 
   @Get('reports')
@@ -270,6 +334,9 @@ export class WorkspaceController {
   @Put('settings')
   @ApiOperation({ summary: 'Update workspace/user settings snapshot' })
   async updateSettings(@Req() req: any, @Body() body: any) {
-    return this.svc.updateSettings(req.user.userId, req.user.workspaceId, body);
+    return this.svc.updateSettings(req.user.userId, req.user.workspaceId, body, {
+      actorId: req.user.userId,
+      ...getRequestAuditContext(req),
+    });
   }
 }

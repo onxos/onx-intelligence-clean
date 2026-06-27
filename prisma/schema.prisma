@@ -388,16 +388,26 @@ model SovereigntyMetric {
 }
 
 model AuditLog {
-  id        String @id @default(cuid())
-  action    String
-  resource  String
-  resourceId String? @map("resource_id")
-  actorId   String @map("actor_id")
-  workspaceId String? @map("workspace_id")
-  oldValue  String? @map("old_value")
-  newValue  String? @map("new_value")
-  ipAddress String? @map("ip_address")
-  createdAt DateTime @default(now()) @map("created_at")
+  id           String   @id @default(cuid())
+  eventId      String   @unique @map("event_id")
+  timestamp    DateTime @default(now())
+  action       String
+  resource     String
+  resourceType String   @map("resource_type")
+  resourceId   String?  @map("resource_id")
+  actorId      String   @map("actor_id")
+  workspaceId  String?  @map("workspace_id")
+  oldValue     String?  @map("old_value")
+  newValue     String?  @map("new_value")
+  before       Json?
+  after        Json?
+  requestId    String?  @map("request_id")
+  ipAddress    String?  @map("ip_address")
+  userAgent    String?  @map("user_agent")
+  status       String   @default("SUCCESS")
+  success      Boolean  @default(true)
+  metadata     Json?    @default("{}")
+  createdAt    DateTime @default(now()) @map("created_at")
 
   @@map("audit_logs")
 }

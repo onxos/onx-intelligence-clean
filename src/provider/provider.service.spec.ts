@@ -26,8 +26,11 @@ describe('ProviderService', () => {
       },
     } as any;
 
-    const service = new ProviderService(prisma);
-    const result = await service.evaluate({ providerId: 'prov-123', intent: 'test' });
+    const service = new ProviderService(prisma, { log: jest.fn() } as any);
+    const result = await service.evaluate(
+      { providerId: 'prov-123', intent: 'test' },
+      { actorId: 'user-1' },
+    );
 
     expect(result?.dimensions).toBeDefined();
     expect(Object.keys(result?.dimensions || {})).toHaveLength(ISES_DIMENSIONS.length);

@@ -14,6 +14,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiProperty } from '@nestjs/swagg
 import { IsNumber, IsOptional, IsString } from 'class-validator';
 import { EvidenceService } from './evidence.service';
 import { JwtAuthGuard } from '../auth/jwt.guard';
+import { getRequestAuditContext } from '../common/audit-context.util';
 
 class CreateEvidenceDto {
   @ApiProperty({ example: 'Assess model output quality' })
@@ -74,18 +75,18 @@ export class EvidenceController {
       confidence: body.confidence,
       ownerId: req.user.userId,
       workspaceId: req.user.workspaceId,
-    });
+    }, getRequestAuditContext(req));
   }
 
   @Put(':id')
   @ApiOperation({ summary: 'Update evidence record' })
   async update(@Param('id') id: string, @Body() body: UpdateEvidenceDto, @Req() req: any) {
-    return this.svc.update(id, req.user.workspaceId, req.user.userId, body);
+    return this.svc.update(id, req.user.workspaceId, req.user.userId, body, getRequestAuditContext(req));
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Delete evidence record' })
   async remove(@Param('id') id: string, @Req() req: any) {
-    return this.svc.remove(id, req.user.workspaceId, req.user.userId);
+    return this.svc.remove(id, req.user.workspaceId, req.user.userId, getRequestAuditContext(req));
   }
 }

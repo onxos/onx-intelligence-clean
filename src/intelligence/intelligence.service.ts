@@ -4,6 +4,12 @@ import { AuditService } from '../common/audit.service';
 import { IntelligenceObjectType, Prisma } from '@prisma/client';
 import * as crypto from 'crypto';
 
+type MutationAuditContext = {
+  requestId?: string;
+  ip?: string;
+  userAgent?: string;
+};
+
 @Injectable()
 export class IntelligenceService {
   constructor(
@@ -51,41 +57,73 @@ export class IntelligenceService {
     ownerId: string;
     creatorId: string;
     workspaceId: string;
-  }) {
-    this.validateCreateInput(data);
+  },
+  auditContext?: MutationAuditContext,
+  ) {
+    try {
+      this.validateCreateInput(data);
 
-    const hash = crypto.createHash('sha256').update(data.content).digest('hex');
+      const hash = crypto.createHash('sha256').update(data.content).digest('hex');
 
-    const obj = await this.prisma.intelligenceObject.create({
-      data: {
-        name: data.name,
-        content: data.content,
-        contentHash: hash,
-        objectType: data.objectType,
-        semanticSummary: data.semanticSummary,
-        layer: data.layer || 'L1_FOUNDATIONAL',
-        originSource: data.originSource || 'L2_SIL',
-        creatorIdentity: data.creatorIdentity || 'system',
-        ownershipClass: (data.ownershipClass as any) || 'INSTITUTIONAL',
-        privacyLevel: (data.privacyLevel as any) || 'INSTITUTIONAL',
-        amanahScore: data.amanahScore ?? 0.5,
-        capitalCategory: data.capitalCategory as any,
-        ownerId: data.ownerId,
-        creatorId: data.creatorId,
+      const obj = await this.prisma.intelligenceObject.create({
+        data: {
+          name: data.name,
+          content: data.content,
+          contentHash: hash,
+          objectType: data.objectType,
+          semanticSummary: data.semanticSummary,
+          layer: data.layer || 'L1_FOUNDATIONAL',
+          originSource: data.originSource || 'L2_SIL',
+          creatorIdentity: data.creatorIdentity || 'system',
+          ownershipClass: (data.ownershipClass as any) || 'INSTITUTIONAL',
+          privacyLevel: (data.privacyLevel as any) || 'INSTITUTIONAL',
+          amanahScore: data.amanahScore ?? 0.5,
+          capitalCategory: data.capitalCategory as any,
+          ownerId: data.ownerId,
+          creatorId: data.creatorId,
+          workspaceId: data.workspaceId,
+          sourceLayer: data.layer || 'L1_FOUNDATIONAL',
+        },
+      });
+
+      await this.audit.log({
+        action: 'INTELLIGENCE_CREATED',
+        resourceType: 'IntelligenceObject',
+        resourceId: obj.id,
+        actorId: data.creatorId,
         workspaceId: data.workspaceId,
-        sourceLayer: data.layer || 'L1_FOUNDATIONAL',
-      },
-    });
+        before: null,
+        after: {
+          id: obj.id,
+          name: obj.name,
+          objectType: obj.objectType,
+          state: obj.state,
+        },
+        requestId: auditContext?.requestId,
+        ip: auditContext?.ip,
+        userAgent: auditContext?.userAgent,
+        status: 'SUCCESS',
+        success: true,
+      });
 
-    await this.audit.log({
-      action: 'INTELLIGENCE_CREATED',
-      resource: 'IntelligenceObject',
-      resourceId: obj.id,
-      actorId: data.creatorId,
-      workspaceId: data.workspaceId,
-    });
-
-    return obj;
+      return obj;
+    } catch (error: any) {
+      await this.audit.log({
+        action: 'INTELLIGENCE_CREATED',
+        resourceType: 'IntelligenceObject',
+        actorId: data.creatorId,
+        workspaceId: data.workspaceId,
+        before: null,
+        after: null,
+        requestId: auditContext?.requestId,
+        ip: auditContext?.ip,
+        userAgent: auditContext?.userAgent,
+        status: 'FAILED',
+        success: false,
+        metadata: { error: String(error?.message || error) },
+      });
+      throw error;
+    }
   }
 
   async findAll(
@@ -186,77 +224,138 @@ export class IntelligenceService {
       trustScore?: number;
       qualityIndex?: number;
     },
+    auditContext?: MutationAuditContext,
   ) {
-    if (data.name !== undefined && !String(data.name).trim()) {
-      throw new BadRequestException('name cannot be empty');
+    let existing: any = null;
+    try {
+      if (data.name !== undefined && !String(data.name).trim()) {
+        throw new BadRequestException('name cannot be empty');
+      }
+      if (data.content !== undefined && !String(data.content).trim()) {
+        throw new BadRequestException('content cannot be empty');
+      }
+      if (data.objectType !== undefined && !this.objectTypes.includes(data.objectType)) {
+        throw new BadRequestException('objectType is invalid');
+      }
+
+      existing = await this.findOne(id, workspaceId, actorId);
+      const contentHash =
+        data.content !== undefined
+          ? crypto.createHash('sha256').update(data.content).digest('hex')
+          : existing.contentHash;
+
+      const updated = await this.prisma.intelligenceObject.update({
+        where: { id: existing.id },
+        data: {
+          ...(data.name !== undefined && { name: data.name }),
+          ...(data.content !== undefined && { content: data.content }),
+          ...(data.objectType !== undefined && { objectType: data.objectType }),
+          ...(data.semanticSummary !== undefined && { semanticSummary: data.semanticSummary }),
+          ...(data.state !== undefined && { state: data.state as any }),
+          ...(data.privacyLevel !== undefined && { privacyLevel: data.privacyLevel as any }),
+          ...(data.confidenceScore !== undefined && { confidenceScore: data.confidenceScore }),
+          ...(data.trustScore !== undefined && { trustScore: data.trustScore }),
+          ...(data.qualityIndex !== undefined && { qualityIndex: data.qualityIndex }),
+          contentHash,
+        },
+      });
+
+      await this.audit.log({
+        action: 'INTELLIGENCE_UPDATED',
+        resourceType: 'IntelligenceObject',
+        resourceId: updated.id,
+        actorId,
+        workspaceId,
+        before: {
+          name: existing.name,
+          objectType: existing.objectType,
+          state: existing.state,
+        },
+        after: {
+          name: updated.name,
+          objectType: updated.objectType,
+          state: updated.state,
+        },
+        requestId: auditContext?.requestId,
+        ip: auditContext?.ip,
+        userAgent: auditContext?.userAgent,
+        status: 'SUCCESS',
+        success: true,
+      });
+
+      return updated;
+    } catch (error: any) {
+      await this.audit.log({
+        action: 'INTELLIGENCE_UPDATED',
+        resourceType: 'IntelligenceObject',
+        resourceId: existing?.id ?? id,
+        actorId,
+        workspaceId,
+        before: existing
+          ? { name: existing.name, objectType: existing.objectType, state: existing.state }
+          : null,
+        after: null,
+        requestId: auditContext?.requestId,
+        ip: auditContext?.ip,
+        userAgent: auditContext?.userAgent,
+        status: 'FAILED',
+        success: false,
+        metadata: { error: String(error?.message || error) },
+      });
+      throw error;
     }
-    if (data.content !== undefined && !String(data.content).trim()) {
-      throw new BadRequestException('content cannot be empty');
-    }
-    if (data.objectType !== undefined && !this.objectTypes.includes(data.objectType)) {
-      throw new BadRequestException('objectType is invalid');
-    }
-
-    const existing = await this.findOne(id, workspaceId, actorId);
-    const contentHash =
-      data.content !== undefined
-        ? crypto.createHash('sha256').update(data.content).digest('hex')
-        : existing.contentHash;
-
-    const updated = await this.prisma.intelligenceObject.update({
-      where: { id: existing.id },
-      data: {
-        ...(data.name !== undefined && { name: data.name }),
-        ...(data.content !== undefined && { content: data.content }),
-        ...(data.objectType !== undefined && { objectType: data.objectType }),
-        ...(data.semanticSummary !== undefined && { semanticSummary: data.semanticSummary }),
-        ...(data.state !== undefined && { state: data.state as any }),
-        ...(data.privacyLevel !== undefined && { privacyLevel: data.privacyLevel as any }),
-        ...(data.confidenceScore !== undefined && { confidenceScore: data.confidenceScore }),
-        ...(data.trustScore !== undefined && { trustScore: data.trustScore }),
-        ...(data.qualityIndex !== undefined && { qualityIndex: data.qualityIndex }),
-        contentHash,
-      },
-    });
-
-    await this.audit.log({
-      action: 'INTELLIGENCE_UPDATED',
-      resource: 'IntelligenceObject',
-      resourceId: updated.id,
-      actorId,
-      workspaceId,
-      oldValue: JSON.stringify({
-        name: existing.name,
-        objectType: existing.objectType,
-        state: existing.state,
-      }),
-      newValue: JSON.stringify({
-        name: updated.name,
-        objectType: updated.objectType,
-        state: updated.state,
-      }),
-    });
-
-    return updated;
   }
 
-  async remove(id: string, workspaceId: string, actorId: string) {
-    const existing = await this.findOne(id, workspaceId, actorId);
+  async remove(
+    id: string,
+    workspaceId: string,
+    actorId: string,
+    auditContext?: MutationAuditContext,
+  ) {
+    let existing: any = null;
+    try {
+      existing = await this.findOne(id, workspaceId, actorId);
 
-    await this.prisma.intelligenceObject.update({
-      where: { id: existing.id },
-      data: { state: 'ARCHIVED' },
-    });
+      await this.prisma.intelligenceObject.update({
+        where: { id: existing.id },
+        data: { state: 'ARCHIVED' },
+      });
 
-    await this.audit.log({
-      action: 'INTELLIGENCE_DELETED',
-      resource: 'IntelligenceObject',
-      resourceId: existing.id,
-      actorId,
-      workspaceId,
-      oldValue: JSON.stringify({ name: existing.name, objectType: existing.objectType }),
-    });
+      await this.audit.log({
+        action: 'INTELLIGENCE_DELETED',
+        resourceType: 'IntelligenceObject',
+        resourceId: existing.id,
+        actorId,
+        workspaceId,
+        before: { name: existing.name, objectType: existing.objectType, state: existing.state },
+        after: { state: 'ARCHIVED' },
+        requestId: auditContext?.requestId,
+        ip: auditContext?.ip,
+        userAgent: auditContext?.userAgent,
+        status: 'SUCCESS',
+        success: true,
+      });
 
-    return { success: true, id: existing.id };
+      return { success: true, id: existing.id };
+    } catch (error: any) {
+      await this.audit.log({
+        action: 'INTELLIGENCE_DELETED',
+        resourceType: 'IntelligenceObject',
+        resourceId: existing?.id ?? id,
+        actorId,
+        workspaceId,
+        before: existing
+          ? { name: existing.name, objectType: existing.objectType, state: existing.state }
+          : null,
+        after: null,
+        requestId: auditContext?.requestId,
+        ip: auditContext?.ip,
+        userAgent: auditContext?.userAgent,
+        status: 'FAILED',
+        success: false,
+        metadata: { error: String(error?.message || error) },
+      });
+      throw error;
+    }
   }
 }

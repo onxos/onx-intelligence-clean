@@ -1,9 +1,19 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import { AuditService } from '../common/audit.service';
+
+type MutationAuditContext = {
+  requestId?: string;
+  ip?: string;
+  userAgent?: string;
+};
 
 @Injectable()
 export class EvidenceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   async findAll(
     workspaceId: string,
@@ -46,17 +56,52 @@ export class EvidenceService {
     confidence?: number;
     ownerId: string;
     workspaceId: string;
-  }) {
-    return this.prisma.evidenceRecord.create({
-      data: {
-        intent: data.intent,
-        confidence: data.confidence || 0,
-        ownerId: data.ownerId,
+  }, auditContext?: MutationAuditContext) {
+    try {
+      const created = await this.prisma.evidenceRecord.create({
+        data: {
+          intent: data.intent,
+          confidence: data.confidence || 0,
+          ownerId: data.ownerId,
+          workspaceId: data.workspaceId,
+          providerCandidates: [],
+          toolCandidates: [],
+        },
+      });
+
+      await this.audit.log({
+        actorId: data.ownerId,
+        action: 'EVIDENCE_CREATED',
+        resourceType: 'EvidenceRecord',
+        resourceId: created.id,
         workspaceId: data.workspaceId,
-        providerCandidates: [],
-        toolCandidates: [],
-      },
-    });
+        before: null,
+        after: { id: created.id, intent: created.intent, deletedAt: created.deletedAt },
+        requestId: auditContext?.requestId,
+        ip: auditContext?.ip,
+        userAgent: auditContext?.userAgent,
+        status: 'SUCCESS',
+        success: true,
+      });
+
+      return created;
+    } catch (error: any) {
+      await this.audit.log({
+        actorId: data.ownerId,
+        action: 'EVIDENCE_CREATED',
+        resourceType: 'EvidenceRecord',
+        workspaceId: data.workspaceId,
+        before: null,
+        after: null,
+        requestId: auditContext?.requestId,
+        ip: auditContext?.ip,
+        userAgent: auditContext?.userAgent,
+        status: 'FAILED',
+        success: false,
+        metadata: { error: String(error?.message || error) },
+      });
+      throw error;
+    }
   }
 
   async update(
@@ -70,38 +115,117 @@ export class EvidenceService {
       outcome?: string;
       learning?: string;
     },
+    auditContext?: MutationAuditContext,
   ) {
-    const existing = await this.prisma.evidenceRecord.findFirst({
-      where: { id, workspaceId, ownerId, deletedAt: null },
-    });
-    if (!existing) {
-      throw new NotFoundException('Evidence record not found');
-    }
+    let existing: any = null;
+    try {
+      existing = await this.prisma.evidenceRecord.findFirst({
+        where: { id, workspaceId, ownerId, deletedAt: null },
+      });
+      if (!existing) {
+        throw new NotFoundException('Evidence record not found');
+      }
 
-    return this.prisma.evidenceRecord.update({
-      where: { id: existing.id },
-      data: {
-        ...(data.intent !== undefined && { intent: data.intent }),
-        ...(data.confidence !== undefined && { confidence: data.confidence }),
-        ...(data.judgment !== undefined && { judgment: data.judgment }),
-        ...(data.outcome !== undefined && { outcome: data.outcome }),
-        ...(data.learning !== undefined && { learning: data.learning }),
-      },
-    });
+      const updated = await this.prisma.evidenceRecord.update({
+        where: { id: existing.id },
+        data: {
+          ...(data.intent !== undefined && { intent: data.intent }),
+          ...(data.confidence !== undefined && { confidence: data.confidence }),
+          ...(data.judgment !== undefined && { judgment: data.judgment }),
+          ...(data.outcome !== undefined && { outcome: data.outcome }),
+          ...(data.learning !== undefined && { learning: data.learning }),
+        },
+      });
+
+      await this.audit.log({
+        actorId: ownerId,
+        action: 'EVIDENCE_UPDATED',
+        resourceType: 'EvidenceRecord',
+        resourceId: updated.id,
+        workspaceId,
+        before: { intent: existing.intent, deletedAt: existing.deletedAt },
+        after: { intent: updated.intent, deletedAt: updated.deletedAt },
+        requestId: auditContext?.requestId,
+        ip: auditContext?.ip,
+        userAgent: auditContext?.userAgent,
+        status: 'SUCCESS',
+        success: true,
+      });
+
+      return updated;
+    } catch (error: any) {
+      await this.audit.log({
+        actorId: ownerId,
+        action: 'EVIDENCE_UPDATED',
+        resourceType: 'EvidenceRecord',
+        resourceId: existing?.id ?? id,
+        workspaceId,
+        before: existing ? { intent: existing.intent, deletedAt: existing.deletedAt } : null,
+        after: null,
+        requestId: auditContext?.requestId,
+        ip: auditContext?.ip,
+        userAgent: auditContext?.userAgent,
+        status: 'FAILED',
+        success: false,
+        metadata: { error: String(error?.message || error) },
+      });
+      throw error;
+    }
   }
 
-  async remove(id: string, workspaceId: string, ownerId: string) {
-    const existing = await this.prisma.evidenceRecord.findFirst({
-      where: { id, workspaceId, ownerId, deletedAt: null },
-    });
-    if (!existing) {
-      throw new NotFoundException('Evidence record not found');
-    }
+  async remove(
+    id: string,
+    workspaceId: string,
+    ownerId: string,
+    auditContext?: MutationAuditContext,
+  ) {
+    let existing: any = null;
+    try {
+      existing = await this.prisma.evidenceRecord.findFirst({
+        where: { id, workspaceId, ownerId, deletedAt: null },
+      });
+      if (!existing) {
+        throw new NotFoundException('Evidence record not found');
+      }
 
-    await this.prisma.evidenceRecord.update({
-      where: { id: existing.id },
-      data: { deletedAt: new Date() },
-    });
-    return { success: true, id: existing.id };
+      await this.prisma.evidenceRecord.update({
+        where: { id: existing.id },
+        data: { deletedAt: new Date() },
+      });
+
+      await this.audit.log({
+        actorId: ownerId,
+        action: 'EVIDENCE_DELETED',
+        resourceType: 'EvidenceRecord',
+        resourceId: existing.id,
+        workspaceId,
+        before: { intent: existing.intent, deletedAt: existing.deletedAt },
+        after: { deletedAt: true },
+        requestId: auditContext?.requestId,
+        ip: auditContext?.ip,
+        userAgent: auditContext?.userAgent,
+        status: 'SUCCESS',
+        success: true,
+      });
+
+      return { success: true, id: existing.id };
+    } catch (error: any) {
+      await this.audit.log({
+        actorId: ownerId,
+        action: 'EVIDENCE_DELETED',
+        resourceType: 'EvidenceRecord',
+        resourceId: existing?.id ?? id,
+        workspaceId,
+        before: existing ? { intent: existing.intent, deletedAt: existing.deletedAt } : null,
+        after: null,
+        requestId: auditContext?.requestId,
+        ip: auditContext?.ip,
+        userAgent: auditContext?.userAgent,
+        status: 'FAILED',
+        success: false,
+        metadata: { error: String(error?.message || error) },
+      });
+      throw error;
+    }
   }
 }

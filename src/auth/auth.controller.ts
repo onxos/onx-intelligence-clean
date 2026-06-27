@@ -13,6 +13,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiProperty } from '@nestjs/swagg
 import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt.guard';
+import { getRequestAuditContext } from '../common/audit-context.util';
 
 class RegisterDto {
   @ApiProperty({ example: 'user@example.com' })
@@ -63,9 +64,9 @@ export class AuthController {
 
   @Post('register')
   @ApiOperation({ summary: 'Register new user' })
-  async register(@Body() body: RegisterDto) {
+  async register(@Body() body: RegisterDto, @Req() req: any) {
     try {
-      return await this.svc.register(body);
+      return await this.svc.register(body, getRequestAuditContext(req));
     } catch (err: any) {
       if (err instanceof HttpException) throw err;
       throw new HttpException(
@@ -78,8 +79,8 @@ export class AuthController {
   @Post('login')
   @HttpCode(200)
   @ApiOperation({ summary: 'Login and get JWT' })
-  async login(@Body() body: LoginDto) {
-    return this.svc.login(body.email, body.password);
+  async login(@Body() body: LoginDto, @Req() req: any) {
+    return this.svc.login(body.email, body.password, getRequestAuditContext(req));
   }
 
   @Get('me')
@@ -95,7 +96,11 @@ export class AuthController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Revoke current session' })
   async revoke(@Req() req: any) {
-    return this.svc.revokeUserSessions(req.user.userId);
+    return this.svc.revokeUserSessions(
+      req.user.userId,
+      req.user.workspaceId,
+      getRequestAuditContext(req),
+    );
   }
 
   @Get('devices')
