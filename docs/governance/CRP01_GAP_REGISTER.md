@@ -9,7 +9,7 @@
 - Full constitutional CRUD completeness: closed (MO-015, production-verified)
 - Full audit trail coverage: closed (MO-012, production-verified)
 - Memory governance: closed (MO-013, production-verified)
-- Reporting depth: partial
+- Reporting depth: closed (MO-016, production-verified)
 - Workspace domain completeness: partial
 - Capital allocation: missing
 - Founder Intent Compiler: missing
@@ -191,3 +191,40 @@
 		- Validation verified live (`RESTRICTED` memory with non-`OWNER_ONLY` rejected).
 		- Soft delete verified live by post-delete `404` on read paths.
 		- Audit verified live for create/update/delete across intelligence, evidence, provider, tool, and workspace-domain entities, with memory governance metadata present.
+
+## Mission Order 016 Reporting Depth Record (2026-06-27)
+
+- Selected V2 item: Reporting depth
+- Scope implemented (no architecture redesign, no new domain creation):
+	- Deepened existing reporting APIs in workspace module with production-grade query capabilities:
+		- `GET /reports`
+		- `GET /reports/governance`
+		- `GET /reports/capital`
+		- `GET /monitoring`
+		- `GET /monitoring/audit`
+		- `GET /monitoring/audit/:id`
+	- Added consistent validated DTO query contracts for reporting and monitoring endpoints.
+	- Added date-range validation (`from`/`to`), pagination, filtering, sorting, and search support.
+	- Added aggregated reporting sections across constitutional modules: statistics, counts, health summary, audit summary, memory summary, CRUD activity summary, provider/workspace summaries, error summary, validation summary, and sovereignty summary.
+	- Added optional detailed report blocks via `includeDetails=true` with module selection (`all|intelligence|evidence|provider|tool|workspace|memory|sovereignty`).
+	- Preserved backward compatibility of existing endpoints and response fields.
+	- Preserved authorization and memory governance compatibility (`OWNER_ONLY` memory visibility remains enforced in reporting details).
+- Verification evidence:
+	- Implementation commit: `7b268571cbddfa06def25483f6823df278a855b1`
+	- CI hardening follow-up commit: `29b5054c35930e5df812f44d3be372d6a6610542`
+	- Build: success (`npm run build`)
+	- Unit tests: success (`npm test`)
+	- E2E tests: success (`npm run test:e2e`)
+	- Smoke: success (`BASE_URL=https://onx-intelligence-clean.onrender.com npm run smoke`)
+	- CI (final SHA): success https://github.com/onxos/onx-intelligence-clean/actions/runs/28299132424
+	- Render deploy (final SHA): success https://github.com/onxos/onx-intelligence-clean/actions/runs/28299132407
+	- Production `/commit`: `{"commit":"7b268571cbddfa06def25483f6823df278a855b1","nodeEnv":"production"}`
+	- Production `/health`: `{"status":"ok","database":{"status":"up","version":"1.0.0"}}`
+	- Live reporting verification: PASS
+		- Summary reports: present (`snapshot`, `statistics`, `counts`, `healthSummary`, `auditSummary`, `memorySummary`, `crudActivitySummary`, `providerSummary`, `workspaceSummary`, `errorSummary`, `validationSummary`).
+		- Detailed reports: present with `includeDetails=true` and module selection.
+		- Pagination/filtering/sorting/date-range: verified live.
+		- Invalid date-range validation: `400` verified live.
+		- Authorization: unauthenticated `reports` and `monitoring` requests return `401`.
+		- Audit compatibility: `monitoring/audit` list and details verified live.
+		- Memory compatibility: memory summaries and governed memory details verified live.

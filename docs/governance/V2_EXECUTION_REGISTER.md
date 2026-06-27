@@ -85,6 +85,25 @@
 	- Production `/health`: `{"status":"ok","database":{"status":"up","version":"1.0.0"}}`
 	- Smoke: PASS (`BASE_URL=https://onx-intelligence-clean.onrender.com npm run smoke`)
 	- Live practical proof: PASS (CRUD + pagination/filtering + authorization + validation + audit + soft-delete + memory governance compatibility verified across constitutional modules)
+- MO-016: Reporting Depth (production-first within existing constitutional domains)
+	- Scope delivered:
+		- Upgraded existing reporting and monitoring paths with validated query DTOs and deeper reporting coverage:
+			- `/reports`, `/reports/governance`, `/reports/capital`
+			- `/monitoring`, `/monitoring/audit`, `/monitoring/audit/:id`
+		- Added pagination, filtering, sorting, search, and date-range support for reporting paths.
+		- Added aggregated summary sections across constitutional modules (statistics, counts, health, audit, memory, CRUD activity, provider/workspace, errors, validation, sovereignty).
+		- Added optional detailed report modules via `includeDetails=true` and module selector (`all|intelligence|evidence|provider|tool|workspace|memory|sovereignty`).
+		- Preserved backward-compatible endpoint contracts and memory governance authorization behavior.
+		- Added unit and e2e coverage for reporting depth behavior and validation.
+	- Production-ready status: COMPLETED
+	- Implementation commit: 7b268571cbddfa06def25483f6823df278a855b1 (`feat(v2): deepen reporting layer across constitutional modules`)
+	- CI hardening follow-up: 29b5054c35930e5df812f44d3be372d6a6610542 (`fix(ci): format reporting-depth implementation`)
+	- CI (final SHA): https://github.com/onxos/onx-intelligence-clean/actions/runs/28299132424
+	- Render (final SHA): https://github.com/onxos/onx-intelligence-clean/actions/runs/28299132407
+	- Production `/commit`: `{"commit":"7b268571cbddfa06def25483f6823df278a855b1","nodeEnv":"production"}`
+	- Production `/health`: `{"status":"ok","database":{"status":"up","version":"1.0.0"}}`
+	- Smoke: PASS (`BASE_URL=https://onx-intelligence-clean.onrender.com npm run smoke`)
+	- Live reporting proof: PASS (summary + details + pagination + filtering + sorting + date-range validation + authorization + audit compatibility + memory compatibility)
 
 ## Blocked Work Items
 
@@ -101,3 +120,4 @@
 - 2026-06-27 Sprint 2 complete: full audit trail coverage verified on production commit b957f10156fa9aba1170fe7ba4ba500324b9d0e6
 - 2026-06-27 Memory governance complete: governed memory CRUD verified on production commit 72afd605a375fda762ce1b4f0799b5526b3db91a
 - 2026-06-27 Full constitutional CRUD completeness complete: read-parity gaps closed and verified on production commit 975e7a8128ad361dd48cb7c81fbe17276f02aa65
+- 2026-06-27 Reporting depth complete: reporting layer deepened and verified on production commit 7b268571cbddfa06def25483f6823df278a855b1
