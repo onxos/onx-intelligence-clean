@@ -4,7 +4,7 @@
 
 - ISES-12: hardened and covered by unit test
 - ISMF-6: implemented and covered by unit test
-- Soft delete: missing
+- Soft delete: closed (MO-011, production-verified)
 - Automated smoke tests: installed as executable repository behavior
 - Full constitutional CRUD completeness: partial
 - Full audit trail coverage: partial
@@ -66,3 +66,29 @@
 	- Live `/commit`: `{"commit":"340b54a1e617ce92929f1023a8c21edc3ed43ff4","nodeEnv":"production"}`
 	- Live `/health`: status `ok`, database status `up`
 	- Live smoke: passed (`npm run smoke` against production URL)
+
+## Mission Order 011 Sprint 1 Record (2026-06-27)
+
+- Selected V2 item (first ready by dependency order): Soft delete
+- Scope implemented (no architecture redesign):
+	- Converted hard delete paths to soft delete/archive in domain services:
+		- `intelligence` -> archive via `state=ARCHIVED`
+		- `provider` and `tool` -> disable via `status=INACTIVE`
+		- `projects` and `agents` -> archive via `status=ARCHIVED`
+		- `evidence`, `sources(provenance)`, `memory`, `provider evaluations` -> tombstone via `deleted_at`
+	- Added default read filters to exclude archived/inactive/deleted records.
+	- Added migration: `20260627164000_soft_delete_v2`.
+	- Added e2e evidence assertion for evidence soft delete visibility.
+- Verification evidence:
+	- Delivery commit: `c4201cd804946f0129861513b3eb1b425ad1fd73`
+	- Build: success (`npm run build`)
+	- Unit tests: success (`npm test`)
+	- E2E tests: success (`npm run test:e2e`)
+	- CI: success https://github.com/onxos/onx-intelligence-clean/actions/runs/28295133220
+	- Render deploy: success https://github.com/onxos/onx-intelligence-clean/actions/runs/28295133223
+	- Production `/commit`: `{"commit":"c4201cd804946f0129861513b3eb1b425ad1fd73","nodeEnv":"production"}`
+	- Production `/health`: `{"status":"ok","database":{"status":"up","version":"1.0.0"}}`
+	- Production smoke: success (`BASE_URL=https://onx-intelligence-clean.onrender.com npm run smoke`)
+	- Practical closure proof:
+		- Intelligence soft delete: delete then `GET /intelligence/:id` => `404`
+		- Evidence soft delete: delete then `GET /evidence` excludes deleted id
