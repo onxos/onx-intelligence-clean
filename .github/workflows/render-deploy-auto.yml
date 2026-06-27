@@ -56,9 +56,10 @@ jobs:
           print(f"DEBUG: owner_id = {owner_id}")
           print(f"DEBUG: api_key set = {bool(api_key)}")
 
-          # Fetch services
+          # Try different Render API endpoints
+          # First try: /v1/services (without owner_id)
           print("🔍 Fetching Render services...")
-          url = f"https://api.render.com/v1/owners/{owner_id}/services"
+          url = f"https://api.render.com/v1/services"
           print(f"DEBUG: URL = {url}")
           status, services_data = fetch_json(url)
           
@@ -81,7 +82,7 @@ jobs:
           
           # Fetch databases
           print("🔍 Fetching PostgreSQL databases...")
-          url_db = f"https://api.render.com/v1/owners/{owner_id}/databases"
+          url_db = f"https://api.render.com/v1/databases"
           print(f"DEBUG: URL = {url_db}")
           status, db_data = fetch_json(url_db)
           databases = db_data.get('databases', []) if isinstance(db_data, dict) else db_data
