@@ -117,3 +117,22 @@
 	- Production `/commit`: `{"commit":"b957f10156fa9aba1170fe7ba4ba500324b9d0e6","nodeEnv":"production"}`
 	- Production `/health`: `{"status":"ok","database":{"status":"up","version":"1.0.0"}}`
 	- Production smoke: success (`BASE_URL=https://onx-intelligence-clean.onrender.com npm run smoke`)
+
+## Mission Order 013 Closure Verification Record (2026-06-27)
+
+- Verification mode: read/verify only, plus governance record completion where prior closure evidence was stale.
+- Target closure commit: `b78599bcd0c489739874708260a140a602b4586b`
+- Repository status:
+	- Local `main` == `origin/main`
+	- No tracked changes pending during verification
+	- No open PRs
+- Workflow evidence for closure commit:
+	- CI: success https://github.com/onxos/onx-intelligence-clean/actions/runs/28296058571
+	- Render deploy: success https://github.com/onxos/onx-intelligence-clean/actions/runs/28296058585
+- Production evidence:
+	- `/commit`: `{"commit":"b78599bcd0c489739874708260a140a602b4586b","nodeEnv":"production"}`
+	- `/health`: `{"status":"ok","database":{"status":"up","version":"1.0.0"}}`
+	- Smoke: success (`BASE_URL=https://onx-intelligence-clean.onrender.com npm run smoke`)
+- Live audit proof:
+	- Verified `AUTH_REGISTERED`, `AUTH_LOGGED_IN`, `EVIDENCE_CREATED`, `EVIDENCE_UPDATED`, `EVIDENCE_DELETED`
+	- Verified fields present on live audit entries: `actorId`, `resourceType`, `resourceId`, `action`, `timestamp`, `status`, `success`, `metadata`

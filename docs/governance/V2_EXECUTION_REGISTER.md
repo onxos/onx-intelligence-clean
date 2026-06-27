@@ -48,6 +48,10 @@
 	- Production `/commit`: `{"commit":"b957f10156fa9aba1170fe7ba4ba500324b9d0e6","nodeEnv":"production"}`
 	- Production `/health`: `{"status":"ok","database":{"status":"up","version":"1.0.0"}}`
 	- Smoke: PASS (`BASE_URL=https://onx-intelligence-clean.onrender.com npm run smoke`)
+	- Closure verification commit: b78599bcd0c489739874708260a140a602b4586b (`docs(governance): record MO-012 audit trail closure`)
+	- Closure verification CI: https://github.com/onxos/onx-intelligence-clean/actions/runs/28296058571
+	- Closure verification Render: https://github.com/onxos/onx-intelligence-clean/actions/runs/28296058585
+	- Closure verification production `/commit`: `{"commit":"b78599bcd0c489739874708260a140a602b4586b","nodeEnv":"production"}`
 
 ## Blocked Work Items
 
