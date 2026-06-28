@@ -11,7 +11,7 @@
 - Memory governance: closed (MO-013, production-verified)
 - Reporting depth: closed (MO-016, production-verified)
 - Workspace domain completeness: closed (MO-015, production-verified)
-- Capital allocation: deferred (Atlas V6 only)
+- Capital allocation: closed (AV6-01 merged to main, production-verified)
 - Founder Intent Compiler: deferred (Atlas V6 only)
 - USFIP: deferred (Future Research)
 - Proof Stress Architecture: deferred (Future Research)
@@ -272,3 +272,28 @@
 	- No runtime allocation workflow is present for capital creation/decision/execution paths in `src/**`.
 	- V2-safe execution without redesign is not established by current constitutional runtime evidence.
 	- Decision: defer Capital Allocation to Atlas V6.
+
+## Mission Order AV6-01 Merge and Production Verification Record (2026-06-28)
+
+- PR: https://github.com/onxos/onx-intelligence-clean/pull/1
+- Merge method: squash
+- Merge commit (main): `6c850e1a1d2d179dd6eed5f24f3212677fde1e97`
+- Implementation commit: `584dd69873643aba57db5687e8d033943f349e7c`
+- Main CI: failed at lint step (follow-up required)
+	- CI run: https://github.com/onxos/onx-intelligence-clean/actions/runs/28316881670
+	- Failed job: https://github.com/onxos/onx-intelligence-clean/actions/runs/28316881670/job/83891711265
+- Render deploy: success
+	- Render run: https://github.com/onxos/onx-intelligence-clean/actions/runs/28316881675
+- Production verification:
+	- `/commit`: `{"commit":"6c850e1a1d2d179dd6eed5f24f3212677fde1e97","nodeEnv":"production"}`
+	- `/health`: `{"status":"ok","database":{"status":"up","version":"1.0.0"}}`
+	- Smoke: PASS (`BASE_URL=https://onx-intelligence-clean.onrender.com npm run smoke`)
+	- Capital allocation API proof: PASS (create/read/update/approve/reject on separate allocation/delete/restore/list)
+	- Capital policy API proof: PASS (create/read/update/delete/restore/list)
+	- Capital reports/history proof: PASS (`GET /capital/reports`, `GET /capital/history`)
+	- Capital audit proof: PASS (`GET /monitoring/audit?search=CAPITAL_` includes capital actions)
+	- Production OpenAPI proof: PASS (Capital DTOs and `/capital/allocations`, `/capital/policies`, `/capital/reports`, `/capital/history` documented)
+- Remaining Atlas V6 scope:
+	- Founder Intent Compiler (deferred)
+	- USFIP (future research)
+	- Proof Stress Architecture (future research)
