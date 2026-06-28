@@ -10,7 +10,7 @@
 - Full audit trail coverage: closed (MO-012, production-verified)
 - Memory governance: closed (MO-013, production-verified)
 - Reporting depth: closed (MO-016, production-verified)
-- Workspace domain completeness: partial
+- Workspace domain completeness: closed (MO-015, production-verified)
 - Capital allocation: missing
 - Founder Intent Compiler: missing
 - USFIP: missing
@@ -228,3 +228,21 @@
 		- Authorization: unauthenticated `reports` and `monitoring` requests return `401`.
 		- Audit compatibility: `monitoring/audit` list and details verified live.
 		- Memory compatibility: memory summaries and governed memory details verified live.
+
+## Mission Order 015 Workspace Domain Completion Closure Record (2026-06-28)
+
+- Selected V2 item: Workspace domain completeness closure (production-first, existing domain only)
+- Scope verified live:
+	- Workspace CRUD parity on existing workspace endpoints: projects, sources, agents, memory.
+	- Restore parity verified live on soft-deleted workspace entities.
+	- Authorization parity verified live through cross-user denial on protected workspace resources.
+	- Validation parity verified live for pagination bounds and governed memory policy constraints.
+	- Compatibility verified live for reports, monitoring, memory governance, and sovereignty endpoints.
+- Verification evidence:
+	- Final production commit: `90bd7ada60ef087ec3e14173505268de6f634971`
+	- CI (final SHA): success https://github.com/onxos/onx-intelligence-clean/actions/runs/28299907447
+	- Render deploy (final SHA): success https://github.com/onxos/onx-intelligence-clean/actions/runs/28299907453
+	- Production `/commit`: `{"commit":"90bd7ada60ef087ec3e14173505268de6f634971","nodeEnv":"production"}`
+	- Production `/health`: `{"status":"ok","database":{"status":"up","version":"1.0.0"}}`
+	- Production smoke: success (`BASE_URL=https://onx-intelligence-clean.onrender.com npm run smoke`)
+	- `/tmp/mo015_verify.sh` final result: `all_pass=true`
