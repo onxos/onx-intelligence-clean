@@ -297,3 +297,23 @@
 	- Founder Intent Compiler (deferred)
 	- USFIP (future research)
 	- Proof Stress Architecture (future research)
+
+## Mission Order AV6-01G Governance Closure Record (2026-06-28)
+
+- Mode: governance update only (no application/runtime/Prisma changes)
+- AV6-01 status: CLOSED
+- Capital Allocation status: COMPLETE
+- Final implementation/closure commit: `ff3fd7fb37fa436c5d46816e589c2066ef82b5d5`
+- CI: success
+	- Run: https://github.com/onxos/onx-intelligence-clean/actions/runs/28318069935
+- Render: success
+	- Run: https://github.com/onxos/onx-intelligence-clean/actions/runs/28318069946
+- Production synchronization: PASS
+	- `/commit`: `{"commit":"ff3fd7fb37fa436c5d46816e589c2066ef82b5d5","nodeEnv":"production"}`
+	- `/health`: `{"status":"ok"}`
+	- Smoke: PASS (`BASE_URL=https://onx-intelligence-clean.onrender.com npm run smoke`)
+	- Regression: PASS (`npm run lint`, `npm run build`, `npm test`, `npm run test:e2e`)
+- Remaining Atlas V6 scope:
+	- Founder Intent Compiler
+	- USFIP: Future Research
+	- Proof Stress Architecture: Future Research
