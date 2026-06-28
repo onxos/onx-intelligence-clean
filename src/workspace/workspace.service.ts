@@ -3172,28 +3172,27 @@ export class WorkspaceService {
       capitalAllocationCount,
       capitalPolicyCount,
       capitalFailedCount,
-    ] =
-      await Promise.all([
-        this.prisma.auditLog.count({ where: auditWhere }),
-        this.prisma.auditLog.findMany({
-          where: auditWhere,
-          orderBy: { [sortBy]: sortOrder } as any,
-          take: 20,
-        }),
-        this.prisma.evidenceRecord.count({ where: { workspaceId, deletedAt: null } }),
-        this.prisma.memoryEntry.count({ where: { workspaceId, deletedAt: null } }),
-        this.prisma.providerProfile.count({ where: { workspaceId, status: { not: 'INACTIVE' } } }),
-        this.prisma.toolProfile.count({ where: { workspaceId, status: { not: 'INACTIVE' } } }),
-        this.prisma.capitalAllocation.count({ where: { workspaceId, deletedAt: null } }),
-        this.prisma.allocationPolicy.count({ where: { workspaceId, deletedAt: null } }),
-        this.prisma.auditLog.count({
-          where: {
-            workspaceId,
-            resourceType: { in: ['CapitalAllocation', 'AllocationPolicy'] },
-            status: 'FAILED',
-          },
-        }),
-      ]);
+    ] = await Promise.all([
+      this.prisma.auditLog.count({ where: auditWhere }),
+      this.prisma.auditLog.findMany({
+        where: auditWhere,
+        orderBy: { [sortBy]: sortOrder } as any,
+        take: 20,
+      }),
+      this.prisma.evidenceRecord.count({ where: { workspaceId, deletedAt: null } }),
+      this.prisma.memoryEntry.count({ where: { workspaceId, deletedAt: null } }),
+      this.prisma.providerProfile.count({ where: { workspaceId, status: { not: 'INACTIVE' } } }),
+      this.prisma.toolProfile.count({ where: { workspaceId, status: { not: 'INACTIVE' } } }),
+      this.prisma.capitalAllocation.count({ where: { workspaceId, deletedAt: null } }),
+      this.prisma.allocationPolicy.count({ where: { workspaceId, deletedAt: null } }),
+      this.prisma.auditLog.count({
+        where: {
+          workspaceId,
+          resourceType: { in: ['CapitalAllocation', 'AllocationPolicy'] },
+          status: 'FAILED',
+        },
+      }),
+    ]);
 
     const failedCount = recentAudit.filter((entry) => entry.status === 'FAILED').length;
     const validationCount = recentAudit.filter((entry) => {

@@ -604,7 +604,9 @@ describe('ONX Intelligence (e2e)', () => {
       .set('Authorization', `Bearer ${authToken}`)
       .expect(200);
     expect(Array.isArray(policyList.body)).toBe(true);
-    expect(policyList.body.some((item: { id: string }) => item.id === createdCapitalPolicyId)).toBe(true);
+    expect(policyList.body.some((item: { id: string }) => item.id === createdCapitalPolicyId)).toBe(
+      true,
+    );
 
     const policyUpdate = await request(app.getHttpServer())
       .put(`/capital/policies/${createdCapitalPolicyId}`)
@@ -654,7 +656,9 @@ describe('ONX Intelligence (e2e)', () => {
     expect(allocationGet.body.id).toBe(createdCapitalAllocationId);
 
     const allocationList = await request(app.getHttpServer())
-      .get('/capital/allocations?page=1&pageSize=10&sortBy=createdAt&sortOrder=desc&category=OPERATIONS')
+      .get(
+        '/capital/allocations?page=1&pageSize=10&sortBy=createdAt&sortOrder=desc&category=OPERATIONS',
+      )
       .set('Authorization', `Bearer ${authToken}`)
       .expect(200);
     expect(Array.isArray(allocationList.body)).toBe(true);
@@ -760,17 +764,22 @@ describe('ONX Intelligence (e2e)', () => {
     expect(capitalAudit.length).toBeGreaterThan(0);
     expect(
       capitalAudit.some(
-        (item) => item.action === 'CAPITAL_ALLOCATION_APPROVED' && item.resourceId === createdCapitalAllocationId,
+        (item) =>
+          item.action === 'CAPITAL_ALLOCATION_APPROVED' &&
+          item.resourceId === createdCapitalAllocationId,
       ),
     ).toBe(true);
     expect(
       capitalAudit.some(
-        (item) => item.action === 'CAPITAL_ALLOCATION_REJECTED' && item.resourceId === rejectedCapitalAllocationId,
+        (item) =>
+          item.action === 'CAPITAL_ALLOCATION_REJECTED' &&
+          item.resourceId === rejectedCapitalAllocationId,
       ),
     ).toBe(true);
     expect(
       capitalAudit.some(
-        (item) => item.action === 'CAPITAL_POLICY_RESTORED' && item.resourceId === createdCapitalPolicyId,
+        (item) =>
+          item.action === 'CAPITAL_POLICY_RESTORED' && item.resourceId === createdCapitalPolicyId,
       ),
     ).toBe(true);
 

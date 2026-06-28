@@ -92,20 +92,14 @@ describe('CapitalService', () => {
     expect(rejected.status).toBe('REJECTED');
     expect(rejected.approvalStatus).toBe('REJECTED');
 
-    const deleted = await service.deleteAllocation(
-      String(created.id),
-      'workspace-1',
-      'user-1',
-      { actorId: 'user-1' },
-    );
+    const deleted = await service.deleteAllocation(String(created.id), 'workspace-1', 'user-1', {
+      actorId: 'user-1',
+    });
     expect(deleted).toEqual({ success: true, id: created.id });
 
-    const restored = await service.restoreAllocation(
-      String(created.id),
-      'workspace-1',
-      'user-1',
-      { actorId: 'user-1' },
-    );
+    const restored = await service.restoreAllocation(String(created.id), 'workspace-1', 'user-1', {
+      actorId: 'user-1',
+    });
     expect(restored.deletedAt).toBeNull();
     expect(restored.status).toBe('DRAFT');
 
@@ -200,12 +194,9 @@ describe('CapitalService', () => {
     expect(updated.status).toBe('INACTIVE');
 
     await service.deletePolicy(String(created.id), 'workspace-1', 'user-1', { actorId: 'user-1' });
-    const restored = await service.restorePolicy(
-      String(created.id),
-      'workspace-1',
-      'user-1',
-      { actorId: 'user-1' },
-    );
+    const restored = await service.restorePolicy(String(created.id), 'workspace-1', 'user-1', {
+      actorId: 'user-1',
+    });
     expect(restored.status).toBe('ACTIVE');
 
     const history = await service.getHistory('workspace-1', { policyId: String(created.id) });
@@ -231,7 +222,9 @@ describe('CapitalService', () => {
       ),
     ).rejects.toThrow(BadRequestException);
 
-    await expect(service.getAllocation('missing', 'workspace-1')).rejects.toThrow(NotFoundException);
+    await expect(service.getAllocation('missing', 'workspace-1')).rejects.toThrow(
+      NotFoundException,
+    );
 
     expect(audit.log).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'CAPITAL_ALLOCATION_CREATED', status: 'FAILED' }),
