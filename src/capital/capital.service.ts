@@ -79,6 +79,8 @@ const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
 const ALLOCATION_SORT_FIELDS = [...CAPITAL_SORT_FIELDS] as const;
 const POLICY_SORT_FIELDS = ['createdAt', 'updatedAt', 'priority', 'name', 'status'] as const;
+const APPROVE_ALLOWED_STATUSES = ['APPROVED', 'ALLOCATED'] as const;
+const REJECT_ALLOWED_STATUSES = ['REJECTED'] as const;
 
 @Injectable()
 export class CapitalService {
@@ -181,6 +183,29 @@ export class CapitalService {
     }
     const normalized = value.trim();
     return normalized || undefined;
+  }
+
+  private resolveAllocationActionStatus(
+    action: 'approve' | 'reject',
+    statusOverride: unknown,
+  ): 'APPROVED' | 'ALLOCATED' | 'REJECTED' {
+    if (action === 'approve') {
+      if (statusOverride === undefined || statusOverride === null || statusOverride === '') {
+        return 'APPROVED';
+      }
+      if (APPROVE_ALLOWED_STATUSES.includes(statusOverride as any)) {
+        return statusOverride as 'APPROVED' | 'ALLOCATED';
+      }
+      throw new BadRequestException('approve supports status override only for APPROVED or ALLOCATED');
+    }
+
+    if (statusOverride === undefined || statusOverride === null || statusOverride === '') {
+      return 'REJECTED';
+    }
+    if (REJECT_ALLOWED_STATUSES.includes(statusOverride as any)) {
+      return 'REJECTED';
+    }
+    throw new BadRequestException('reject supports status override only for REJECTED');
   }
 
   private async logMutationSuccess(args: {
@@ -768,6 +793,7 @@ export class CapitalService {
     if (existing.deletedAt) {
       throw new BadRequestException('Deleted allocations cannot be approved');
     }
+    const resolvedStatus = this.resolveAllocationActionStatus('approve', body.status);
     let updated: any;
     const approvedAt = new Date();
     try {
@@ -775,7 +801,7 @@ export class CapitalService {
         updated = await this.prisma.capitalAllocation.update({
           where: { id },
           data: {
-            status: (body.status ?? 'APPROVED') as any,
+            status: resolvedStatus as any,
             approvalStatus: 'APPROVED' as any,
             approvedBy: actorId,
             approvedAt,
@@ -787,7 +813,7 @@ export class CapitalService {
       } else {
         updated = {
           ...(existing as AllocationRecord),
-          status: body.status ?? 'APPROVED',
+          status: resolvedStatus,
           approvalStatus: 'APPROVED',
           approvedBy: actorId,
           approvedAt,
@@ -856,6 +882,7 @@ export class CapitalService {
     if (existing.deletedAt) {
       throw new BadRequestException('Deleted allocations cannot be rejected');
     }
+    const resolvedStatus = this.resolveAllocationActionStatus('reject', body.status);
     let updated: any;
     const rejectedAt = new Date();
     try {
@@ -863,7 +890,7 @@ export class CapitalService {
         updated = await this.prisma.capitalAllocation.update({
           where: { id },
           data: {
-            status: (body.status ?? 'REJECTED') as any,
+            status: resolvedStatus as any,
             approvalStatus: 'REJECTED' as any,
             rejectedAt,
             decisionReason: body.decisionReason ?? existing.decisionReason,
@@ -873,7 +900,7 @@ export class CapitalService {
       } else {
         updated = {
           ...(existing as AllocationRecord),
-          status: body.status ?? 'REJECTED',
+          status: resolvedStatus,
           approvalStatus: 'REJECTED',
           rejectedAt,
           decisionReason: body.decisionReason ?? existing.decisionReason,
@@ -1285,11 +1312,8 @@ export class CapitalService {
     workspaceId: string,
     query?: { category?: CapitalCategory; status?: string; currency?: string },
   ) {
-    const allocations = await this.listAllocations(workspaceId, {
-      // Reports remain workspace-wide, so fetch directly below when database is connected.
-    } as any);
-    const policies = await this.listPolicies(workspaceId, {
-    } as any);
+    // Keep reports workspace-scoped and platform-neutral by aggregating native capital metadata
+    // (category/status/source/target/rationale) without hardcoded external platform assumptions.
     if (this.canUseDatabase()) {
       const allocationRows = await this.prisma.capitalAllocation.findMany({
         where: {
@@ -1322,7 +1346,6 @@ export class CapitalService {
       (item) => item.workspaceId === workspaceId && !item.deletedAt && (!query?.category || item.category === query.category),
     );
     return this.buildReportSummary(memoryAllocations, memoryPolicies);
-
   }
 
   private buildReportSummary(allocations: any[], policies: any[]) {

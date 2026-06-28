@@ -345,7 +345,7 @@ export class UpdatePolicyDto {
 }
 
 export class CapitalReportQueryDto {
-  @ApiPropertyOptional({ enum: CapitalCategory, example: CapitalCategory.KNOWLEDGE })
+  @ApiPropertyOptional({ enum: CapitalCategory, example: CapitalCategory.KNOWLEDGE, description: 'Workspace-scoped category filter for additive ONX Intelligence capital reporting.' })
   @IsOptional()
   @IsEnum(CapitalCategory)
   category?: CapitalCategory;
@@ -355,7 +355,7 @@ export class CapitalReportQueryDto {
   @IsIn(ALLOCATION_STATUSES)
   status?: (typeof ALLOCATION_STATUSES)[number];
 
-  @ApiPropertyOptional({ example: 'USD' })
+  @ApiPropertyOptional({ example: 'USD', description: 'Currency filter over native capital metadata retained for future ONX Platform convergence.' })
   @IsOptional()
   @IsString()
   currency?: string;

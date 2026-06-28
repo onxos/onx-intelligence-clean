@@ -237,4 +237,126 @@ describe('CapitalService', () => {
       expect.objectContaining({ action: 'CAPITAL_ALLOCATION_CREATED', status: 'FAILED' }),
     );
   });
+
+  it('uses safe workspace-scoped database queries for reports', async () => {
+    const { service, prisma } = makeService();
+    prisma.isConnected.mockReturnValue(true);
+    prisma.capitalAllocation.findMany.mockResolvedValue([
+      {
+        id: 'alloc-1',
+        workspaceId: 'workspace-1',
+        category: CapitalCategory.OPERATIONS,
+        amount: 200,
+        currency: 'USD',
+        status: 'APPROVED',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]);
+    prisma.allocationPolicy.findMany.mockResolvedValue([
+      {
+        id: 'policy-1',
+        workspaceId: 'workspace-1',
+        category: CapitalCategory.OPERATIONS,
+        status: 'ACTIVE',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]);
+
+    const report = await service.getReports('workspace-1', {
+      category: CapitalCategory.OPERATIONS,
+      status: 'APPROVED',
+      currency: 'usd',
+    });
+
+    expect(prisma.capitalAllocation.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          workspaceId: 'workspace-1',
+          status: 'APPROVED',
+          currency: 'USD',
+          deletedAt: null,
+        }),
+      }),
+    );
+    expect(prisma.allocationPolicy.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          workspaceId: 'workspace-1',
+          deletedAt: null,
+        }),
+      }),
+    );
+    expect(report.allocationCount).toBe(1);
+    expect(report.policyCount).toBe(1);
+  });
+
+  it('rejects contradictory status overrides for approve and reject actions', async () => {
+    const { service } = makeService();
+
+    const approveTarget = await service.createAllocation(
+      'workspace-1',
+      'user-1',
+      {
+        category: CapitalCategory.OPERATIONS,
+        amount: 100,
+        currency: 'USD',
+        status: 'PENDING_APPROVAL',
+      },
+      { actorId: 'user-1' },
+    );
+
+    await expect(
+      service.approveAllocation(
+        String(approveTarget.id),
+        'workspace-1',
+        'user-1',
+        { status: 'REJECTED' },
+        { actorId: 'user-1' },
+      ),
+    ).rejects.toThrow(BadRequestException);
+
+    const rejectTarget = await service.createAllocation(
+      'workspace-1',
+      'user-1',
+      {
+        category: CapitalCategory.GOVERNANCE,
+        amount: 90,
+        currency: 'USD',
+        status: 'PENDING_APPROVAL',
+      },
+      { actorId: 'user-1' },
+    );
+
+    await expect(
+      service.rejectAllocation(
+        String(rejectTarget.id),
+        'workspace-1',
+        'user-1',
+        { status: 'APPROVED' },
+        { actorId: 'user-1' },
+      ),
+    ).rejects.toThrow(BadRequestException);
+
+    await expect(
+      service.rejectAllocation(
+        String(rejectTarget.id),
+        'workspace-1',
+        'user-1',
+        { status: 'ALLOCATED' },
+        { actorId: 'user-1' },
+      ),
+    ).rejects.toThrow(BadRequestException);
+
+    await expect(
+      service.approveAllocation(
+        String(approveTarget.id),
+        'workspace-1',
+        'user-1',
+        { status: 'CANCELLED' },
+        { actorId: 'user-1' },
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
 });
