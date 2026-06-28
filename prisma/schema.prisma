@@ -75,6 +75,11 @@ model Workspace {
   tools       ToolProfile[]
   governanceDecisions GovernanceDecision[]
   capitalRecords CapitalRecord[]
+  capitalAllocations CapitalAllocation[]
+  allocationPolicies AllocationPolicy[]
+  allocationDecisions AllocationDecision[]
+  allocationApprovals AllocationApproval[]
+  allocationHistories AllocationHistory[]
   projects Project[]
   agents   Agent[]
   memoryItems MemoryEntry[]
@@ -350,6 +355,132 @@ model CapitalRecord {
   @@map("capital_records")
 }
 
+model CapitalAllocation {
+  id             String                   @id @default(cuid())
+  workspaceId    String                   @map("workspace_id")
+  ownerId        String                   @map("owner_id")
+  policyId       String?                  @map("policy_id")
+  category       CapitalCategory
+  amount         Float
+  currency       String                   @default("USD")
+  source         String?
+  target         String?
+  status         AllocationStatus         @default(DRAFT)
+  priority       Int                      @default(3)
+  rationale      String?
+  decisionReason String?                  @map("decision_reason")
+  approvalStatus AllocationApprovalStatus @default(PENDING) @map("approval_status")
+  approvedBy     String?                  @map("approved_by")
+  approvedAt     DateTime?                @map("approved_at")
+  rejectedAt     DateTime?                @map("rejected_at")
+  createdAt      DateTime                 @default(now()) @map("created_at")
+  updatedAt      DateTime                 @updatedAt @map("updated_at")
+  deletedAt      DateTime?                @map("deleted_at")
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id])
+  policy    AllocationPolicy? @relation(fields: [policyId], references: [id])
+  decisions AllocationDecision[]
+  approvals AllocationApproval[]
+  history   AllocationHistory[]
+
+  @@index([workspaceId, deletedAt, status])
+  @@index([workspaceId, category, createdAt])
+  @@map("capital_allocations")
+}
+
+model AllocationPolicy {
+  id         String       @id @default(cuid())
+  workspaceId String      @map("workspace_id")
+  ownerId    String       @map("owner_id")
+  name       String
+  description String?
+  category   CapitalCategory
+  currency   String       @default("USD")
+  source     String?
+  target     String?
+  status     PolicyStatus @default(ACTIVE)
+  priority   Int          @default(3)
+  rationale  String?
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+  deletedAt  DateTime?    @map("deleted_at")
+
+  workspace   Workspace           @relation(fields: [workspaceId], references: [id])
+  allocations CapitalAllocation[]
+  history     AllocationHistory[]
+
+  @@index([workspaceId, deletedAt, status])
+  @@index([workspaceId, category, createdAt])
+  @@map("allocation_policies")
+}
+
+model AllocationDecision {
+  id             String           @id @default(cuid())
+  allocationId   String           @map("allocation_id")
+  workspaceId    String           @map("workspace_id")
+  actorId        String           @map("actor_id")
+  status         AllocationStatus
+  priority       Int              @default(3)
+  rationale      String?
+  decisionReason String?          @map("decision_reason")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+  deletedAt      DateTime?        @map("deleted_at")
+
+  allocation CapitalAllocation @relation(fields: [allocationId], references: [id])
+  workspace  Workspace         @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, allocationId, createdAt])
+  @@map("allocation_decisions")
+}
+
+model AllocationApproval {
+  id             String                   @id @default(cuid())
+  allocationId   String                   @map("allocation_id")
+  workspaceId    String                   @map("workspace_id")
+  actorId        String                   @map("actor_id")
+  approvalStatus AllocationApprovalStatus @map("approval_status")
+  approvedBy     String?                  @map("approved_by")
+  approvedAt     DateTime?                @map("approved_at")
+  rejectedAt     DateTime?                @map("rejected_at")
+  decisionReason String?                  @map("decision_reason")
+  createdAt      DateTime                 @default(now()) @map("created_at")
+  updatedAt      DateTime                 @updatedAt @map("updated_at")
+  deletedAt      DateTime?                @map("deleted_at")
+
+  allocation CapitalAllocation @relation(fields: [allocationId], references: [id])
+  workspace  Workspace         @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, allocationId, createdAt])
+  @@map("allocation_approvals")
+}
+
+model AllocationHistory {
+  id             String    @id @default(cuid())
+  allocationId   String?   @map("allocation_id")
+  policyId       String?   @map("policy_id")
+  workspaceId    String    @map("workspace_id")
+  actorId        String    @map("actor_id")
+  action         String
+  status         String?
+  rationale      String?
+  decisionReason String?   @map("decision_reason")
+  previousState  Json?     @map("previous_state")
+  nextState      Json?     @map("next_state")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  allocation CapitalAllocation? @relation(fields: [allocationId], references: [id])
+  policy     AllocationPolicy?  @relation(fields: [policyId], references: [id])
+  workspace  Workspace          @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, createdAt])
+  @@index([allocationId, createdAt])
+  @@index([policyId, createdAt])
+  @@map("allocation_histories")
+}
+
 model ProvenanceRecord {
   id        String @id @default(cuid())
   action    String
@@ -479,6 +610,28 @@ enum CapitalCategory {
   STRATEGY
   GOVERNANCE
   KNOWLEDGE
+}
+
+enum AllocationStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  ALLOCATED
+  CANCELLED
+  ARCHIVED
+}
+
+enum AllocationApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PolicyStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
 }
 
 enum ProviderStatus {

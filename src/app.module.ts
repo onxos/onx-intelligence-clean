@@ -12,6 +12,7 @@ import { SovereigntyModule } from './sovereignty/sovereignty.module';
 import { EvidenceModule } from './evidence/evidence.module';
 import { WorkspaceModule } from './workspace/workspace.module';
 import { CommitModule } from './commit/commit.module';
+import { CapitalModule } from './capital/capital.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { CommitModule } from './commit/commit.module';
     SovereigntyModule,
     EvidenceModule,
     WorkspaceModule,
+    CapitalModule,
     CommitModule,
   ],
 })

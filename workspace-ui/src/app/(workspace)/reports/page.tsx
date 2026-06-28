@@ -43,8 +43,12 @@ export default function ReportsPage() {
     queryKey: ["report-capital"],
     queryFn: () => api.workspace.reportCapital({ page: 1, pageSize: 20 }),
   });
+  const capitalSummary = useQuery({
+    queryKey: ["capital-reports"],
+    queryFn: () => api.capital.reports(),
+  });
 
-  if (snapshot.isLoading || governance.isLoading || capital.isLoading) {
+  if (snapshot.isLoading || governance.isLoading || capital.isLoading || capitalSummary.isLoading) {
     return (
       <Card>
         <CardContent className="py-8 text-sm text-slate-600">{t("domains.reports.loading")}</CardContent>
@@ -52,11 +56,11 @@ export default function ReportsPage() {
     );
   }
 
-  if (snapshot.error || governance.error || capital.error) {
+  if (snapshot.error || governance.error || capital.error || capitalSummary.error) {
     return (
       <Card>
         <CardContent className="py-8 text-sm text-red-600">
-          {(snapshot.error || governance.error || capital.error as Error)?.message}
+          {(snapshot.error || governance.error || capital.error || capitalSummary.error as Error)?.message}
         </CardContent>
       </Card>
     );
@@ -92,6 +96,9 @@ export default function ReportsPage() {
           <CardTitle>{t("domains.reports.capital")}</CardTitle>
         </CardHeader>
         <CardContent>
+          <pre className="mb-4 whitespace-pre-wrap break-all text-xs">
+            {JSON.stringify(capitalSummary.data, null, 2)}
+          </pre>
           {renderRows(
             (capital.data as Array<Record<string, unknown>>) || [],
             t("common.noRecords"),

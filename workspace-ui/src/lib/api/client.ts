@@ -176,4 +176,32 @@ export const api = {
     updateSettings: (body: Record<string, unknown>) =>
       workspaceFetch("/settings", { method: "PUT", body }),
   },
+  capital: {
+    allocations: (query?: Record<string, QueryValue>) =>
+      workspaceFetch("/capital/allocations", { query }),
+    createAllocation: (body: Record<string, unknown>) =>
+      workspaceFetch("/capital/allocations", { method: "POST", body }),
+    allocationDetails: (id: string) => workspaceFetch(`/capital/allocations/${id}`),
+    updateAllocation: (id: string, body: Record<string, unknown>) =>
+      workspaceFetch(`/capital/allocations/${id}`, { method: "PUT", body }),
+    deleteAllocation: (id: string) =>
+      workspaceFetch(`/capital/allocations/${id}`, { method: "DELETE" }),
+    restoreAllocation: (id: string) =>
+      workspaceFetch(`/capital/allocations/${id}/restore`, { method: "POST" }),
+    approveAllocation: (id: string, body?: Record<string, unknown>) =>
+      workspaceFetch(`/capital/allocations/${id}/approve`, { method: "POST", body: body ?? {} }),
+    rejectAllocation: (id: string, body?: Record<string, unknown>) =>
+      workspaceFetch(`/capital/allocations/${id}/reject`, { method: "POST", body: body ?? {} }),
+    policies: (query?: Record<string, QueryValue>) => workspaceFetch("/capital/policies", { query }),
+    createPolicy: (body: Record<string, unknown>) =>
+      workspaceFetch("/capital/policies", { method: "POST", body }),
+    policyDetails: (id: string) => workspaceFetch(`/capital/policies/${id}`),
+    updatePolicy: (id: string, body: Record<string, unknown>) =>
+      workspaceFetch(`/capital/policies/${id}`, { method: "PUT", body }),
+    deletePolicy: (id: string) => workspaceFetch(`/capital/policies/${id}`, { method: "DELETE" }),
+    restorePolicy: (id: string) =>
+      workspaceFetch(`/capital/policies/${id}/restore`, { method: "POST" }),
+    reports: (query?: Record<string, QueryValue>) => workspaceFetch("/capital/reports", { query }),
+    history: (query?: Record<string, QueryValue>) => workspaceFetch("/capital/history", { query }),
+  },
 };
