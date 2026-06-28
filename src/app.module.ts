@@ -13,6 +13,7 @@ import { EvidenceModule } from './evidence/evidence.module';
 import { WorkspaceModule } from './workspace/workspace.module';
 import { CommitModule } from './commit/commit.module';
 import { CapitalModule } from './capital/capital.module';
+import { FounderIntentModule } from './founder-intent/founder-intent.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { CapitalModule } from './capital/capital.module';
     EvidenceModule,
     WorkspaceModule,
     CapitalModule,
+    FounderIntentModule,
     CommitModule,
   ],
 })

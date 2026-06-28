@@ -196,7 +196,9 @@ export class CapitalService {
       if (APPROVE_ALLOWED_STATUSES.includes(statusOverride as any)) {
         return statusOverride as 'APPROVED' | 'ALLOCATED';
       }
-      throw new BadRequestException('approve supports status override only for APPROVED or ALLOCATED');
+      throw new BadRequestException(
+        'approve supports status override only for APPROVED or ALLOCATED',
+      );
     }
 
     if (statusOverride === undefined || statusOverride === null || statusOverride === '') {
@@ -352,7 +354,10 @@ export class CapitalService {
   ) {
     const search = this.normalizeSearch(query?.search);
     const page = this.normalizePage(query?.page, 'page', 1);
-    const pageSize = Math.min(this.normalizePage(query?.pageSize, 'pageSize', DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE);
+    const pageSize = Math.min(
+      this.normalizePage(query?.pageSize, 'pageSize', DEFAULT_PAGE_SIZE),
+      MAX_PAGE_SIZE,
+    );
     const sortBy = this.normalizeSort(query?.sortBy, ALLOCATION_SORT_FIELDS, 'createdAt');
     const sortOrder = this.normalizeSortOrder(query?.sortOrder);
     const currency = query?.currency ? this.normalizeCurrency(query.currency) : undefined;
@@ -384,7 +389,9 @@ export class CapitalService {
     }
 
     return Array.from(this.memoryAllocations.values())
-      .filter((item) => item.workspaceId === workspaceId && item.ownerId === ownerId && !item.deletedAt)
+      .filter(
+        (item) => item.workspaceId === workspaceId && item.ownerId === ownerId && !item.deletedAt,
+      )
       .filter((item) => !query?.category || item.category === query.category)
       .filter((item) => !query?.status || item.status === query.status)
       .filter((item) => !currency || item.currency === currency)
@@ -481,7 +488,11 @@ export class CapitalService {
         before: null,
         after: this.sanitizeAllocation(created),
         context,
-        metadata: { policyId: policy?.id ?? null, category: created.category, amount: created.amount },
+        metadata: {
+          policyId: policy?.id ?? null,
+          category: created.category,
+          amount: created.amount,
+        },
       });
 
       return this.sanitizeAllocation(created);
@@ -517,7 +528,10 @@ export class CapitalService {
       });
     } else {
       allocation = this.memoryAllocations.get(id);
-      if (allocation && (allocation.workspaceId !== workspaceId || (ownerId && allocation.ownerId !== ownerId))) {
+      if (
+        allocation &&
+        (allocation.workspaceId !== workspaceId || (ownerId && allocation.ownerId !== ownerId))
+      ) {
         allocation = null;
       }
       if (allocation && !includeDeleted && allocation.deletedAt) {
@@ -544,11 +558,17 @@ export class CapitalService {
       ...(body.category !== undefined && { category: body.category }),
       ...(body.amount !== undefined && { amount: this.normalizeAmount(body.amount) }),
       ...(body.currency !== undefined && { currency: this.normalizeCurrency(body.currency) }),
-      ...(body.source !== undefined && { source: this.normalizeText(body.source, 'source') ?? null }),
-      ...(body.target !== undefined && { target: this.normalizeText(body.target, 'target') ?? null }),
+      ...(body.source !== undefined && {
+        source: this.normalizeText(body.source, 'source') ?? null,
+      }),
+      ...(body.target !== undefined && {
+        target: this.normalizeText(body.target, 'target') ?? null,
+      }),
       ...(body.status !== undefined && { status: body.status }),
       ...(body.priority !== undefined && { priority: this.normalizePriority(body.priority) }),
-      ...(body.rationale !== undefined && { rationale: this.normalizeText(body.rationale, 'rationale') ?? null }),
+      ...(body.rationale !== undefined && {
+        rationale: this.normalizeText(body.rationale, 'rationale') ?? null,
+      }),
       ...(body.decisionReason !== undefined && {
         decisionReason: this.normalizeText(body.decisionReason, 'decisionReason') ?? null,
       }),
@@ -606,7 +626,12 @@ export class CapitalService {
     }
   }
 
-  async deleteAllocation(id: string, workspaceId: string, actorId: string, context: MutationAuditContext) {
+  async deleteAllocation(
+    id: string,
+    workspaceId: string,
+    actorId: string,
+    context: MutationAuditContext,
+  ) {
     const existing = await this.getAllocation(id, workspaceId, actorId);
     let deleted: any;
     try {
@@ -659,7 +684,12 @@ export class CapitalService {
     }
   }
 
-  async restoreAllocation(id: string, workspaceId: string, actorId: string, context: MutationAuditContext) {
+  async restoreAllocation(
+    id: string,
+    workspaceId: string,
+    actorId: string,
+    context: MutationAuditContext,
+  ) {
     const existing = await this.getAllocation(id, workspaceId, actorId, true);
     if (!existing.deletedAt) {
       throw new BadRequestException('Capital allocation is not deleted');
@@ -971,7 +1001,10 @@ export class CapitalService {
   ) {
     const search = this.normalizeSearch(query?.search);
     const page = this.normalizePage(query?.page, 'page', 1);
-    const pageSize = Math.min(this.normalizePage(query?.pageSize, 'pageSize', DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE);
+    const pageSize = Math.min(
+      this.normalizePage(query?.pageSize, 'pageSize', DEFAULT_PAGE_SIZE),
+      MAX_PAGE_SIZE,
+    );
     const sortBy = this.normalizeSort(query?.sortBy, POLICY_SORT_FIELDS, 'createdAt');
     const sortOrder = this.normalizeSortOrder(query?.sortOrder);
     const skip = (page - 1) * pageSize;
@@ -1000,14 +1033,19 @@ export class CapitalService {
     }
 
     return Array.from(this.memoryPolicies.values())
-      .filter((item) => item.workspaceId === workspaceId && item.ownerId === ownerId && !item.deletedAt)
+      .filter(
+        (item) => item.workspaceId === workspaceId && item.ownerId === ownerId && !item.deletedAt,
+      )
       .filter((item) => !query?.category || item.category === query.category)
       .filter((item) => !query?.status || item.status === query.status)
       .filter((item) => {
         if (!search) {
           return true;
         }
-        const haystack = [item.name, item.description, item.rationale].filter(Boolean).join(' ').toLowerCase();
+        const haystack = [item.name, item.description, item.rationale]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
         return haystack.includes(search.toLowerCase());
       })
       .sort((left, right) => {
@@ -1113,7 +1151,10 @@ export class CapitalService {
       });
     } else {
       policy = this.memoryPolicies.get(id);
-      if (policy && (policy.workspaceId !== workspaceId || (ownerId && policy.ownerId !== ownerId))) {
+      if (
+        policy &&
+        (policy.workspaceId !== workspaceId || (ownerId && policy.ownerId !== ownerId))
+      ) {
         policy = null;
       }
       if (policy && !includeDeleted && policy.deletedAt) {
@@ -1141,8 +1182,12 @@ export class CapitalService {
       }),
       ...(body.category !== undefined && { category: body.category }),
       ...(body.currency !== undefined && { currency: this.normalizeCurrency(body.currency) }),
-      ...(body.source !== undefined && { source: this.normalizeText(body.source, 'source') ?? null }),
-      ...(body.target !== undefined && { target: this.normalizeText(body.target, 'target') ?? null }),
+      ...(body.source !== undefined && {
+        source: this.normalizeText(body.source, 'source') ?? null,
+      }),
+      ...(body.target !== undefined && {
+        target: this.normalizeText(body.target, 'target') ?? null,
+      }),
       ...(body.status !== undefined && { status: body.status }),
       ...(body.priority !== undefined && { priority: this.normalizePriority(body.priority) }),
       ...(body.rationale !== undefined && {
@@ -1199,7 +1244,12 @@ export class CapitalService {
     }
   }
 
-  async deletePolicy(id: string, workspaceId: string, actorId: string, context: MutationAuditContext) {
+  async deletePolicy(
+    id: string,
+    workspaceId: string,
+    actorId: string,
+    context: MutationAuditContext,
+  ) {
     const existing = await this.getPolicy(id, workspaceId, actorId);
     let deleted: any;
     try {
@@ -1252,7 +1302,12 @@ export class CapitalService {
     }
   }
 
-  async restorePolicy(id: string, workspaceId: string, actorId: string, context: MutationAuditContext) {
+  async restorePolicy(
+    id: string,
+    workspaceId: string,
+    actorId: string,
+    context: MutationAuditContext,
+  ) {
     const existing = await this.getPolicy(id, workspaceId, actorId, true);
     if (!existing.deletedAt) {
       throw new BadRequestException('Allocation policy is not deleted');
@@ -1343,7 +1398,10 @@ export class CapitalService {
         (!query?.currency || item.currency === this.normalizeCurrency(query.currency)),
     );
     const memoryPolicies = Array.from(this.memoryPolicies.values()).filter(
-      (item) => item.workspaceId === workspaceId && !item.deletedAt && (!query?.category || item.category === query.category),
+      (item) =>
+        item.workspaceId === workspaceId &&
+        !item.deletedAt &&
+        (!query?.category || item.category === query.category),
     );
     return this.buildReportSummary(memoryAllocations, memoryPolicies);
   }
@@ -1362,13 +1420,16 @@ export class CapitalService {
       .filter((item) => item.status === 'REJECTED')
       .reduce((sum, item) => sum + Number(item.amount), 0);
 
-    const byCategory = allocations.reduce<Record<string, { count: number; amount: number }>>((acc, item) => {
-      const key = item.category;
-      acc[key] = acc[key] || { count: 0, amount: 0 };
-      acc[key].count += 1;
-      acc[key].amount += Number(item.amount);
-      return acc;
-    }, {});
+    const byCategory = allocations.reduce<Record<string, { count: number; amount: number }>>(
+      (acc, item) => {
+        const key = item.category;
+        acc[key] = acc[key] || { count: 0, amount: 0 };
+        acc[key].count += 1;
+        acc[key].amount += Number(item.amount);
+        return acc;
+      },
+      {},
+    );
 
     const byStatus = allocations.reduce<Record<string, number>>((acc, item) => {
       acc[item.status] = (acc[item.status] || 0) + 1;
@@ -1391,10 +1452,19 @@ export class CapitalService {
 
   async getHistory(
     workspaceId: string,
-    query?: { action?: string; allocationId?: string; policyId?: string; page?: number; pageSize?: number },
+    query?: {
+      action?: string;
+      allocationId?: string;
+      policyId?: string;
+      page?: number;
+      pageSize?: number;
+    },
   ) {
     const page = this.normalizePage(query?.page, 'page', 1);
-    const pageSize = Math.min(this.normalizePage(query?.pageSize, 'pageSize', DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE);
+    const pageSize = Math.min(
+      this.normalizePage(query?.pageSize, 'pageSize', DEFAULT_PAGE_SIZE),
+      MAX_PAGE_SIZE,
+    );
     const skip = (page - 1) * pageSize;
 
     if (this.canUseDatabase()) {

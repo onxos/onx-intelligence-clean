@@ -18,6 +18,8 @@ describe('ONX Intelligence (e2e)', () => {
   let createdCapitalAllocationId: string;
   let rejectedCapitalAllocationId: string;
   let createdCapitalPolicyId: string;
+  let createdFounderIntentId: string;
+  let currentWorkspaceId: string;
   const password = 'StrongPass123!';
   const email = `e2e-${Date.now()}@onx.test`;
   const hasDatabase = Boolean(process.env.DATABASE_URL);
@@ -96,6 +98,15 @@ describe('ONX Intelligence (e2e)', () => {
     return loginRes.body as string;
   };
 
+  const getWorkspaceIdFromToken = (token: string) => {
+    const [, payload] = token.split('.');
+    if (!payload) {
+      return '';
+    }
+    const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    return parsed.workspaceId as string;
+  };
+
   it('/health returns 200 with status ok', async () => {
     const res = await request(app.getHttpServer()).get('/health').expect(200);
     expect(res.body).toBeDefined();
@@ -162,6 +173,7 @@ describe('ONX Intelligence (e2e)', () => {
 
     expect(res.body).toBeDefined();
     expect(res.body.email).toBe(email);
+    currentWorkspaceId = res.body.workspaceId || getWorkspaceIdFromToken(authToken);
     expect(res.body).not.toHaveProperty('password');
     expect(res.body).not.toHaveProperty('passwordHash');
   });
@@ -604,7 +616,9 @@ describe('ONX Intelligence (e2e)', () => {
       .set('Authorization', `Bearer ${authToken}`)
       .expect(200);
     expect(Array.isArray(policyList.body)).toBe(true);
-    expect(policyList.body.some((item: { id: string }) => item.id === createdCapitalPolicyId)).toBe(true);
+    expect(policyList.body.some((item: { id: string }) => item.id === createdCapitalPolicyId)).toBe(
+      true,
+    );
 
     const policyUpdate = await request(app.getHttpServer())
       .put(`/capital/policies/${createdCapitalPolicyId}`)
@@ -654,7 +668,9 @@ describe('ONX Intelligence (e2e)', () => {
     expect(allocationGet.body.id).toBe(createdCapitalAllocationId);
 
     const allocationList = await request(app.getHttpServer())
-      .get('/capital/allocations?page=1&pageSize=10&sortBy=createdAt&sortOrder=desc&category=OPERATIONS')
+      .get(
+        '/capital/allocations?page=1&pageSize=10&sortBy=createdAt&sortOrder=desc&category=OPERATIONS',
+      )
       .set('Authorization', `Bearer ${authToken}`)
       .expect(200);
     expect(Array.isArray(allocationList.body)).toBe(true);
@@ -760,22 +776,121 @@ describe('ONX Intelligence (e2e)', () => {
     expect(capitalAudit.length).toBeGreaterThan(0);
     expect(
       capitalAudit.some(
-        (item) => item.action === 'CAPITAL_ALLOCATION_APPROVED' && item.resourceId === createdCapitalAllocationId,
+        (item) =>
+          item.action === 'CAPITAL_ALLOCATION_APPROVED' &&
+          item.resourceId === createdCapitalAllocationId,
       ),
     ).toBe(true);
     expect(
       capitalAudit.some(
-        (item) => item.action === 'CAPITAL_ALLOCATION_REJECTED' && item.resourceId === rejectedCapitalAllocationId,
+        (item) =>
+          item.action === 'CAPITAL_ALLOCATION_REJECTED' &&
+          item.resourceId === rejectedCapitalAllocationId,
       ),
     ).toBe(true);
     expect(
       capitalAudit.some(
-        (item) => item.action === 'CAPITAL_POLICY_RESTORED' && item.resourceId === createdCapitalPolicyId,
+        (item) =>
+          item.action === 'CAPITAL_POLICY_RESTORED' && item.resourceId === createdCapitalPolicyId,
       ),
     ).toBe(true);
 
     await request(app.getHttpServer()).get('/capital/reports').expect(401);
     await request(app.getHttpServer()).get('/capital/history').expect(401);
+  });
+
+  it('founder intent compile/validate/simulate/history/get enforce jwt, workspace scope, audit, and OpenAPI exposure', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).post('/founder-intent/compile').expect(401);
+      return;
+    }
+
+    const compilePayload = {
+      objective: 'Scale founder-directed execution orchestration for Atlas V6',
+      constraints: ['must preserve workspace isolation', 'must not duplicate platform modules'],
+      priorities: [
+        { area: 'execution-speed', weight: 85 },
+        { area: 'evidence-quality', weight: 80 },
+      ],
+      strategicContext: ['atlas-v6 launch window', 'platform continuity'],
+      governanceContext: ['additive-only implementation', 'audit-required execution'],
+      workspaceId: currentWorkspaceId,
+    };
+
+    const compileRes = await request(app.getHttpServer())
+      .post('/founder-intent/compile')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send(compilePayload)
+      .expect(201);
+
+    createdFounderIntentId = compileRes.body.id;
+    expect(createdFounderIntentId).toBeDefined();
+    expect(compileRes.body.normalizedIntent.objective).toContain('Atlas V6');
+    expect(compileRes.body.executionDirectives.length).toBeGreaterThan(0);
+
+    const validateRes = await request(app.getHttpServer())
+      .post('/founder-intent/validate')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send(compilePayload)
+      .expect(201);
+
+    expect(validateRes.body).toEqual(
+      expect.objectContaining({
+        workspaceId: currentWorkspaceId,
+        valid: expect.any(Boolean),
+        dependencies: expect.any(Object),
+      }),
+    );
+
+    const simulateRes = await request(app.getHttpServer())
+      .post('/founder-intent/simulate')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send(compilePayload)
+      .expect(201);
+
+    expect(simulateRes.body.executionSequence.length).toBeGreaterThan(0);
+    expect(simulateRes.body.dependencyOrder.length).toBeGreaterThan(0);
+
+    const historyRes = await request(app.getHttpServer())
+      .get('/founder-intent/history?page=1&pageSize=20')
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+
+    expect(Array.isArray(historyRes.body)).toBe(true);
+    expect(historyRes.body.some((item: any) => item.id === createdFounderIntentId)).toBe(true);
+
+    const getRes = await request(app.getHttpServer())
+      .get(`/founder-intent/${createdFounderIntentId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+
+    expect(getRes.body.id).toBe(createdFounderIntentId);
+
+    const peerToken = await registerAndLogin(`e2e-founder-peer-${Date.now()}@onx.test`);
+    await request(app.getHttpServer())
+      .get(`/founder-intent/${createdFounderIntentId}`)
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(404);
+
+    await request(app.getHttpServer())
+      .post('/founder-intent/compile')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ ...compilePayload, workspaceId: `${currentWorkspaceId}-other` })
+      .expect(403);
+
+    const founderAudit = await listAudit('FOUNDER_INTENT_');
+    expect(founderAudit.some((item) => item.action === 'FOUNDER_INTENT_COMPILED')).toBe(true);
+    expect(founderAudit.some((item) => item.action === 'FOUNDER_INTENT_VALIDATED')).toBe(true);
+    expect(founderAudit.some((item) => item.action === 'FOUNDER_INTENT_SIMULATED')).toBe(true);
+
+    const openApi = await request(app.getHttpServer()).get('/api/docs-json').expect(200);
+    expect(openApi.body.paths['/founder-intent/compile']).toBeDefined();
+    expect(openApi.body.paths['/founder-intent/validate']).toBeDefined();
+    expect(openApi.body.paths['/founder-intent/simulate']).toBeDefined();
+    expect(openApi.body.paths['/founder-intent/history']).toBeDefined();
+    expect(openApi.body.paths['/founder-intent/{id}']).toBeDefined();
+
+    await request(app.getHttpServer()).get('/founder-intent/history').expect(401);
   });
 
   it('reporting depth supports summaries, details, filtering, sorting, date range, and audit compatibility', async () => {

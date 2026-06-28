@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { CapitalCategory } from '@prisma/client';
-import { Transform, Type } from 'class-transformer';
+import { Type } from 'class-transformer';
 import {
   IsEnum,
   IsIn,
@@ -35,7 +35,10 @@ export const CAPITAL_SORT_FIELDS = [
 ] as const;
 
 export class CapitalListQueryDto {
-  @ApiPropertyOptional({ description: 'Free text search across key capital fields.', example: 'reserve' })
+  @ApiPropertyOptional({
+    description: 'Free text search across key capital fields.',
+    example: 'reserve',
+  })
   @IsOptional()
   @IsString()
   search?: string;
@@ -82,7 +85,11 @@ export class CapitalListQueryDto {
 }
 
 export class CreateAllocationDto {
-  @ApiProperty({ description: 'Capital category for the allocation.', enum: CapitalCategory, example: CapitalCategory.OPERATIONS })
+  @ApiProperty({
+    description: 'Capital category for the allocation.',
+    enum: CapitalCategory,
+    example: CapitalCategory.OPERATIONS,
+  })
   @IsEnum(CapitalCategory)
   category: CapitalCategory;
 
@@ -96,17 +103,27 @@ export class CreateAllocationDto {
   @MinLength(3)
   currency: string;
 
-  @ApiPropertyOptional({ description: 'Capital source or originating pool.', example: 'Treasury Reserve' })
+  @ApiPropertyOptional({
+    description: 'Capital source or originating pool.',
+    example: 'Treasury Reserve',
+  })
   @IsOptional()
   @IsString()
   source?: string;
 
-  @ApiPropertyOptional({ description: 'Target program or destination.', example: 'Clinical AI Expansion' })
+  @ApiPropertyOptional({
+    description: 'Target program or destination.',
+    example: 'Clinical AI Expansion',
+  })
   @IsOptional()
   @IsString()
   target?: string;
 
-  @ApiPropertyOptional({ description: 'Allocation lifecycle state.', enum: ALLOCATION_STATUSES, example: 'DRAFT' })
+  @ApiPropertyOptional({
+    description: 'Allocation lifecycle state.',
+    enum: ALLOCATION_STATUSES,
+    example: 'DRAFT',
+  })
   @IsOptional()
   @IsIn(ALLOCATION_STATUSES)
   status?: (typeof ALLOCATION_STATUSES)[number];
@@ -119,12 +136,18 @@ export class CreateAllocationDto {
   @Max(10)
   priority?: number;
 
-  @ApiPropertyOptional({ description: 'Business rationale for the allocation.', example: 'Fund the next evidence ingestion wave.' })
+  @ApiPropertyOptional({
+    description: 'Business rationale for the allocation.',
+    example: 'Fund the next evidence ingestion wave.',
+  })
   @IsOptional()
   @IsString()
   rationale?: string;
 
-  @ApiPropertyOptional({ description: 'Optional related policy identifier.', example: 'cmcapitalpolicy123' })
+  @ApiPropertyOptional({
+    description: 'Optional related policy identifier.',
+    example: 'cmcapitalpolicy123',
+  })
   @IsOptional()
   @IsString()
   policyId?: string;
@@ -187,17 +210,27 @@ export class UpdateAllocationDto {
 }
 
 export class AllocationActionDto {
-  @ApiPropertyOptional({ description: 'Decision rationale recorded for the action.', example: 'Budget released after governance review.' })
+  @ApiPropertyOptional({
+    description: 'Decision rationale recorded for the action.',
+    example: 'Budget released after governance review.',
+  })
   @IsOptional()
   @IsString()
   rationale?: string;
 
-  @ApiPropertyOptional({ description: 'Decision reason for approve or reject.', example: 'Policy thresholds satisfied.' })
+  @ApiPropertyOptional({
+    description: 'Decision reason for approve or reject.',
+    example: 'Policy thresholds satisfied.',
+  })
   @IsOptional()
   @IsString()
   decisionReason?: string;
 
-  @ApiPropertyOptional({ description: 'Optional status override during transition.', enum: ALLOCATION_STATUSES, example: 'APPROVED' })
+  @ApiPropertyOptional({
+    description: 'Optional status override during transition.',
+    enum: ALLOCATION_STATUSES,
+    example: 'APPROVED',
+  })
   @IsOptional()
   @IsIn(ALLOCATION_STATUSES)
   status?: (typeof ALLOCATION_STATUSES)[number];
@@ -234,7 +267,10 @@ export class PolicyListQueryDto {
   @Max(100)
   pageSize?: number;
 
-  @ApiPropertyOptional({ enum: ['createdAt', 'updatedAt', 'priority', 'name', 'status'], example: 'createdAt' })
+  @ApiPropertyOptional({
+    enum: ['createdAt', 'updatedAt', 'priority', 'name', 'status'],
+    example: 'createdAt',
+  })
   @IsOptional()
   @IsIn(['createdAt', 'updatedAt', 'priority', 'name', 'status'])
   sortBy?: 'createdAt' | 'updatedAt' | 'priority' | 'name' | 'status';
@@ -251,7 +287,10 @@ export class CreatePolicyDto {
   @MinLength(2)
   name: string;
 
-  @ApiPropertyOptional({ description: 'Policy description.', example: 'Caps approval threshold at 500k unless escalated.' })
+  @ApiPropertyOptional({
+    description: 'Policy description.',
+    example: 'Caps approval threshold at 500k unless escalated.',
+  })
   @IsOptional()
   @IsString()
   description?: string;
@@ -345,7 +384,12 @@ export class UpdatePolicyDto {
 }
 
 export class CapitalReportQueryDto {
-  @ApiPropertyOptional({ enum: CapitalCategory, example: CapitalCategory.KNOWLEDGE, description: 'Workspace-scoped category filter for additive ONX Intelligence capital reporting.' })
+  @ApiPropertyOptional({
+    enum: CapitalCategory,
+    example: CapitalCategory.KNOWLEDGE,
+    description:
+      'Workspace-scoped category filter for additive ONX Intelligence capital reporting.',
+  })
   @IsOptional()
   @IsEnum(CapitalCategory)
   category?: CapitalCategory;
@@ -355,7 +399,11 @@ export class CapitalReportQueryDto {
   @IsIn(ALLOCATION_STATUSES)
   status?: (typeof ALLOCATION_STATUSES)[number];
 
-  @ApiPropertyOptional({ example: 'USD', description: 'Currency filter over native capital metadata retained for future ONX Platform convergence.' })
+  @ApiPropertyOptional({
+    example: 'USD',
+    description:
+      'Currency filter over native capital metadata retained for future ONX Platform convergence.',
+  })
   @IsOptional()
   @IsString()
   currency?: string;
