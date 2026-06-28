@@ -107,6 +107,13 @@
 
 ## Blocked Work Items
 
+- MO-017 classification outcome (2026-06-28):
+	- Capital allocation: Atlas V6 only (deferred)
+	- Founder Intent Compiler: Atlas V6 only (deferred)
+	- USFIP: Future Research (deferred)
+	- Proof Stress Architecture: Future Research (deferred)
+	- No remaining V2-executable gaps identified from current constitutional scope evidence.
+
 ## Change Log
 
 - V2 Gate Status: UNLOCKED
@@ -122,3 +129,4 @@
 - 2026-06-27 Full constitutional CRUD completeness complete: read-parity gaps closed and verified on production commit 975e7a8128ad361dd48cb7c81fbe17276f02aa65
 - 2026-06-27 Reporting depth complete: reporting layer deepened and verified on production commit 7b268571cbddfa06def25483f6823df278a855b1
 - 2026-06-28 MO-015 workspace domain completeness closure complete: workspace CRUD/restore/auth/validation/reporting/monitoring/memory/sovereignty compatibility verified on production commit 90bd7ada60ef087ec3e14173505268de6f634971 (CI 28299907447, Render 28299907453, smoke PASS, /tmp/mo015_verify.sh all_pass=true)
+- 2026-06-28 MO-017 classification complete: remaining gaps classified as deferred (Capital allocation + Founder Intent Compiler -> Atlas V6 only; USFIP + Proof Stress Architecture -> Future Research)

@@ -11,10 +11,10 @@
 - Memory governance: closed (MO-013, production-verified)
 - Reporting depth: closed (MO-016, production-verified)
 - Workspace domain completeness: closed (MO-015, production-verified)
-- Capital allocation: missing
-- Founder Intent Compiler: missing
-- USFIP: missing
-- Proof Stress Architecture: missing
+- Capital allocation: deferred (Atlas V6 only)
+- Founder Intent Compiler: deferred (Atlas V6 only)
+- USFIP: deferred (Future Research)
+- Proof Stress Architecture: deferred (Future Research)
 
 ## Mission Order 006 Verification Record (2026-06-27)
 
@@ -246,3 +246,29 @@
 	- Production `/health`: `{"status":"ok","database":{"status":"up","version":"1.0.0"}}`
 	- Production smoke: success (`BASE_URL=https://onx-intelligence-clean.onrender.com npm run smoke`)
 	- `/tmp/mo015_verify.sh` final result: `all_pass=true`
+
+## Mission Order 017 Remaining Scope Classification Record (2026-06-28)
+
+- Mode: governance classification only (no implementation)
+- Authoritative references reviewed:
+	- `docs/governance/ONX_INTELLIGENCE_CONSTITUTIONAL_CORPUS.md`
+	- `docs/governance/CRP01_GAP_REGISTER.md`
+	- `docs/governance/V2_EXECUTION_REGISTER.md`
+	- `docs/governance/V1_FREEZE.md`
+	- `docs/governance/V1_CONSTITUTIONAL_SEAL.md`
+- Remaining open gaps after MO-011/MO-012/MO-013/MO-015/MO-016/workspace completion:
+	- Capital allocation
+	- Founder Intent Compiler
+	- USFIP
+	- Proof Stress Architecture
+- Classification decision (repository evidence only):
+	- Capital allocation -> Atlas V6 only
+	- Founder Intent Compiler -> Atlas V6 only
+	- USFIP -> Future Research
+	- Proof Stress Architecture -> Future Research
+- Capital Allocation evidence-based determination:
+	- Data/model capability exists (`CapitalRecord` model and `CapitalCategory` enum).
+	- Runtime implementation is partial and read-only (`GET /reports/capital`, aggregate usage in reports).
+	- No runtime allocation workflow is present for capital creation/decision/execution paths in `src/**`.
+	- V2-safe execution without redesign is not established by current constitutional runtime evidence.
+	- Decision: defer Capital Allocation to Atlas V6.
