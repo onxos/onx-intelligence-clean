@@ -10,7 +10,13 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiOperation,
+  ApiPropertyOptional,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
@@ -25,6 +31,18 @@ import {
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import { WorkspaceService } from './workspace.service';
 import { getRequestAuditContext } from '../common/audit-context.util';
+import {
+  CreateSourceDto,
+  CreateSourceRequestDto,
+  UpdateSourceDto,
+  UpdateSourceRequestDto,
+} from './dto/sources.dto';
+import {
+  CreateEvaluationDto,
+  CreateEvaluationRequestDto,
+  UpdateEvaluationDto,
+  UpdateEvaluationRequestDto,
+} from './dto/evaluations.dto';
 
 class BaseReportingQueryDto {
   @ApiPropertyOptional({ example: 'error' })
@@ -281,7 +299,8 @@ export class WorkspaceController {
 
   @Post('sources')
   @ApiOperation({ summary: 'Create source/provenance record' })
-  async createSource(@Req() req: any, @Body() body: any) {
+  @ApiBody({ type: CreateSourceRequestDto })
+  async createSource(@Req() req: any, @Body() body: CreateSourceDto) {
     return this.svc.createSource(req.user.workspaceId, req.user.userId, body, {
       actorId: req.user.userId,
       ...getRequestAuditContext(req),
@@ -296,7 +315,8 @@ export class WorkspaceController {
 
   @Put('sources/:id')
   @ApiOperation({ summary: 'Update source/provenance record' })
-  async updateSource(@Param('id') id: string, @Req() req: any, @Body() body: any) {
+  @ApiBody({ type: UpdateSourceRequestDto })
+  async updateSource(@Param('id') id: string, @Req() req: any, @Body() body: UpdateSourceDto) {
     return this.svc.updateSource(id, req.user.workspaceId, req.user.userId, body, {
       actorId: req.user.userId,
       ...getRequestAuditContext(req),
@@ -464,7 +484,8 @@ export class WorkspaceController {
 
   @Post('evaluations')
   @ApiOperation({ summary: 'Create provider evaluation' })
-  async createEvaluation(@Req() req: any, @Body() body: any) {
+  @ApiBody({ type: CreateEvaluationRequestDto })
+  async createEvaluation(@Req() req: any, @Body() body: CreateEvaluationDto) {
     return this.svc.createEvaluation(req.user.workspaceId, body, {
       actorId: req.user.userId,
       ...getRequestAuditContext(req),
@@ -479,7 +500,12 @@ export class WorkspaceController {
 
   @Put('evaluations/:id')
   @ApiOperation({ summary: 'Update provider evaluation' })
-  async updateEvaluation(@Param('id') id: string, @Req() req: any, @Body() body: any) {
+  @ApiBody({ type: UpdateEvaluationRequestDto })
+  async updateEvaluation(
+    @Param('id') id: string,
+    @Req() req: any,
+    @Body() body: UpdateEvaluationDto,
+  ) {
     return this.svc.updateEvaluation(id, req.user.workspaceId, body, {
       actorId: req.user.userId,
       ...getRequestAuditContext(req),
