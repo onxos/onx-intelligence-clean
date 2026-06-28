@@ -15,6 +15,9 @@ describe('ONX Intelligence (e2e)', () => {
   let createdAgentId: string;
   let createdSourceId: string;
   let createdMemoryId: string;
+  let createdCapitalAllocationId: string;
+  let rejectedCapitalAllocationId: string;
+  let createdCapitalPolicyId: string;
   const password = 'StrongPass123!';
   const email = `e2e-${Date.now()}@onx.test`;
   const hasDatabase = Boolean(process.env.DATABASE_URL);
@@ -559,6 +562,220 @@ describe('ONX Intelligence (e2e)', () => {
   it('/w/ route is available (no server error)', async () => {
     const res = await request(app.getHttpServer()).get('/w/');
     expect(res.status).toBeLessThan(500);
+  });
+
+  it('capital allocation lifecycle, policy lifecycle, reports, audit, authorization, and validation work end to end', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).get('/capital/allocations').expect(401);
+      return;
+    }
+
+    await request(app.getHttpServer())
+      .post('/capital/allocations')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ category: 'OPERATIONS', amount: -100, currency: 'USD' })
+      .expect(400);
+
+    const policyCreate = await request(app.getHttpServer())
+      .post('/capital/policies')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        name: `Capital Policy ${Date.now()}`,
+        category: 'GOVERNANCE',
+        currency: 'USD',
+        source: 'Treasury Reserve',
+        target: 'Governance Programs',
+        priority: 2,
+        rationale: 'Guard reserve deployment',
+      })
+      .expect(201);
+
+    createdCapitalPolicyId = policyCreate.body.id;
+    expect(policyCreate.body.status).toBe('ACTIVE');
+
+    const policyGet = await request(app.getHttpServer())
+      .get(`/capital/policies/${createdCapitalPolicyId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(policyGet.body.id).toBe(createdCapitalPolicyId);
+
+    const policyList = await request(app.getHttpServer())
+      .get('/capital/policies?page=1&pageSize=10&sortBy=createdAt&sortOrder=desc')
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(Array.isArray(policyList.body)).toBe(true);
+    expect(policyList.body.some((item: { id: string }) => item.id === createdCapitalPolicyId)).toBe(true);
+
+    const policyUpdate = await request(app.getHttpServer())
+      .put(`/capital/policies/${createdCapitalPolicyId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ status: 'INACTIVE', rationale: 'Paused after review' })
+      .expect(200);
+    expect(policyUpdate.body.status).toBe('INACTIVE');
+
+    const allocationCreate = await request(app.getHttpServer())
+      .post('/capital/allocations')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        category: 'OPERATIONS',
+        amount: 500000,
+        currency: 'USD',
+        source: 'Treasury Reserve',
+        target: 'Capital Engine Rollout',
+        priority: 2,
+        rationale: 'Fund Atlas capital runtime rollout',
+        status: 'DRAFT',
+        policyId: createdCapitalPolicyId,
+      })
+      .expect(201);
+    createdCapitalAllocationId = allocationCreate.body.id;
+    expect(allocationCreate.body.status).toBe('DRAFT');
+
+    const rejectableCreate = await request(app.getHttpServer())
+      .post('/capital/allocations')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        category: 'COMMERCIAL',
+        amount: 120000,
+        currency: 'USD',
+        source: 'Commercial Budget',
+        target: 'Exploratory Spend',
+        priority: 5,
+        rationale: 'Candidate allocation for rejection path',
+        status: 'PENDING_APPROVAL',
+      })
+      .expect(201);
+    rejectedCapitalAllocationId = rejectableCreate.body.id;
+
+    const allocationGet = await request(app.getHttpServer())
+      .get(`/capital/allocations/${createdCapitalAllocationId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(allocationGet.body.id).toBe(createdCapitalAllocationId);
+
+    const allocationList = await request(app.getHttpServer())
+      .get('/capital/allocations?page=1&pageSize=10&sortBy=createdAt&sortOrder=desc&category=OPERATIONS')
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(Array.isArray(allocationList.body)).toBe(true);
+    expect(
+      allocationList.body.some((item: { id: string }) => item.id === createdCapitalAllocationId),
+    ).toBe(true);
+
+    const allocationUpdate = await request(app.getHttpServer())
+      .put(`/capital/allocations/${createdCapitalAllocationId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ status: 'PENDING_APPROVAL', decisionReason: 'Submitted for review', priority: 1 })
+      .expect(200);
+    expect(allocationUpdate.body.status).toBe('PENDING_APPROVAL');
+
+    const allocationApprove = await request(app.getHttpServer())
+      .post(`/capital/allocations/${createdCapitalAllocationId}/approve`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ decisionReason: 'Thresholds satisfied', rationale: 'Approved by capital operator' })
+      .expect(201);
+    expect(allocationApprove.body.status).toBe('APPROVED');
+    expect(allocationApprove.body.approvalStatus).toBe('APPROVED');
+
+    const allocationReject = await request(app.getHttpServer())
+      .post(`/capital/allocations/${rejectedCapitalAllocationId}/reject`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ decisionReason: 'Rejected due to poor priority fit', rationale: 'Rework request' })
+      .expect(201);
+    expect(allocationReject.body.status).toBe('REJECTED');
+    expect(allocationReject.body.approvalStatus).toBe('REJECTED');
+
+    await request(app.getHttpServer())
+      .delete(`/capital/allocations/${createdCapitalAllocationId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .get(`/capital/allocations/${createdCapitalAllocationId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(404);
+
+    const allocationRestore = await request(app.getHttpServer())
+      .post(`/capital/allocations/${createdCapitalAllocationId}/restore`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(201);
+    expect(allocationRestore.body.deletedAt).toBeNull();
+
+    await request(app.getHttpServer())
+      .delete(`/capital/policies/${createdCapitalPolicyId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .get(`/capital/policies/${createdCapitalPolicyId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(404);
+
+    const policyRestore = await request(app.getHttpServer())
+      .post(`/capital/policies/${createdCapitalPolicyId}/restore`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(201);
+    expect(policyRestore.body.status).toBe('ACTIVE');
+
+    const peerToken = await registerAndLogin(`e2e-capital-peer-${Date.now()}@onx.test`);
+    await request(app.getHttpServer())
+      .put(`/capital/allocations/${createdCapitalAllocationId}`)
+      .set('Authorization', `Bearer ${peerToken}`)
+      .send({ rationale: 'peer should not mutate' })
+      .expect(404);
+
+    const capitalReports = await request(app.getHttpServer())
+      .get('/capital/reports')
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(capitalReports.body).toEqual(
+      expect.objectContaining({
+        totalAllocated: expect.any(Number),
+        totalPending: expect.any(Number),
+        totalApproved: expect.any(Number),
+        totalRejected: expect.any(Number),
+        allocationCount: expect.any(Number),
+        policyCount: expect.any(Number),
+        allocationsByCategory: expect.any(Object),
+        allocationsByStatus: expect.any(Object),
+      }),
+    );
+    expect(capitalReports.body.allocationCount).toBeGreaterThanOrEqual(2);
+
+    const capitalHistory = await request(app.getHttpServer())
+      .get(`/capital/history?page=1&pageSize=20&allocationId=${createdCapitalAllocationId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(Array.isArray(capitalHistory.body)).toBe(true);
+    expect(capitalHistory.body.length).toBeGreaterThan(0);
+
+    const monitoring = await request(app.getHttpServer())
+      .get('/monitoring')
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(monitoring.body.metrics.capitalAllocationCount).toBeGreaterThanOrEqual(1);
+    expect(monitoring.body.metrics.capitalPolicyCount).toBeGreaterThanOrEqual(1);
+
+    const capitalAudit = await listAudit('CAPITAL_');
+    expect(capitalAudit.length).toBeGreaterThan(0);
+    expect(
+      capitalAudit.some(
+        (item) => item.action === 'CAPITAL_ALLOCATION_APPROVED' && item.resourceId === createdCapitalAllocationId,
+      ),
+    ).toBe(true);
+    expect(
+      capitalAudit.some(
+        (item) => item.action === 'CAPITAL_ALLOCATION_REJECTED' && item.resourceId === rejectedCapitalAllocationId,
+      ),
+    ).toBe(true);
+    expect(
+      capitalAudit.some(
+        (item) => item.action === 'CAPITAL_POLICY_RESTORED' && item.resourceId === createdCapitalPolicyId,
+      ),
+    ).toBe(true);
+
+    await request(app.getHttpServer()).get('/capital/reports').expect(401);
+    await request(app.getHttpServer()).get('/capital/history').expect(401);
   });
 
   it('reporting depth supports summaries, details, filtering, sorting, date range, and audit compatibility', async () => {

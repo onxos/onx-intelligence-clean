@@ -24,6 +24,7 @@ const navItems = [
   { labelKey: "nav.tools", href: "/tools" },
   { labelKey: "nav.evaluations", href: "/evaluations" },
   { labelKey: "nav.memory", href: "/memory" },
+  { labelKey: "nav.capital", href: "/capital" },
   { labelKey: "nav.reports", href: "/reports" },
   { labelKey: "nav.monitoring", href: "/monitoring" },
   { labelKey: "nav.settings", href: "/settings" },
