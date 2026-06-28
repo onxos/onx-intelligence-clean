@@ -11,6 +11,7 @@
 ## Exit Criteria
 
 - V2 work items completed under constitutional governance and approved closure criteria.
+- V2 final constitutional seal issued and V2 declared frozen.
 
 ## Governance Rules
 
@@ -114,6 +115,12 @@
 	- Proof Stress Architecture: Future Research (deferred)
 	- No remaining V2-executable gaps identified from current constitutional scope evidence.
 
+## Finalization State
+
+- V2 status: CONSTITUTIONALLY FROZEN (MO-018)
+- Next permitted execution stage: Atlas V6 (for Atlas V6-only deferred items)
+- Future Research items remain deferred until explicit governance authorization.
+
 ## Change Log
 
 - V2 Gate Status: UNLOCKED
@@ -130,3 +137,4 @@
 - 2026-06-27 Reporting depth complete: reporting layer deepened and verified on production commit 7b268571cbddfa06def25483f6823df278a855b1
 - 2026-06-28 MO-015 workspace domain completeness closure complete: workspace CRUD/restore/auth/validation/reporting/monitoring/memory/sovereignty compatibility verified on production commit 90bd7ada60ef087ec3e14173505268de6f634971 (CI 28299907447, Render 28299907453, smoke PASS, /tmp/mo015_verify.sh all_pass=true)
 - 2026-06-28 MO-017 classification complete: remaining gaps classified as deferred (Capital allocation + Founder Intent Compiler -> Atlas V6 only; USFIP + Proof Stress Architecture -> Future Research)
+- 2026-06-28 MO-018 final seal issued: ONX Intelligence V2 constitutionally sealed and frozen using production evidence on commit 4d8134ef24042fcec2ea5ddcf87a01af6334bfe6 (CI 28309883926 success, Render 28309883913 success, smoke PASS)
