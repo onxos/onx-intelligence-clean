@@ -317,3 +317,32 @@
 	- Founder Intent Compiler
 	- USFIP: Future Research
 	- Proof Stress Architecture: Future Research
+
+## Mission Order MO-032 Capital Runtime Repair Publication Record (2026-06-29)
+
+- Mode: execution + publication + verification (no architecture redesign)
+- Runtime breach status: CLOSED
+	- Removed in-memory capital runtime/fallback logic from `src/capital/capital.service.ts`
+	- Removed `canUseDatabase` runtime bifurcation
+	- Enforced Prisma-only persistence path for allocations, policies, reports, history, approvals, and decisions
+- Implementation commit:
+	- `c3a50a587027506b40816e010ef42f8a3d487e3d`
+	- Message: `fix(capital): enforce Prisma-only runtime for ACE lock`
+- CI: success
+	- Run: https://github.com/onxos/onx-intelligence-clean/actions/runs/28349763882
+- Render: success
+	- Run: https://github.com/onxos/onx-intelligence-clean/actions/runs/28349763890
+- Production synchronization: PASS
+	- `/commit`: `{"commit":"c3a50a587027506b40816e010ef42f8a3d487e3d","nodeEnv":"production"}`
+	- `/health`: `{"status":"ok","database":{"status":"up","version":"1.0.0"}}`
+	- Smoke: PASS (`BASE_URL=https://onx-intelligence-clean.onrender.com npm run smoke`)
+- Production capital verification: PASS
+	- Allocations: create/read/update/approve/reject(separate allocation)/soft delete/restore/list
+	- Policies: create/read/update/soft delete/restore/list
+	- Reports: PASS (`GET /capital/reports`)
+	- History: PASS (`GET /capital/history`)
+	- Audit: PASS (`GET /monitoring/audit` contains capital events)
+- OpenAPI verification: PASS
+	- `/capital/allocations`, `/capital/policies`, `/capital/reports`, `/capital/history` documented
+	- Allocation/Policy/Action DTOs present
+	- Report/History DTOs are not separately defined in schema components; endpoint coverage validated
