@@ -4,31 +4,170 @@ import { CapitalService } from './capital.service';
 
 describe('CapitalService', () => {
   const makeService = () => {
+    const allocations: any[] = [];
+    const policies: any[] = [];
+    const history: any[] = [];
+    const decisions: any[] = [];
+    const approvals: any[] = [];
+
+    let allocationSeq = 1;
+    let policySeq = 1;
+    let historySeq = 1;
+    let decisionSeq = 1;
+    let approvalSeq = 1;
+
+    const matchesWhere = (row: Record<string, any>, where: Record<string, any> = {}) => {
+      return Object.entries(where).every(([key, value]) => {
+        if (key === 'OR' && Array.isArray(value)) {
+          return value.some((branch) => matchesWhere(row, branch));
+        }
+        if (value && typeof value === 'object' && 'contains' in value) {
+          const needle = String((value as any).contains).toLowerCase();
+          const haystack = String(row[key] ?? '').toLowerCase();
+          return haystack.includes(needle);
+        }
+        if (value === null) {
+          return row[key] === null || row[key] === undefined;
+        }
+        return row[key] === value;
+      });
+    };
+
+    const applyOrder = (rows: any[], orderBy?: Record<string, 'asc' | 'desc'>) => {
+      if (!orderBy) {
+        return [...rows];
+      }
+      const [[field, direction]] = Object.entries(orderBy);
+      const factor = direction === 'asc' ? 1 : -1;
+      return [...rows].sort((left, right) => {
+        const a = left[field];
+        const b = right[field];
+        if (a instanceof Date && b instanceof Date) {
+          return (a.getTime() - b.getTime()) * factor;
+        }
+        if (a === b) {
+          return 0;
+        }
+        return (String(a) > String(b) ? 1 : -1) * factor;
+      });
+    };
+
+    const applyPagination = (rows: any[], skip = 0, take = rows.length) => {
+      return rows.slice(skip, skip + take);
+    };
+
     const prisma = {
-      isConnected: jest.fn().mockReturnValue(false),
       capitalAllocation: {
-        findMany: jest.fn(),
-        create: jest.fn(),
-        findFirst: jest.fn(),
-        update: jest.fn(),
+        findMany: jest.fn(async ({ where, orderBy, skip, take }: any = {}) => {
+          const filtered = allocations.filter((row) => matchesWhere(row, where));
+          const ordered = applyOrder(filtered, orderBy);
+          return applyPagination(ordered, skip, take);
+        }),
+        create: jest.fn(async ({ data }: any) => {
+          const created = {
+            id: `alloc-${allocationSeq++}`,
+            ...data,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            deletedAt: data.deletedAt ?? null,
+          };
+          allocations.push(created);
+          return created;
+        }),
+        findFirst: jest.fn(async ({ where }: any = {}) => {
+          return allocations.find((row) => matchesWhere(row, where)) ?? null;
+        }),
+        update: jest.fn(async ({ where, data }: any) => {
+          const idx = allocations.findIndex((row) => row.id === where.id);
+          if (idx === -1) {
+            throw new Error('Allocation not found');
+          }
+          allocations[idx] = {
+            ...allocations[idx],
+            ...data,
+            updatedAt: new Date(),
+          };
+          return allocations[idx];
+        }),
         count: jest.fn(),
       },
       allocationPolicy: {
-        findMany: jest.fn(),
-        create: jest.fn(),
-        findFirst: jest.fn(),
-        update: jest.fn(),
+        findMany: jest.fn(async ({ where, orderBy, skip, take }: any = {}) => {
+          const filtered = policies.filter((row) => matchesWhere(row, where));
+          const ordered = applyOrder(filtered, orderBy);
+          return applyPagination(ordered, skip, take);
+        }),
+        create: jest.fn(async ({ data }: any) => {
+          const created = {
+            id: `policy-${policySeq++}`,
+            ...data,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            deletedAt: data.deletedAt ?? null,
+          };
+          policies.push(created);
+          return created;
+        }),
+        findFirst: jest.fn(async ({ where }: any = {}) => {
+          return policies.find((row) => matchesWhere(row, where)) ?? null;
+        }),
+        update: jest.fn(async ({ where, data }: any) => {
+          const idx = policies.findIndex((row) => row.id === where.id);
+          if (idx === -1) {
+            throw new Error('Policy not found');
+          }
+          policies[idx] = {
+            ...policies[idx],
+            ...data,
+            updatedAt: new Date(),
+          };
+          return policies[idx];
+        }),
         count: jest.fn(),
       },
       allocationHistory: {
-        create: jest.fn(),
-        findMany: jest.fn(),
+        create: jest.fn(async ({ data }: any) => {
+          const created = {
+            id: `hist-${historySeq++}`,
+            ...data,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            deletedAt: null,
+          };
+          history.push(created);
+          return created;
+        }),
+        findMany: jest.fn(async ({ where, orderBy, skip, take }: any = {}) => {
+          const filtered = history.filter((row) => matchesWhere(row, where));
+          const ordered = applyOrder(filtered, orderBy);
+          return applyPagination(ordered, skip, take);
+        }),
       },
       allocationDecision: {
-        create: jest.fn(),
+        create: jest.fn(async ({ data }: any) => {
+          const created = {
+            id: `decision-${decisionSeq++}`,
+            ...data,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            deletedAt: null,
+          };
+          decisions.push(created);
+          return created;
+        }),
       },
       allocationApproval: {
-        create: jest.fn(),
+        create: jest.fn(async ({ data }: any) => {
+          const created = {
+            id: `approval-${approvalSeq++}`,
+            ...data,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            deletedAt: null,
+          };
+          approvals.push(created);
+          return created;
+        }),
       },
     } as any;
 
@@ -41,7 +180,7 @@ describe('CapitalService', () => {
     jest.clearAllMocks();
   });
 
-  it('creates, updates, deletes, restores, approves, and rejects an allocation in fallback mode', async () => {
+  it('creates, updates, deletes, restores, approves, and rejects an allocation with Prisma persistence', async () => {
     const { service, audit } = makeService();
 
     const created = await service.createAllocation(
@@ -233,7 +372,6 @@ describe('CapitalService', () => {
 
   it('uses safe workspace-scoped database queries for reports', async () => {
     const { service, prisma } = makeService();
-    prisma.isConnected.mockReturnValue(true);
     prisma.capitalAllocation.findMany.mockResolvedValue([
       {
         id: 'alloc-1',

@@ -1,78 +1,14 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CapitalCategory } from '@prisma/client';
-import * as crypto from 'crypto';
 import { AuditService } from '../common/audit.service';
 import { PrismaService } from '../common/prisma.service';
-import {
-  ALLOCATION_STATUSES,
-  APPROVAL_STATUSES,
-  CAPITAL_SORT_FIELDS,
-  POLICY_STATUSES,
-} from './dto/capital.dto';
+import { ALLOCATION_STATUSES, CAPITAL_SORT_FIELDS, POLICY_STATUSES } from './dto/capital.dto';
 
 type MutationAuditContext = {
   actorId: string;
   requestId?: string;
   ip?: string;
   userAgent?: string;
-};
-
-type AllocationRecord = {
-  id: string;
-  workspaceId: string;
-  ownerId: string;
-  policyId?: string | null;
-  category: CapitalCategory;
-  amount: number;
-  currency: string;
-  source?: string | null;
-  target?: string | null;
-  status: (typeof ALLOCATION_STATUSES)[number];
-  priority: number;
-  rationale?: string | null;
-  decisionReason?: string | null;
-  approvalStatus: (typeof APPROVAL_STATUSES)[number];
-  approvedBy?: string | null;
-  approvedAt?: Date | null;
-  rejectedAt?: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
-  deletedAt?: Date | null;
-};
-
-type PolicyRecord = {
-  id: string;
-  workspaceId: string;
-  ownerId: string;
-  name: string;
-  description?: string | null;
-  category: CapitalCategory;
-  currency: string;
-  source?: string | null;
-  target?: string | null;
-  status: (typeof POLICY_STATUSES)[number];
-  priority: number;
-  rationale?: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-  deletedAt?: Date | null;
-};
-
-type HistoryRecord = {
-  id: string;
-  allocationId?: string | null;
-  policyId?: string | null;
-  workspaceId: string;
-  actorId: string;
-  action: string;
-  status?: string | null;
-  rationale?: string | null;
-  decisionReason?: string | null;
-  previousState?: Record<string, unknown> | null;
-  nextState?: Record<string, unknown> | null;
-  createdAt: Date;
-  updatedAt: Date;
-  deletedAt?: Date | null;
 };
 
 const DEFAULT_PAGE_SIZE = 20;
@@ -84,20 +20,10 @@ const REJECT_ALLOWED_STATUSES = ['REJECTED'] as const;
 
 @Injectable()
 export class CapitalService {
-  private readonly memoryAllocations = new Map<string, AllocationRecord>();
-  private readonly memoryPolicies = new Map<string, PolicyRecord>();
-  private readonly memoryHistory = new Map<string, HistoryRecord>();
-  private readonly memoryApprovals = new Map<string, Record<string, unknown>>();
-  private readonly memoryDecisions = new Map<string, Record<string, unknown>>();
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
   ) {}
-
-  private canUseDatabase() {
-    return typeof this.prisma.isConnected !== 'function' || this.prisma.isConnected();
-  }
 
   private normalizeText(value: unknown, field: string, required = false) {
     if (value === undefined || value === null) {
@@ -290,40 +216,19 @@ export class CapitalService {
     previousState?: Record<string, unknown> | null;
     nextState?: Record<string, unknown> | null;
   }) {
-    if (this.canUseDatabase()) {
-      await this.prisma.allocationHistory.create({
-        data: {
-          allocationId: entry.allocationId,
-          policyId: entry.policyId,
-          workspaceId: entry.workspaceId,
-          actorId: entry.actorId,
-          action: entry.action,
-          status: entry.status,
-          rationale: entry.rationale,
-          decisionReason: entry.decisionReason,
-          previousState: (entry.previousState ?? null) as any,
-          nextState: (entry.nextState ?? null) as any,
-        },
-      });
-      return;
-    }
-
-    const id = crypto.randomUUID();
-    this.memoryHistory.set(id, {
-      id,
-      allocationId: entry.allocationId,
-      policyId: entry.policyId,
-      workspaceId: entry.workspaceId,
-      actorId: entry.actorId,
-      action: entry.action,
-      status: entry.status,
-      rationale: entry.rationale,
-      decisionReason: entry.decisionReason,
-      previousState: entry.previousState ?? null,
-      nextState: entry.nextState ?? null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      deletedAt: null,
+    await this.prisma.allocationHistory.create({
+      data: {
+        allocationId: entry.allocationId,
+        policyId: entry.policyId,
+        workspaceId: entry.workspaceId,
+        actorId: entry.actorId,
+        action: entry.action,
+        status: entry.status,
+        rationale: entry.rationale,
+        decisionReason: entry.decisionReason,
+        previousState: (entry.previousState ?? null) as any,
+        nextState: (entry.nextState ?? null) as any,
+      },
     });
   }
 
@@ -363,60 +268,28 @@ export class CapitalService {
     const currency = query?.currency ? this.normalizeCurrency(query.currency) : undefined;
     const skip = (page - 1) * pageSize;
 
-    if (this.canUseDatabase()) {
-      const items = await this.prisma.capitalAllocation.findMany({
-        where: {
-          workspaceId,
-          ownerId,
-          deletedAt: null,
-          ...(query?.category && { category: query.category }),
-          ...(query?.status && { status: query.status as any }),
-          ...(currency && { currency }),
-          ...(search && {
-            OR: [
-              { source: { contains: search, mode: 'insensitive' } },
-              { target: { contains: search, mode: 'insensitive' } },
-              { rationale: { contains: search, mode: 'insensitive' } },
-              { decisionReason: { contains: search, mode: 'insensitive' } },
-            ],
-          }),
-        },
-        orderBy: { [sortBy]: sortOrder } as any,
-        skip,
-        take: pageSize,
-      });
-      return items.map((item) => this.sanitizeAllocation(item));
-    }
-
-    return Array.from(this.memoryAllocations.values())
-      .filter(
-        (item) => item.workspaceId === workspaceId && item.ownerId === ownerId && !item.deletedAt,
-      )
-      .filter((item) => !query?.category || item.category === query.category)
-      .filter((item) => !query?.status || item.status === query.status)
-      .filter((item) => !currency || item.currency === currency)
-      .filter((item) => {
-        if (!search) {
-          return true;
-        }
-        const haystack = [item.source, item.target, item.rationale, item.decisionReason]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase();
-        return haystack.includes(search.toLowerCase());
-      })
-      .sort((left, right) => {
-        const leftValue = left[sortBy];
-        const rightValue = right[sortBy];
-        const direction = sortOrder === 'asc' ? 1 : -1;
-        if (leftValue instanceof Date && rightValue instanceof Date) {
-          return (leftValue.getTime() - rightValue.getTime()) * direction;
-        }
-        if (leftValue === rightValue) return 0;
-        return (String(leftValue) > String(rightValue) ? 1 : -1) * direction;
-      })
-      .slice(skip, skip + pageSize)
-      .map((item) => this.sanitizeAllocation(item));
+    const items = await this.prisma.capitalAllocation.findMany({
+      where: {
+        workspaceId,
+        ownerId,
+        deletedAt: null,
+        ...(query?.category && { category: query.category }),
+        ...(query?.status && { status: query.status as any }),
+        ...(currency && { currency }),
+        ...(search && {
+          OR: [
+            { source: { contains: search, mode: 'insensitive' } },
+            { target: { contains: search, mode: 'insensitive' } },
+            { rationale: { contains: search, mode: 'insensitive' } },
+            { decisionReason: { contains: search, mode: 'insensitive' } },
+          ],
+        }),
+      },
+      orderBy: { [sortBy]: sortOrder } as any,
+      skip,
+      take: pageSize,
+    });
+    return items.map((item) => this.sanitizeAllocation(item));
   }
 
   async createAllocation(
@@ -455,19 +328,7 @@ export class CapitalService {
         rejectedAt: null,
       } as const;
 
-      if (this.canUseDatabase()) {
-        created = await this.prisma.capitalAllocation.create({ data: input as any });
-      } else {
-        const id = crypto.randomUUID();
-        created = {
-          id,
-          ...input,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          deletedAt: null,
-        } satisfies AllocationRecord;
-        this.memoryAllocations.set(id, created);
-      }
+      created = await this.prisma.capitalAllocation.create({ data: input as any });
 
       await this.appendHistory({
         allocationId: created.id,
@@ -516,28 +377,14 @@ export class CapitalService {
     ownerId?: string,
     includeDeleted = false,
   ): Promise<any> {
-    let allocation: any;
-    if (this.canUseDatabase()) {
-      allocation = await this.prisma.capitalAllocation.findFirst({
-        where: {
-          id,
-          workspaceId,
-          ...(ownerId ? { ownerId } : {}),
-          ...(includeDeleted ? {} : { deletedAt: null }),
-        },
-      });
-    } else {
-      allocation = this.memoryAllocations.get(id);
-      if (
-        allocation &&
-        (allocation.workspaceId !== workspaceId || (ownerId && allocation.ownerId !== ownerId))
-      ) {
-        allocation = null;
-      }
-      if (allocation && !includeDeleted && allocation.deletedAt) {
-        allocation = null;
-      }
-    }
+    const allocation = await this.prisma.capitalAllocation.findFirst({
+      where: {
+        id,
+        workspaceId,
+        ...(ownerId ? { ownerId } : {}),
+        ...(includeDeleted ? {} : { deletedAt: null }),
+      },
+    });
 
     if (!allocation) {
       throw new NotFoundException('Capital allocation not found');
@@ -577,17 +424,7 @@ export class CapitalService {
 
     let updated: any = null;
     try {
-      if (this.canUseDatabase()) {
-        updated = await this.prisma.capitalAllocation.update({ where: { id }, data: data as any });
-      } else {
-        updated = {
-          ...(existing as AllocationRecord),
-          ...data,
-          ownerId,
-          updatedAt: new Date(),
-        };
-        this.memoryAllocations.set(id, updated);
-      }
+      updated = await this.prisma.capitalAllocation.update({ where: { id }, data: data as any });
 
       await this.appendHistory({
         allocationId: id,
@@ -635,20 +472,10 @@ export class CapitalService {
     const existing = await this.getAllocation(id, workspaceId, actorId);
     let deleted: any;
     try {
-      if (this.canUseDatabase()) {
-        deleted = await this.prisma.capitalAllocation.update({
-          where: { id },
-          data: { deletedAt: new Date(), status: 'ARCHIVED' as any },
-        });
-      } else {
-        deleted = {
-          ...(existing as AllocationRecord),
-          status: 'ARCHIVED',
-          deletedAt: new Date(),
-          updatedAt: new Date(),
-        };
-        this.memoryAllocations.set(id, deleted);
-      }
+      deleted = await this.prisma.capitalAllocation.update({
+        where: { id },
+        data: { deletedAt: new Date(), status: 'ARCHIVED' as any },
+      });
 
       await this.appendHistory({
         allocationId: id,
@@ -696,20 +523,10 @@ export class CapitalService {
     }
     let restored: any;
     try {
-      if (this.canUseDatabase()) {
-        restored = await this.prisma.capitalAllocation.update({
-          where: { id },
-          data: { deletedAt: null, status: 'DRAFT' as any },
-        });
-      } else {
-        restored = {
-          ...(existing as AllocationRecord),
-          deletedAt: null,
-          status: 'DRAFT',
-          updatedAt: new Date(),
-        };
-        this.memoryAllocations.set(id, restored);
-      }
+      restored = await this.prisma.capitalAllocation.update({
+        where: { id },
+        data: { deletedAt: null, status: 'DRAFT' as any },
+      });
 
       await this.appendHistory({
         allocationId: id,
@@ -754,61 +571,28 @@ export class CapitalService {
     rationale?: string;
     priority: number;
   }) {
-    if (this.canUseDatabase()) {
-      await this.prisma.allocationDecision.create({
-        data: {
-          allocationId: args.allocationId,
-          workspaceId: args.workspaceId,
-          actorId: args.actorId,
-          status: args.status,
-          priority: args.priority,
-          rationale: args.rationale,
-          decisionReason: args.decisionReason,
-        } as any,
-      });
-      await this.prisma.allocationApproval.create({
-        data: {
-          allocationId: args.allocationId,
-          workspaceId: args.workspaceId,
-          actorId: args.actorId,
-          approvalStatus: args.status,
-          approvedBy: args.status === 'APPROVED' ? args.actorId : null,
-          approvedAt: args.status === 'APPROVED' ? new Date() : null,
-          rejectedAt: args.status === 'REJECTED' ? new Date() : null,
-          decisionReason: args.decisionReason,
-        } as any,
-      });
-      return;
-    }
-
-    const decisionId = crypto.randomUUID();
-    this.memoryDecisions.set(decisionId, {
-      id: decisionId,
-      allocationId: args.allocationId,
-      workspaceId: args.workspaceId,
-      actorId: args.actorId,
-      status: args.status,
-      priority: args.priority,
-      rationale: args.rationale ?? null,
-      decisionReason: args.decisionReason ?? null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      deletedAt: null,
+    await this.prisma.allocationDecision.create({
+      data: {
+        allocationId: args.allocationId,
+        workspaceId: args.workspaceId,
+        actorId: args.actorId,
+        status: args.status,
+        priority: args.priority,
+        rationale: args.rationale,
+        decisionReason: args.decisionReason,
+      } as any,
     });
-    const approvalId = crypto.randomUUID();
-    this.memoryApprovals.set(approvalId, {
-      id: approvalId,
-      allocationId: args.allocationId,
-      workspaceId: args.workspaceId,
-      actorId: args.actorId,
-      approvalStatus: args.status,
-      approvedBy: args.status === 'APPROVED' ? args.actorId : null,
-      approvedAt: args.status === 'APPROVED' ? new Date() : null,
-      rejectedAt: args.status === 'REJECTED' ? new Date() : null,
-      decisionReason: args.decisionReason ?? null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      deletedAt: null,
+    await this.prisma.allocationApproval.create({
+      data: {
+        allocationId: args.allocationId,
+        workspaceId: args.workspaceId,
+        actorId: args.actorId,
+        approvalStatus: args.status,
+        approvedBy: args.status === 'APPROVED' ? args.actorId : null,
+        approvedAt: args.status === 'APPROVED' ? new Date() : null,
+        rejectedAt: args.status === 'REJECTED' ? new Date() : null,
+        decisionReason: args.decisionReason,
+      } as any,
     });
   }
 
@@ -827,33 +611,18 @@ export class CapitalService {
     let updated: any;
     const approvedAt = new Date();
     try {
-      if (this.canUseDatabase()) {
-        updated = await this.prisma.capitalAllocation.update({
-          where: { id },
-          data: {
-            status: resolvedStatus as any,
-            approvalStatus: 'APPROVED' as any,
-            approvedBy: actorId,
-            approvedAt,
-            rejectedAt: null,
-            rationale: body.rationale ?? existing.rationale,
-            decisionReason: body.decisionReason ?? existing.decisionReason,
-          },
-        });
-      } else {
-        updated = {
-          ...(existing as AllocationRecord),
-          status: resolvedStatus,
-          approvalStatus: 'APPROVED',
+      updated = await this.prisma.capitalAllocation.update({
+        where: { id },
+        data: {
+          status: resolvedStatus as any,
+          approvalStatus: 'APPROVED' as any,
           approvedBy: actorId,
           approvedAt,
           rejectedAt: null,
           rationale: body.rationale ?? existing.rationale,
           decisionReason: body.decisionReason ?? existing.decisionReason,
-          updatedAt: new Date(),
-        };
-        this.memoryAllocations.set(id, updated);
-      }
+        },
+      });
 
       await this.recordDecisionAndApproval({
         allocationId: id,
@@ -916,29 +685,16 @@ export class CapitalService {
     let updated: any;
     const rejectedAt = new Date();
     try {
-      if (this.canUseDatabase()) {
-        updated = await this.prisma.capitalAllocation.update({
-          where: { id },
-          data: {
-            status: resolvedStatus as any,
-            approvalStatus: 'REJECTED' as any,
-            rejectedAt,
-            decisionReason: body.decisionReason ?? existing.decisionReason,
-            rationale: body.rationale ?? existing.rationale,
-          },
-        });
-      } else {
-        updated = {
-          ...(existing as AllocationRecord),
-          status: resolvedStatus,
-          approvalStatus: 'REJECTED',
+      updated = await this.prisma.capitalAllocation.update({
+        where: { id },
+        data: {
+          status: resolvedStatus as any,
+          approvalStatus: 'REJECTED' as any,
           rejectedAt,
           decisionReason: body.decisionReason ?? existing.decisionReason,
           rationale: body.rationale ?? existing.rationale,
-          updatedAt: new Date(),
-        };
-        this.memoryAllocations.set(id, updated);
-      }
+        },
+      });
 
       await this.recordDecisionAndApproval({
         allocationId: id,
@@ -1009,57 +765,26 @@ export class CapitalService {
     const sortOrder = this.normalizeSortOrder(query?.sortOrder);
     const skip = (page - 1) * pageSize;
 
-    if (this.canUseDatabase()) {
-      const items = await this.prisma.allocationPolicy.findMany({
-        where: {
-          workspaceId,
-          ownerId,
-          deletedAt: null,
-          ...(query?.category && { category: query.category }),
-          ...(query?.status && { status: query.status as any }),
-          ...(search && {
-            OR: [
-              { name: { contains: search, mode: 'insensitive' } },
-              { description: { contains: search, mode: 'insensitive' } },
-              { rationale: { contains: search, mode: 'insensitive' } },
-            ],
-          }),
-        },
-        orderBy: { [sortBy]: sortOrder } as any,
-        skip,
-        take: pageSize,
-      });
-      return items.map((item) => this.sanitizePolicy(item));
-    }
-
-    return Array.from(this.memoryPolicies.values())
-      .filter(
-        (item) => item.workspaceId === workspaceId && item.ownerId === ownerId && !item.deletedAt,
-      )
-      .filter((item) => !query?.category || item.category === query.category)
-      .filter((item) => !query?.status || item.status === query.status)
-      .filter((item) => {
-        if (!search) {
-          return true;
-        }
-        const haystack = [item.name, item.description, item.rationale]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase();
-        return haystack.includes(search.toLowerCase());
-      })
-      .sort((left, right) => {
-        const leftValue = left[sortBy];
-        const rightValue = right[sortBy];
-        const direction = sortOrder === 'asc' ? 1 : -1;
-        if (leftValue instanceof Date && rightValue instanceof Date) {
-          return (leftValue.getTime() - rightValue.getTime()) * direction;
-        }
-        if (leftValue === rightValue) return 0;
-        return (String(leftValue) > String(rightValue) ? 1 : -1) * direction;
-      })
-      .slice(skip, skip + pageSize)
-      .map((item) => this.sanitizePolicy(item));
+    const items = await this.prisma.allocationPolicy.findMany({
+      where: {
+        workspaceId,
+        ownerId,
+        deletedAt: null,
+        ...(query?.category && { category: query.category }),
+        ...(query?.status && { status: query.status as any }),
+        ...(search && {
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { description: { contains: search, mode: 'insensitive' } },
+            { rationale: { contains: search, mode: 'insensitive' } },
+          ],
+        }),
+      },
+      orderBy: { [sortBy]: sortOrder } as any,
+      skip,
+      take: pageSize,
+    });
+    return items.map((item) => this.sanitizePolicy(item));
   }
 
   async createPolicy(
@@ -1084,19 +809,7 @@ export class CapitalService {
 
     let created: any = null;
     try {
-      if (this.canUseDatabase()) {
-        created = await this.prisma.allocationPolicy.create({ data: input as any });
-      } else {
-        const id = crypto.randomUUID();
-        created = {
-          id,
-          ...input,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          deletedAt: null,
-        } satisfies PolicyRecord;
-        this.memoryPolicies.set(id, created);
-      }
+      created = await this.prisma.allocationPolicy.create({ data: input as any });
 
       await this.appendHistory({
         policyId: created.id,
@@ -1139,28 +852,14 @@ export class CapitalService {
     ownerId?: string,
     includeDeleted = false,
   ): Promise<any> {
-    let policy: any;
-    if (this.canUseDatabase()) {
-      policy = await this.prisma.allocationPolicy.findFirst({
-        where: {
-          id,
-          workspaceId,
-          ...(ownerId ? { ownerId } : {}),
-          ...(includeDeleted ? {} : { deletedAt: null }),
-        },
-      });
-    } else {
-      policy = this.memoryPolicies.get(id);
-      if (
-        policy &&
-        (policy.workspaceId !== workspaceId || (ownerId && policy.ownerId !== ownerId))
-      ) {
-        policy = null;
-      }
-      if (policy && !includeDeleted && policy.deletedAt) {
-        policy = null;
-      }
-    }
+    const policy = await this.prisma.allocationPolicy.findFirst({
+      where: {
+        id,
+        workspaceId,
+        ...(ownerId ? { ownerId } : {}),
+        ...(includeDeleted ? {} : { deletedAt: null }),
+      },
+    });
     if (!policy) {
       throw new NotFoundException('Allocation policy not found');
     }
@@ -1197,17 +896,7 @@ export class CapitalService {
 
     let updated: any = null;
     try {
-      if (this.canUseDatabase()) {
-        updated = await this.prisma.allocationPolicy.update({ where: { id }, data: data as any });
-      } else {
-        updated = {
-          ...(existing as PolicyRecord),
-          ...data,
-          ownerId: actorId,
-          updatedAt: new Date(),
-        };
-        this.memoryPolicies.set(id, updated);
-      }
+      updated = await this.prisma.allocationPolicy.update({ where: { id }, data: data as any });
 
       await this.appendHistory({
         policyId: id,
@@ -1253,20 +942,10 @@ export class CapitalService {
     const existing = await this.getPolicy(id, workspaceId, actorId);
     let deleted: any;
     try {
-      if (this.canUseDatabase()) {
-        deleted = await this.prisma.allocationPolicy.update({
-          where: { id },
-          data: { deletedAt: new Date(), status: 'ARCHIVED' as any },
-        });
-      } else {
-        deleted = {
-          ...(existing as PolicyRecord),
-          status: 'ARCHIVED',
-          deletedAt: new Date(),
-          updatedAt: new Date(),
-        };
-        this.memoryPolicies.set(id, deleted);
-      }
+      deleted = await this.prisma.allocationPolicy.update({
+        where: { id },
+        data: { deletedAt: new Date(), status: 'ARCHIVED' as any },
+      });
 
       await this.appendHistory({
         policyId: id,
@@ -1314,20 +993,10 @@ export class CapitalService {
     }
     let restored: any;
     try {
-      if (this.canUseDatabase()) {
-        restored = await this.prisma.allocationPolicy.update({
-          where: { id },
-          data: { deletedAt: null, status: 'ACTIVE' as any },
-        });
-      } else {
-        restored = {
-          ...(existing as PolicyRecord),
-          deletedAt: null,
-          status: 'ACTIVE',
-          updatedAt: new Date(),
-        };
-        this.memoryPolicies.set(id, restored);
-      }
+      restored = await this.prisma.allocationPolicy.update({
+        where: { id },
+        data: { deletedAt: null, status: 'ACTIVE' as any },
+      });
 
       await this.appendHistory({
         policyId: id,
@@ -1369,41 +1038,23 @@ export class CapitalService {
   ) {
     // Keep reports workspace-scoped and platform-neutral by aggregating native capital metadata
     // (category/status/source/target/rationale) without hardcoded external platform assumptions.
-    if (this.canUseDatabase()) {
-      const allocationRows = await this.prisma.capitalAllocation.findMany({
-        where: {
-          workspaceId,
-          deletedAt: null,
-          ...(query?.category && { category: query.category }),
-          ...(query?.status && { status: query.status as any }),
-          ...(query?.currency && { currency: this.normalizeCurrency(query.currency) }),
-        },
-      });
-      const policyRows = await this.prisma.allocationPolicy.findMany({
-        where: {
-          workspaceId,
-          deletedAt: null,
-          ...(query?.category && { category: query.category }),
-        },
-      });
-      return this.buildReportSummary(allocationRows as any[], policyRows as any[]);
-    }
-
-    const memoryAllocations = Array.from(this.memoryAllocations.values()).filter(
-      (item) =>
-        item.workspaceId === workspaceId &&
-        !item.deletedAt &&
-        (!query?.category || item.category === query.category) &&
-        (!query?.status || item.status === query.status) &&
-        (!query?.currency || item.currency === this.normalizeCurrency(query.currency)),
-    );
-    const memoryPolicies = Array.from(this.memoryPolicies.values()).filter(
-      (item) =>
-        item.workspaceId === workspaceId &&
-        !item.deletedAt &&
-        (!query?.category || item.category === query.category),
-    );
-    return this.buildReportSummary(memoryAllocations, memoryPolicies);
+    const allocationRows = await this.prisma.capitalAllocation.findMany({
+      where: {
+        workspaceId,
+        deletedAt: null,
+        ...(query?.category && { category: query.category }),
+        ...(query?.status && { status: query.status as any }),
+        ...(query?.currency && { currency: this.normalizeCurrency(query.currency) }),
+      },
+    });
+    const policyRows = await this.prisma.allocationPolicy.findMany({
+      where: {
+        workspaceId,
+        deletedAt: null,
+        ...(query?.category && { category: query.category }),
+      },
+    });
+    return this.buildReportSummary(allocationRows as any[], policyRows as any[]);
   }
 
   private buildReportSummary(allocations: any[], policies: any[]) {
@@ -1467,27 +1118,17 @@ export class CapitalService {
     );
     const skip = (page - 1) * pageSize;
 
-    if (this.canUseDatabase()) {
-      return this.prisma.allocationHistory.findMany({
-        where: {
-          workspaceId,
-          deletedAt: null,
-          ...(query?.action && { action: query.action }),
-          ...(query?.allocationId && { allocationId: query.allocationId }),
-          ...(query?.policyId && { policyId: query.policyId }),
-        },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: pageSize,
-      });
-    }
-
-    return Array.from(this.memoryHistory.values())
-      .filter((item) => item.workspaceId === workspaceId && !item.deletedAt)
-      .filter((item) => !query?.action || item.action === query.action)
-      .filter((item) => !query?.allocationId || item.allocationId === query.allocationId)
-      .filter((item) => !query?.policyId || item.policyId === query.policyId)
-      .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
-      .slice(skip, skip + pageSize);
+    return this.prisma.allocationHistory.findMany({
+      where: {
+        workspaceId,
+        deletedAt: null,
+        ...(query?.action && { action: query.action }),
+        ...(query?.allocationId && { allocationId: query.allocationId }),
+        ...(query?.policyId && { policyId: query.policyId }),
+      },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: pageSize,
+    });
   }
 }
