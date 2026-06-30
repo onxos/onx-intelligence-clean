@@ -1,7 +1,9 @@
 name: Prettier Auto-fix
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - atlas-v6
 
 jobs:
   prettier-fix:
@@ -13,6 +15,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           ref: atlas-v6
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -30,5 +33,4 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -A
-          git diff --staged --quiet && echo "No changes" || git commit -m "style: auto-fix prettier formatting on atlas-v6"
-          git push
+          git diff --staged --quiet && echo "No prettier changes needed" || (git commit -m "style: auto-fix prettier formatting [skip ci]" && git push)
