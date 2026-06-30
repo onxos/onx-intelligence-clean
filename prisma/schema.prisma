@@ -73,6 +73,14 @@ model Workspace {
   intelObjectRelationships   IntelligenceObjectRelationship[]
   intelObjectProvenance      IntelligenceObjectProvenance[]
   intelObjectLifecycleEvents IntelligenceObjectLifecycleEvent[]
+  intelligenceSources        IntelligenceSource[]
+  intelligenceFeeds          IntelligenceFeed[]
+  feedPipelineEvents         FeedPipelineEvent[]
+  learningStates             LearningState[]
+  learningEvents             LearningEvent[]
+  patterns                   Pattern[]
+  knowledgeEvolutions        KnowledgeEvolution[]
+  capitalizationEvents       CapitalizationEvent[]
   evidence    EvidenceRecord[]
   providers   ProviderProfile[]
   tools       ToolProfile[]
@@ -301,6 +309,205 @@ model IntelligenceObjectLifecycleEvent {
   @@index([objectId, createdAt])
   @@index([workspaceId, createdAt])
   @@map("intelligence_object_lifecycle_events")
+}
+
+// ===========================================================================
+// D11 — Intelligence Feeding Runtime
+// ===========================================================================
+
+model IntelligenceSource {
+  id              String         @id @default(cuid())
+  sourceId        String         @unique @default(cuid()) @map("source_id")
+  identity        String
+  description     String?
+  category        SourceCategory @default(INTERNAL)
+  authorityLevel  AuthorityLevel @default(OPERATIONAL) @map("authority_level")
+  ownershipClass  OwnershipClass @default(INSTITUTIONAL) @map("ownership_class")
+  trustScore      Float          @default(0.5) @map("trust_score")
+  confidenceScore Float          @default(0.5) @map("confidence_score")
+  status          SourceStatus   @default(ACTIVE)
+  metadata        Json?          @default("{}")
+  workspaceId     String         @map("workspace_id")
+  createdById     String         @map("created_by_id")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+  deletedAt       DateTime?      @map("deleted_at")
+
+  workspace Workspace          @relation(fields: [workspaceId], references: [id])
+  feeds     IntelligenceFeed[]
+
+  @@index([workspaceId, deletedAt, status])
+  @@index([workspaceId, createdAt])
+  @@map("intelligence_sources")
+}
+
+model IntelligenceFeed {
+  id               String        @id @default(cuid())
+  feedId           String        @unique @default(cuid()) @map("feed_id")
+  sourceId         String        @map("source_id")
+  payload          String
+  contentHash      String        @map("content_hash")
+  stage            FeedStage     @default(RECEIVED)
+  shadowMode       FeedShadowMode @default(ACTIVE) @map("shadow_mode")
+  classification   String?
+  linkedObjectId   String?       @map("linked_object_id")
+  trustScore       Float         @default(0.5) @map("trust_score")
+  confidenceScore  Float         @default(0.5) @map("confidence_score")
+  provenanceScore  Float         @default(0.5) @map("provenance_score")
+  verificationScore Float        @default(0.5) @map("verification_score")
+  validationResult Json?         @map("validation_result")
+  rejectionReason  String?       @map("rejection_reason")
+  metadata         Json?         @default("{}")
+  workspaceId      String        @map("workspace_id")
+  createdById      String        @map("created_by_id")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+  deletedAt        DateTime?     @map("deleted_at")
+
+  source         IntelligenceSource  @relation(fields: [sourceId], references: [id])
+  workspace      Workspace           @relation(fields: [workspaceId], references: [id])
+  pipelineEvents FeedPipelineEvent[]
+
+  @@index([workspaceId, deletedAt, stage])
+  @@index([workspaceId, shadowMode])
+  @@index([sourceId])
+  @@map("intelligence_feeds")
+}
+
+model FeedPipelineEvent {
+  id          String     @id @default(cuid())
+  feedId      String     @map("feed_id")
+  fromStage   FeedStage? @map("from_stage")
+  toStage     FeedStage  @map("to_stage")
+  actorId     String     @map("actor_id")
+  workspaceId String     @map("workspace_id")
+  notes       String?
+  metadata    Json?      @default("{}")
+  createdAt   DateTime   @default(now()) @map("created_at")
+
+  feed      IntelligenceFeed @relation(fields: [feedId], references: [id])
+  workspace Workspace        @relation(fields: [workspaceId], references: [id])
+
+  @@index([feedId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@map("feed_pipeline_events")
+}
+
+// ===========================================================================
+// D12 — Intelligence Learning Runtime
+// ===========================================================================
+
+model LearningState {
+  id                 String            @id @default(cuid())
+  learningId         String            @unique @default(cuid()) @map("learning_id")
+  title              String
+  summary            String?
+  objectId           String?           @map("object_id")
+  state              LearningStateType @default(OBSERVED)
+  confidence         Float             @default(0.5)
+  reinforcementCount Int               @default(0) @map("reinforcement_count")
+  contradictionCount Int               @default(0) @map("contradiction_count")
+  capitalized        Boolean           @default(false)
+  metadata           Json?             @default("{}")
+  workspaceId        String            @map("workspace_id")
+  createdById        String            @map("created_by_id")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+  deletedAt          DateTime?         @map("deleted_at")
+
+  workspace            Workspace             @relation(fields: [workspaceId], references: [id])
+  events               LearningEvent[]
+  knowledgeEvolutions  KnowledgeEvolution[]
+  capitalizationEvents CapitalizationEvent[]
+
+  @@index([workspaceId, deletedAt, state])
+  @@index([workspaceId, createdAt])
+  @@map("learning_states")
+}
+
+model LearningEvent {
+  id          String             @id @default(cuid())
+  learningId  String             @map("learning_id")
+  eventType   LearningEventType  @map("event_type")
+  fromState   LearningStateType? @map("from_state")
+  toState     LearningStateType? @map("to_state")
+  actorId     String             @map("actor_id")
+  workspaceId String             @map("workspace_id")
+  notes       String?
+  metadata    Json?              @default("{}")
+  createdAt   DateTime           @default(now()) @map("created_at")
+
+  learning  LearningState @relation(fields: [learningId], references: [id])
+  workspace Workspace     @relation(fields: [workspaceId], references: [id])
+
+  @@index([learningId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@map("learning_events")
+}
+
+model Pattern {
+  id              String      @id @default(cuid())
+  patternId       String      @unique @default(cuid()) @map("pattern_id")
+  patternType     PatternType @map("pattern_type")
+  label           String
+  description     String?
+  strength        Float       @default(0.5)
+  occurrences     Int         @default(1)
+  memberObjectIds String[]    @default([]) @map("member_object_ids")
+  metadata        Json?       @default("{}")
+  workspaceId     String      @map("workspace_id")
+  createdById     String      @map("created_by_id")
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+  deletedAt       DateTime?   @map("deleted_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, deletedAt, patternType])
+  @@index([workspaceId, createdAt])
+  @@map("patterns")
+}
+
+model KnowledgeEvolution {
+  id            String        @id @default(cuid())
+  learningId    String        @map("learning_id")
+  evolutionType EvolutionType @map("evolution_type")
+  reason        String?
+  before        Json?
+  after         Json?
+  actorId       String        @map("actor_id")
+  workspaceId   String        @map("workspace_id")
+  createdById   String        @map("created_by_id")
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  learning  LearningState @relation(fields: [learningId], references: [id])
+  workspace Workspace     @relation(fields: [workspaceId], references: [id])
+
+  @@index([learningId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@map("knowledge_evolutions")
+}
+
+model CapitalizationEvent {
+  id              String                @id @default(cuid())
+  learningId      String                @map("learning_id")
+  objectId        String?               @map("object_id")
+  triggerReason   String                @map("trigger_reason")
+  capitalValue    Float                 @default(0) @map("capital_value")
+  capitalCategory CapitalCategory?      @map("capital_category")
+  status          CapitalizationStatus  @default(TRIGGERED)
+  metadata        Json?                 @default("{}")
+  actorId         String                @map("actor_id")
+  workspaceId     String                @map("workspace_id")
+  createdById     String                @map("created_by_id")
+  createdAt       DateTime              @default(now()) @map("created_at")
+
+  learning  LearningState @relation(fields: [learningId], references: [id])
+  workspace Workspace     @relation(fields: [workspaceId], references: [id])
+
+  @@index([learningId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@map("capitalization_events")
 }
 
 model ProviderProfile {
@@ -708,6 +915,82 @@ enum AuthorityLevel {
   OPERATIONAL
   INSTITUTIONAL
   SOVEREIGN
+}
+
+// D11 — Intelligence Feeding
+enum SourceCategory {
+  INTERNAL
+  EXTERNAL
+  PARTNER
+  SENSOR
+  HUMAN
+  SYSTEM
+  DERIVED
+}
+
+enum SourceStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  QUARANTINED
+}
+
+enum FeedStage {
+  RECEIVED
+  NORMALIZED
+  VALIDATED
+  CLASSIFIED
+  LINKED
+  ACCEPTED
+  REJECTED
+  ARCHIVED
+}
+
+enum FeedShadowMode {
+  ACTIVE
+  SHADOW
+}
+
+// D12 — Intelligence Learning
+enum LearningStateType {
+  OBSERVED
+  UNDERSTOOD
+  VERIFIED
+  GENERALIZED
+  CONNECTED
+  REUSABLE
+  CAPITALIZED
+  EVOLVING
+  DEPRECATED
+}
+
+enum LearningEventType {
+  OBSERVATION
+  STATE_TRANSITION
+  REINFORCEMENT
+  CONTRADICTION
+}
+
+enum PatternType {
+  SIMILARITY
+  CLUSTERING
+  REPETITION
+  CONTRADICTION
+  REINFORCEMENT
+}
+
+enum EvolutionType {
+  REFINEMENT
+  CORRECTION
+  SUPERSEDING
+  DECAY
+  RETIREMENT
+}
+
+enum CapitalizationStatus {
+  TRIGGERED
+  CONFIRMED
+  REJECTED
 }
 
 enum ShadowStatus {

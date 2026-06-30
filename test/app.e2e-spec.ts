@@ -459,6 +459,284 @@ describe('ONX Intelligence (e2e)', () => {
     expect(document.components?.schemas?.CreateProvenanceDto).toBeDefined();
   });
 
+  it('D11 intelligence feeding: source registry, pipeline, validation gate, shadow protocol', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer())
+        .post('/intelligence-feeding/sources')
+        .send({ identity: 'Source' })
+        .expect(401);
+      return;
+    }
+
+    // Source registry
+    const sourceRes = await request(app.getHttpServer())
+      .post('/intelligence-feeding/sources')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        identity: 'E2E Telemetry Source',
+        category: 'INTERNAL',
+        authorityLevel: 'INSTITUTIONAL',
+        trustScore: 0.8,
+        confidenceScore: 0.8,
+      })
+      .expect(201);
+    const sourceId = sourceRes.body.id as string;
+    expect(sourceId).toBeDefined();
+
+    const sourceList = await request(app.getHttpServer())
+      .get('/intelligence-feeding/sources?category=INTERNAL')
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(sourceList.body.items.some((s: { id: string }) => s.id === sourceId)).toBe(true);
+
+    // We need a linkable D16 object for the LINKED stage.
+    const objRes = await request(app.getHttpServer())
+      .post('/intelligence-objects')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ name: 'Feed target', content: 'payload', objectType: 'KNOWLEDGE' })
+      .expect(201);
+    const linkObjectId = objRes.body.id as string;
+
+    // Feed pipeline: ingest (RECEIVED)
+    const feedRes = await request(app.getHttpServer())
+      .post('/intelligence-feeding/feeds')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        sourceId,
+        payload: 'Canonical feed payload',
+        confidenceScore: 0.8,
+        provenanceScore: 0.7,
+        verificationScore: 0.8,
+        shadowMode: 'SHADOW',
+      })
+      .expect(201);
+    const feedId = feedRes.body.id as string;
+    expect(feedRes.body.stage).toBe('RECEIVED');
+    expect(feedRes.body.shadowMode).toBe('SHADOW');
+
+    // Shadow protocol: bring it back to ACTIVE
+    const shadowRes = await request(app.getHttpServer())
+      .post(`/intelligence-feeding/feeds/${feedId}/shadow`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ shadowMode: 'ACTIVE', reason: 'Cleared review' })
+      .expect(201);
+    expect(shadowRes.body.shadowMode).toBe('ACTIVE');
+
+    // Validation gate (read-only)
+    const gateRes = await request(app.getHttpServer())
+      .get(`/intelligence-feeding/feeds/${feedId}/validate`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(gateRes.body.valid).toBe(true);
+    expect(Array.isArray(gateRes.body.checks)).toBe(true);
+
+    // Staged ingestion: RECEIVED -> NORMALIZED -> VALIDATED -> CLASSIFIED -> LINKED -> ACCEPTED
+    await request(app.getHttpServer())
+      .post(`/intelligence-feeding/feeds/${feedId}/advance`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ toStage: 'NORMALIZED', notes: 'normalized' })
+      .expect(201);
+
+    // invalid transition (skip stages)
+    await request(app.getHttpServer())
+      .post(`/intelligence-feeding/feeds/${feedId}/advance`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ toStage: 'ACCEPTED' })
+      .expect(400);
+
+    const validatedRes = await request(app.getHttpServer())
+      .post(`/intelligence-feeding/feeds/${feedId}/advance`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ toStage: 'VALIDATED' })
+      .expect(201);
+    expect(validatedRes.body.stage).toBe('VALIDATED');
+
+    await request(app.getHttpServer())
+      .post(`/intelligence-feeding/feeds/${feedId}/advance`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ toStage: 'CLASSIFIED', classification: 'KNOWLEDGE' })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post(`/intelligence-feeding/feeds/${feedId}/advance`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ toStage: 'LINKED', linkedObjectId: linkObjectId })
+      .expect(201);
+
+    const acceptedRes = await request(app.getHttpServer())
+      .post(`/intelligence-feeding/feeds/${feedId}/advance`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ toStage: 'ACCEPTED' })
+      .expect(201);
+    expect(acceptedRes.body.stage).toBe('ACCEPTED');
+
+    const events = await request(app.getHttpServer())
+      .get(`/intelligence-feeding/feeds/${feedId}/events`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(events.body.length).toBeGreaterThanOrEqual(5);
+
+    // Audit evidence
+    const ingestAudit = await listAudit('INTELLIGENCE_FEED_INGESTED');
+    const advanceAudit = await listAudit('INTELLIGENCE_FEED_STAGE_ADVANCED');
+    expect(ingestAudit.length).toBeGreaterThan(0);
+    expect(advanceAudit.length).toBeGreaterThan(0);
+    expectUnifiedAuditShape(ingestAudit[0]);
+
+    // Workspace isolation
+    const otherToken = await registerAndLogin(`d11-isolation-${Date.now()}@onx.test`);
+    await request(app.getHttpServer())
+      .get(`/intelligence-feeding/feeds/${feedId}`)
+      .set('Authorization', `Bearer ${otherToken}`)
+      .expect(404);
+  });
+
+  it('D12 intelligence learning: states, reinforcement, capitalization, patterns, evolution', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer())
+        .post('/intelligence-learning/learnings')
+        .send({ title: 'Learning' })
+        .expect(401);
+      return;
+    }
+
+    const createRes = await request(app.getHttpServer())
+      .post('/intelligence-learning/learnings')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ title: 'E2E recurring signal', objectId: 'obj-e2e-1', confidence: 0.6 })
+      .expect(201);
+    const learningId = createRes.body.id as string;
+    expect(createRes.body.state).toBe('OBSERVED');
+
+    // Walk the learning states up to REUSABLE
+    for (const toState of ['UNDERSTOOD', 'VERIFIED', 'GENERALIZED', 'CONNECTED', 'REUSABLE']) {
+      await request(app.getHttpServer())
+        .post(`/intelligence-learning/learnings/${learningId}/transition`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ toState })
+        .expect(201);
+    }
+
+    // invalid transition
+    await request(app.getHttpServer())
+      .post(`/intelligence-learning/learnings/${learningId}/transition`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ toState: 'OBSERVED' })
+      .expect(400);
+
+    // Reinforce until capitalization conditions met (REUSABLE + confidence>=0.8 + reinforcement>=3)
+    let capitalizationTriggered = false;
+    for (let i = 0; i < 6; i++) {
+      const r = await request(app.getHttpServer())
+        .post(`/intelligence-learning/learnings/${learningId}/reinforce`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({})
+        .expect(201);
+      if (r.body.capitalization) {
+        capitalizationTriggered = true;
+      }
+    }
+    expect(capitalizationTriggered).toBe(true);
+
+    const capEvents = await request(app.getHttpServer())
+      .get(`/intelligence-learning/learnings/${learningId}/capitalization`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(capEvents.body.length).toBeGreaterThanOrEqual(1);
+
+    const learningEvents = await request(app.getHttpServer())
+      .get(`/intelligence-learning/learnings/${learningId}/events`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(learningEvents.body.length).toBeGreaterThanOrEqual(5);
+
+    // Pattern engine: register + discover
+    await request(app.getHttpServer())
+      .post('/intelligence-learning/patterns')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ patternType: 'SIMILARITY', label: 'Cluster A', strength: 0.7 })
+      .expect(201);
+
+    // create a second learning sharing the same object to enable repetition discovery
+    await request(app.getHttpServer())
+      .post('/intelligence-learning/learnings')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ title: 'E2E recurring signal 2', objectId: 'obj-e2e-1' })
+      .expect(201);
+
+    const discoverRes = await request(app.getHttpServer())
+      .post('/intelligence-learning/patterns/discover')
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(201);
+    expect(discoverRes.body.discovered).toBeGreaterThanOrEqual(1);
+
+    const patternList = await request(app.getHttpServer())
+      .get('/intelligence-learning/patterns')
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(patternList.body.items.length).toBeGreaterThanOrEqual(1);
+
+    // Knowledge evolution: superseding deprecates the unit
+    await request(app.getHttpServer())
+      .post(`/intelligence-learning/learnings/${learningId}/evolution`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ evolutionType: 'SUPERSEDING', reason: 'Replaced by improved model' })
+      .expect(201);
+
+    const evolutionList = await request(app.getHttpServer())
+      .get(`/intelligence-learning/learnings/${learningId}/evolution`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(evolutionList.body.length).toBeGreaterThanOrEqual(1);
+
+    const deprecated = await request(app.getHttpServer())
+      .get(`/intelligence-learning/learnings/${learningId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(deprecated.body.state).toBe('DEPRECATED');
+
+    // Audit evidence
+    const createdAudit = await listAudit('LEARNING_STATE_CREATED');
+    const capAudit = await listAudit('CAPITALIZATION_TRIGGERED');
+    const evolutionAudit = await listAudit('KNOWLEDGE_EVOLUTION_RECORDED');
+    expect(createdAudit.length).toBeGreaterThan(0);
+    expect(capAudit.length).toBeGreaterThan(0);
+    expect(evolutionAudit.length).toBeGreaterThan(0);
+    expectUnifiedAuditShape(createdAudit[0]);
+  });
+
+  it('exposes D11/D12 feeding and learning endpoints in the OpenAPI document', async () => {
+    const config = new DocumentBuilder()
+      .setTitle('ONX Intelligence API')
+      .setVersion('1.0.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, config);
+
+    // D11 feeding
+    expect(document.paths['/intelligence-feeding/sources']).toBeDefined();
+    expect(document.paths['/intelligence-feeding/sources'].post).toBeDefined();
+    expect(document.paths['/intelligence-feeding/feeds']).toBeDefined();
+    expect(document.paths['/intelligence-feeding/feeds/{id}/advance']).toBeDefined();
+    expect(document.paths['/intelligence-feeding/feeds/{id}/validate']).toBeDefined();
+    expect(document.paths['/intelligence-feeding/feeds/{id}/shadow']).toBeDefined();
+    expect(document.components?.schemas?.CreateSourceDto).toBeDefined();
+    expect(document.components?.schemas?.IngestFeedDto).toBeDefined();
+    expect(document.components?.schemas?.AdvanceFeedDto).toBeDefined();
+
+    // D12 learning
+    expect(document.paths['/intelligence-learning/learnings']).toBeDefined();
+    expect(document.paths['/intelligence-learning/learnings/{id}/transition']).toBeDefined();
+    expect(document.paths['/intelligence-learning/learnings/{id}/reinforce']).toBeDefined();
+    expect(document.paths['/intelligence-learning/learnings/{id}/capitalize']).toBeDefined();
+    expect(document.paths['/intelligence-learning/learnings/{id}/evolution']).toBeDefined();
+    expect(document.paths['/intelligence-learning/patterns']).toBeDefined();
+    expect(document.paths['/intelligence-learning/patterns/discover']).toBeDefined();
+    expect(document.components?.schemas?.CreateLearningDto).toBeDefined();
+    expect(document.components?.schemas?.LearningTransitionDto).toBeDefined();
+    expect(document.components?.schemas?.RegisterPatternDto).toBeDefined();
+  });
+
   it('evidence create/list returns created records correctly', async () => {
     if (!hasDatabase || !hasSchema) {
       await request(app.getHttpServer())

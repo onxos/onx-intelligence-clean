@@ -7,6 +7,8 @@ import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health/health.module';
 import { IntelligenceModule } from './intelligence/intelligence.module';
 import { IntelligenceObjectModule } from './intelligence-object/intelligence-object.module';
+import { IntelligenceFeedingModule } from './intelligence-feeding/intelligence-feeding.module';
+import { IntelligenceLearningModule } from './intelligence-learning/intelligence-learning.module';
 import { ProviderModule } from './provider/provider.module';
 import { ToolModule } from './tool/tool.module';
 import { SovereigntyModule } from './sovereignty/sovereignty.module';
@@ -29,6 +31,8 @@ import { FounderIntentModule } from './founder-intent/founder-intent.module';
     HealthModule,
     IntelligenceModule,
     IntelligenceObjectModule,
+    IntelligenceFeedingModule,
+    IntelligenceLearningModule,
     ProviderModule,
     ToolModule,
     SovereigntyModule,
