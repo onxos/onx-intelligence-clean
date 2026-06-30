@@ -17,6 +17,7 @@ import { WorkspaceModule } from './workspace/workspace.module';
 import { CommitModule } from './commit/commit.module';
 import { CapitalModule } from './capital/capital.module';
 import { FounderIntentModule } from './founder-intent/founder-intent.module';
+import { IntentCompilerModule } from './intent-compiler/intent-compiler.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { FounderIntentModule } from './founder-intent/founder-intent.module';
     WorkspaceModule,
     CapitalModule,
     FounderIntentModule,
+    IntentCompilerModule,
     CommitModule,
   ],
 })

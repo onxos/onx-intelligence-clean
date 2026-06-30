@@ -1381,6 +1381,158 @@ describe('ONX Intelligence (e2e)', () => {
     await request(app.getHttpServer()).get('/founder-intent/history').expect(401);
   });
 
+  it('FIC v0.2: founder intent compiler enforces jwt, lifecycle, versioning, review, override, conflicts, and OpenAPI', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).post('/founder-intent-compiler/intents').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+
+    // Create canonical intent (DRAFT).
+    const createRes = await auth(request(server).post('/founder-intent-compiler/intents'))
+      .send({
+        title: 'Sovereign capital allocation discipline',
+        description: 'All capital allocation must flow through governed FIC directives.',
+        rationale: 'Prevents ungoverned capital drift across workspaces.',
+        constitutionalAuthority: 'FOUNDER',
+        priority: 'HIGH',
+        affectedDomains: ['CAPITAL', 'GOVERNANCE'],
+      })
+      .expect(201);
+
+    const intentId = createRes.body.id;
+    expect(intentId).toBeDefined();
+    expect(createRes.body.lifecycle).toBe('DRAFT');
+    expect(createRes.body.version).toBe(1);
+
+    // Update -> new version.
+    const updateRes = await auth(
+      request(server).put(`/founder-intent-compiler/intents/${intentId}`),
+    )
+      .send({ description: 'Refined capital governance directive.', versionType: 'MINOR' })
+      .expect(200);
+    expect(updateRes.body.version).toBe(2);
+    expect(updateRes.body.minorVersion).toBe(1);
+
+    // List versions + compare.
+    const versionsRes = await auth(
+      request(server).get(`/founder-intent-compiler/intents/${intentId}/versions`),
+    ).expect(200);
+    expect(versionsRes.body.total).toBeGreaterThanOrEqual(2);
+
+    const compareRes = await auth(
+      request(server).get(
+        `/founder-intent-compiler/intents/${intentId}/versions/compare?from=1&to=2`,
+      ),
+    ).expect(200);
+    expect(compareRes.body.changedFields).toContain('description');
+
+    // Lifecycle: DRAFT -> SUBMITTED; invalid skip rejected.
+    await auth(request(server).post(`/founder-intent-compiler/intents/${intentId}/transition`))
+      .send({ to: 'ACTIVE' })
+      .expect(400);
+    await auth(request(server).post(`/founder-intent-compiler/intents/${intentId}/transition`))
+      .send({ to: 'SUBMITTED' })
+      .expect(201);
+
+    // Review -> advances to REVIEWED.
+    await auth(request(server).post(`/founder-intent-compiler/intents/${intentId}/reviews`))
+      .send({
+        decision: 'APPROVED',
+        constitutionalReferences: ['V1_CONSTITUTIONAL_SEAL'],
+        notes: 'Aligned with sovereignty constraints.',
+      })
+      .expect(201);
+
+    const reviewsRes = await auth(
+      request(server).get(`/founder-intent-compiler/intents/${intentId}/reviews`),
+    ).expect(200);
+    expect(reviewsRes.body.total).toBeGreaterThanOrEqual(1);
+
+    // Approve.
+    const approveRes = await auth(
+      request(server).post(`/founder-intent-compiler/intents/${intentId}/approve`),
+    )
+      .send({ notes: 'Approved under founder authority.' })
+      .expect(201);
+    expect(approveRes.body.lifecycle).toBe('APPROVED');
+
+    // Override (priority) -> immutable event.
+    const overrideRes = await auth(
+      request(server).post(`/founder-intent-compiler/intents/${intentId}/override`),
+    )
+      .send({ overrideType: 'PRIORITY', priority: 'CRITICAL', reason: 'Founder directive.' })
+      .expect(201);
+    expect(overrideRes.body.intent.priority).toBe('CRITICAL');
+    expect(overrideRes.body.override.id).toBeDefined();
+
+    const overridesRes = await auth(
+      request(server).get(`/founder-intent-compiler/intents/${intentId}/overrides`),
+    ).expect(200);
+    expect(overridesRes.body.total).toBeGreaterThanOrEqual(1);
+
+    // Second intent + relationship + conflict detection (duplicate).
+    const dupRes = await auth(request(server).post('/founder-intent-compiler/intents'))
+      .send({
+        title: 'Sovereign capital allocation discipline',
+        description: 'All capital allocation must flow through governed FIC directives.',
+        constitutionalAuthority: 'INSTITUTIONAL',
+        affectedDomains: ['CAPITAL'],
+      })
+      .expect(201);
+    const dupId = dupRes.body.id;
+
+    await auth(request(server).post(`/founder-intent-compiler/intents/${intentId}/relationships`))
+      .send({ targetIntentId: dupId, relationType: 'GOVERNS' })
+      .expect(201);
+
+    const graphRes = await auth(request(server).get('/founder-intent-compiler/graph')).expect(200);
+    expect(graphRes.body.nodes.length).toBeGreaterThanOrEqual(2);
+
+    const conflictRes = await auth(
+      request(server).post(`/founder-intent-compiler/intents/${dupId}/conflicts/detect`),
+    ).expect(201);
+    expect(conflictRes.body.autoResolution).toBe(false);
+    expect(conflictRes.body.report.some((c: any) => c.conflictType === 'DUPLICATE')).toBe(true);
+
+    const listConflictsRes = await auth(
+      request(server).get('/founder-intent-compiler/conflicts?status=OPEN'),
+    ).expect(200);
+    expect(listConflictsRes.body.total).toBeGreaterThanOrEqual(1);
+
+    // History timeline.
+    const historyRes = await auth(
+      request(server).get(`/founder-intent-compiler/intents/${intentId}/history`),
+    ).expect(200);
+    expect(historyRes.body.counts.versions).toBeGreaterThanOrEqual(2);
+    expect(historyRes.body.counts.overrides).toBeGreaterThanOrEqual(1);
+
+    // Workspace scope isolation.
+    const peerToken = await registerAndLogin(`e2e-fic-peer-${Date.now()}@onx.test`);
+    await request(server)
+      .get(`/founder-intent-compiler/intents/${intentId}`)
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(404);
+
+    // Audit trail.
+    const ficAudit = await listAudit('FOUNDER_INTENT_');
+    expect(ficAudit.some((item) => item.action === 'FOUNDER_INTENT_CREATED')).toBe(true);
+    expect(ficAudit.some((item) => item.action === 'FOUNDER_INTENT_OVERRIDDEN')).toBe(true);
+    expect(ficAudit.some((item) => item.action === 'FOUNDER_INTENT_APPROVED')).toBe(true);
+
+    // OpenAPI exposure.
+    const openApi = await request(server).get('/api/docs-json').expect(200);
+    expect(openApi.body.paths['/founder-intent-compiler/intents']).toBeDefined();
+    expect(openApi.body.paths['/founder-intent-compiler/intents/{id}/versions']).toBeDefined();
+    expect(openApi.body.paths['/founder-intent-compiler/intents/{id}/override']).toBeDefined();
+    expect(openApi.body.paths['/founder-intent-compiler/conflicts']).toBeDefined();
+    expect(openApi.body.paths['/founder-intent-compiler/graph']).toBeDefined();
+
+    await request(server).get('/founder-intent-compiler/intents').expect(401);
+  });
+
   it('reporting depth supports summaries, details, filtering, sorting, date range, and audit compatibility', async () => {
     if (!hasDatabase || !hasSchema) {
       await request(app.getHttpServer()).get('/reports').expect(401);

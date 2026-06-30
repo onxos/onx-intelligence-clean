@@ -8,25 +8,25 @@ datasource db {
 }
 
 model User {
-  id          String   @id @default(cuid())
-  email       String   @unique
+  id          String     @id @default(cuid())
+  email       String     @unique
   password    String
   name        String
   status      UserStatus @default(ACTIVE)
-  roleId      String   @map("role_id")
-  workspaceId String   @map("workspace_id")
-  tenantId    String   @map("tenant_id")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  roleId      String     @map("role_id")
+  workspaceId String     @map("workspace_id")
+  tenantId    String     @map("tenant_id")
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
 
-  sessions    Session[]
-  devices     Device[]
-  evidence    EvidenceRecord[]
+  sessions            Session[]
+  devices             Device[]
+  evidence            EvidenceRecord[]
   intelligenceObjects IntelligenceObject[]
   governanceDecisions GovernanceDecision[]
-  projects    Project[]
-  agents      Agent[]
-  memoryItems MemoryEntry[]
+  projects            Project[]
+  agents              Agent[]
+  memoryItems         MemoryEntry[]
 
   role      Role      @relation(fields: [roleId], references: [id])
   workspace Workspace @relation(fields: [workspaceId], references: [id])
@@ -36,8 +36,8 @@ model User {
 }
 
 model Role {
-  id          String @id @default(cuid())
-  name        String @unique
+  id          String   @id @default(cuid())
+  name        String   @unique
   description String?
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
@@ -61,15 +61,15 @@ model Permission {
 }
 
 model Workspace {
-  id          String @id @default(cuid())
+  id          String          @id @default(cuid())
   name        String
   description String?
   status      WorkspaceStatus @default(ACTIVE)
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
 
-  users       User[]
-  intelligenceObjects IntelligenceObject[]
+  users                      User[]
+  intelligenceObjects        IntelligenceObject[]
   intelObjectRelationships   IntelligenceObjectRelationship[]
   intelObjectProvenance      IntelligenceObjectProvenance[]
   intelObjectLifecycleEvents IntelligenceObjectLifecycleEvent[]
@@ -81,29 +81,35 @@ model Workspace {
   patterns                   Pattern[]
   knowledgeEvolutions        KnowledgeEvolution[]
   capitalizationEvents       CapitalizationEvent[]
-  evidence    EvidenceRecord[]
-  providers   ProviderProfile[]
-  tools       ToolProfile[]
-  governanceDecisions GovernanceDecision[]
-  capitalRecords CapitalRecord[]
-  capitalAllocations CapitalAllocation[]
-  allocationPolicies AllocationPolicy[]
-  allocationDecisions AllocationDecision[]
-  allocationApprovals AllocationApproval[]
-  allocationHistories AllocationHistory[]
-  projects Project[]
-  agents   Agent[]
-  memoryItems MemoryEntry[]
+  evidence                   EvidenceRecord[]
+  providers                  ProviderProfile[]
+  tools                      ToolProfile[]
+  governanceDecisions        GovernanceDecision[]
+  capitalRecords             CapitalRecord[]
+  capitalAllocations         CapitalAllocation[]
+  allocationPolicies         AllocationPolicy[]
+  allocationDecisions        AllocationDecision[]
+  allocationApprovals        AllocationApproval[]
+  allocationHistories        AllocationHistory[]
+  projects                   Project[]
+  agents                     Agent[]
+  memoryItems                MemoryEntry[]
+  founderIntents             FounderIntent[]
+  founderIntentVersions      FounderIntentVersion[]
+  founderIntentRelationships FounderIntentRelationship[]
+  founderIntentReviews       FounderIntentReview[]
+  founderIntentConflicts     FounderIntentConflict[]
+  founderOverrideEvents      FounderOverrideEvent[]
 
   @@map("workspaces")
 }
 
 model Tenant {
-  id        String   @id @default(cuid())
+  id        String       @id @default(cuid())
   name      String
   status    TenantStatus @default(ACTIVE)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
 
   users User[]
 
@@ -174,14 +180,14 @@ model MemoryEntry {
 }
 
 model Session {
-  id        String   @id @default(cuid())
-  token     String   @unique
-  userId    String   @map("user_id")
-  ipAddress String?  @map("ip_address")
-  userAgent String?  @map("user_agent")
+  id        String    @id @default(cuid())
+  token     String    @unique
+  userId    String    @map("user_id")
+  ipAddress String?   @map("ip_address")
+  userAgent String?   @map("user_agent")
   revokedAt DateTime? @map("revoked_at")
-  expiresAt DateTime @map("expires_at")
-  createdAt DateTime @default(now()) @map("created_at")
+  expiresAt DateTime  @map("expires_at")
+  createdAt DateTime  @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -189,11 +195,11 @@ model Session {
 }
 
 model Device {
-  id       String @id @default(cuid())
-  name     String
-  userId   String @map("user_id")
-  lastSeen DateTime? @map("last_seen")
-  createdAt DateTime @default(now()) @map("created_at")
+  id        String    @id @default(cuid())
+  name      String
+  userId    String    @map("user_id")
+  lastSeen  DateTime? @map("last_seen")
+  createdAt DateTime  @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -201,44 +207,44 @@ model Device {
 }
 
 model IntelligenceObject {
-  id              String            @id @default(cuid())
-  objectId        String            @unique @default(cuid()) @map("object_id")
+  id              String                     @id @default(cuid())
+  objectId        String                     @unique @default(cuid()) @map("object_id")
   name            String
   content         String
-  contentHash     String            @map("content_hash")
-  semanticSummary String?           @map("semantic_summary")
-  objectType      IntelligenceObjectType @map("object_type")
-  layer           String            @default("L1_FOUNDATIONAL")
-  originSource    String            @default("L2_SIL") @map("origin_source")
-  creatorIdentity String            @default("system") @map("creator_identity")
-  ownershipClass  OwnershipClass    @default(INSTITUTIONAL) @map("ownership_class")
-  amanahScore     Float             @default(0.5) @map("amanah_score")
-  confidenceScore Float             @default(0.5) @map("confidence_score")
-  trustScore      Float             @default(0.5) @map("trust_score")
-  qualityIndex    Float             @default(0.5) @map("quality_index")
-  state           ObjectState       @default(ACTIVE)
-  shadowStatus    ShadowStatus      @default(INTERNAL) @map("shadow_status")
-  sourceLayer     String            @default("L1_FOUNDATIONAL") @map("source_layer")
-  privacyLevel    PrivacyLevel      @default(INSTITUTIONAL) @map("privacy_level")
-  ficValidated    Boolean           @default(false) @map("fic_validated")
-  constraintBasis String?           @map("constraint_basis")
-  capitalCategory CapitalCategory?  @map("capital_category")
-  capitalValue    Float             @default(0) @map("capital_value")
+  contentHash     String                     @map("content_hash")
+  semanticSummary String?                    @map("semantic_summary")
+  objectType      IntelligenceObjectType     @map("object_type")
+  layer           String                     @default("L1_FOUNDATIONAL")
+  originSource    String                     @default("L2_SIL") @map("origin_source")
+  creatorIdentity String                     @default("system") @map("creator_identity")
+  ownershipClass  OwnershipClass             @default(INSTITUTIONAL) @map("ownership_class")
+  amanahScore     Float                      @default(0.5) @map("amanah_score")
+  confidenceScore Float                      @default(0.5) @map("confidence_score")
+  trustScore      Float                      @default(0.5) @map("trust_score")
+  qualityIndex    Float                      @default(0.5) @map("quality_index")
+  state           ObjectState                @default(ACTIVE)
+  shadowStatus    ShadowStatus               @default(INTERNAL) @map("shadow_status")
+  sourceLayer     String                     @default("L1_FOUNDATIONAL") @map("source_layer")
+  privacyLevel    PrivacyLevel               @default(INSTITUTIONAL) @map("privacy_level")
+  ficValidated    Boolean                    @default(false) @map("fic_validated")
+  constraintBasis String?                    @map("constraint_basis")
+  capitalCategory CapitalCategory?           @map("capital_category")
+  capitalValue    Float                      @default(0) @map("capital_value")
   lifecycleState  IntelligenceLifecycleState @default(DRAFT) @map("lifecycle_state")
-  authorityLevel  AuthorityLevel    @default(OPERATIONAL) @map("authority_level")
-  ownerId         String            @map("owner_id")
-  creatorId       String            @map("creator_id")
-  workspaceId     String            @map("workspace_id")
-  createdAt       DateTime          @default(now()) @map("created_at")
-  updatedAt       DateTime          @updatedAt @map("updated_at")
-  deletedAt       DateTime?         @map("deleted_at")
+  authorityLevel  AuthorityLevel             @default(OPERATIONAL) @map("authority_level")
+  ownerId         String                     @map("owner_id")
+  creatorId       String                     @map("creator_id")
+  workspaceId     String                     @map("workspace_id")
+  createdAt       DateTime                   @default(now()) @map("created_at")
+  updatedAt       DateTime                   @updatedAt @map("updated_at")
+  deletedAt       DateTime?                  @map("deleted_at")
 
-  owner         User   @relation(fields: [ownerId], references: [id])
-  workspace     Workspace @relation(fields: [workspaceId], references: [id])
-  evidence      EvidenceRecord[]
-  provenance    ProvenanceRecord[]
-  relationshipsFrom    IntelligenceObjectRelationship[] @relation("RelationshipSource")
-  relationshipsTo      IntelligenceObjectRelationship[] @relation("RelationshipTarget")
+  owner                User                               @relation(fields: [ownerId], references: [id])
+  workspace            Workspace                          @relation(fields: [workspaceId], references: [id])
+  evidence             EvidenceRecord[]
+  provenance           ProvenanceRecord[]
+  relationshipsFrom    IntelligenceObjectRelationship[]   @relation("RelationshipSource")
+  relationshipsTo      IntelligenceObjectRelationship[]   @relation("RelationshipTarget")
   provenanceDimensions IntelligenceObjectProvenance[]
   lifecycleEvents      IntelligenceObjectLifecycleEvent[]
 
@@ -247,16 +253,16 @@ model IntelligenceObject {
 }
 
 model IntelligenceObjectRelationship {
-  id               String   @id @default(cuid())
-  sourceObjectId   String   @map("source_object_id")
-  targetObjectId   String   @map("target_object_id")
+  id               String                       @id @default(cuid())
+  sourceObjectId   String                       @map("source_object_id")
+  targetObjectId   String                       @map("target_object_id")
   relationshipType IntelligenceRelationshipType @map("relationship_type")
-  workspaceId      String   @map("workspace_id")
-  createdById      String   @map("created_by_id")
-  metadata         Json?    @default("{}")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
-  deletedAt        DateTime? @map("deleted_at")
+  workspaceId      String                       @map("workspace_id")
+  createdById      String                       @map("created_by_id")
+  metadata         Json?                        @default("{}")
+  createdAt        DateTime                     @default(now()) @map("created_at")
+  updatedAt        DateTime                     @updatedAt @map("updated_at")
+  deletedAt        DateTime?                    @map("deleted_at")
 
   sourceObject IntelligenceObject @relation("RelationshipSource", fields: [sourceObjectId], references: [id])
   targetObject IntelligenceObject @relation("RelationshipTarget", fields: [targetObjectId], references: [id])
@@ -269,20 +275,20 @@ model IntelligenceObjectRelationship {
 }
 
 model IntelligenceObjectProvenance {
-  id                 String   @id @default(cuid())
-  objectId           String   @map("object_id")
-  sourceIdentity     String   @map("source_identity")
+  id                 String                       @id @default(cuid())
+  objectId           String                       @map("object_id")
+  sourceIdentity     String                       @map("source_identity")
   origin             String
   creator            String
-  extractionMethod   String   @map("extraction_method")
+  extractionMethod   String                       @map("extraction_method")
   verificationStatus ProvenanceVerificationStatus @default(UNVERIFIED) @map("verification_status")
-  confidence         Float    @default(0.5)
-  authorityLevel     AuthorityLevel @default(OPERATIONAL) @map("authority_level")
-  recordedAt         DateTime @default(now()) @map("recorded_at")
-  workspaceId        String   @map("workspace_id")
-  createdById        String   @map("created_by_id")
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
+  confidence         Float                        @default(0.5)
+  authorityLevel     AuthorityLevel               @default(OPERATIONAL) @map("authority_level")
+  recordedAt         DateTime                     @default(now()) @map("recorded_at")
+  workspaceId        String                       @map("workspace_id")
+  createdById        String                       @map("created_by_id")
+  createdAt          DateTime                     @default(now()) @map("created_at")
+  updatedAt          DateTime                     @updatedAt @map("updated_at")
 
   object    IntelligenceObject @relation(fields: [objectId], references: [id])
   workspace Workspace          @relation(fields: [workspaceId], references: [id])
@@ -293,15 +299,15 @@ model IntelligenceObjectProvenance {
 }
 
 model IntelligenceObjectLifecycleEvent {
-  id          String   @id @default(cuid())
-  objectId    String   @map("object_id")
+  id          String                      @id @default(cuid())
+  objectId    String                      @map("object_id")
   fromState   IntelligenceLifecycleState? @map("from_state")
   toState     IntelligenceLifecycleState  @map("to_state")
-  actorId     String   @map("actor_id")
-  workspaceId String   @map("workspace_id")
+  actorId     String                      @map("actor_id")
+  workspaceId String                      @map("workspace_id")
   reason      String?
-  metadata    Json?    @default("{}")
-  createdAt   DateTime @default(now()) @map("created_at")
+  metadata    Json?                       @default("{}")
+  createdAt   DateTime                    @default(now()) @map("created_at")
 
   object    IntelligenceObject @relation(fields: [objectId], references: [id])
   workspace Workspace          @relation(fields: [workspaceId], references: [id])
@@ -342,27 +348,27 @@ model IntelligenceSource {
 }
 
 model IntelligenceFeed {
-  id               String        @id @default(cuid())
-  feedId           String        @unique @default(cuid()) @map("feed_id")
-  sourceId         String        @map("source_id")
-  payload          String
-  contentHash      String        @map("content_hash")
-  stage            FeedStage     @default(RECEIVED)
-  shadowMode       FeedShadowMode @default(ACTIVE) @map("shadow_mode")
-  classification   String?
-  linkedObjectId   String?       @map("linked_object_id")
-  trustScore       Float         @default(0.5) @map("trust_score")
-  confidenceScore  Float         @default(0.5) @map("confidence_score")
-  provenanceScore  Float         @default(0.5) @map("provenance_score")
-  verificationScore Float        @default(0.5) @map("verification_score")
-  validationResult Json?         @map("validation_result")
-  rejectionReason  String?       @map("rejection_reason")
-  metadata         Json?         @default("{}")
-  workspaceId      String        @map("workspace_id")
-  createdById      String        @map("created_by_id")
-  createdAt        DateTime      @default(now()) @map("created_at")
-  updatedAt        DateTime      @updatedAt @map("updated_at")
-  deletedAt        DateTime?     @map("deleted_at")
+  id                String         @id @default(cuid())
+  feedId            String         @unique @default(cuid()) @map("feed_id")
+  sourceId          String         @map("source_id")
+  payload           String
+  contentHash       String         @map("content_hash")
+  stage             FeedStage      @default(RECEIVED)
+  shadowMode        FeedShadowMode @default(ACTIVE) @map("shadow_mode")
+  classification    String?
+  linkedObjectId    String?        @map("linked_object_id")
+  trustScore        Float          @default(0.5) @map("trust_score")
+  confidenceScore   Float          @default(0.5) @map("confidence_score")
+  provenanceScore   Float          @default(0.5) @map("provenance_score")
+  verificationScore Float          @default(0.5) @map("verification_score")
+  validationResult  Json?          @map("validation_result")
+  rejectionReason   String?        @map("rejection_reason")
+  metadata          Json?          @default("{}")
+  workspaceId       String         @map("workspace_id")
+  createdById       String         @map("created_by_id")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+  deletedAt         DateTime?      @map("deleted_at")
 
   source         IntelligenceSource  @relation(fields: [sourceId], references: [id])
   workspace      Workspace           @relation(fields: [workspaceId], references: [id])
@@ -489,18 +495,18 @@ model KnowledgeEvolution {
 }
 
 model CapitalizationEvent {
-  id              String                @id @default(cuid())
-  learningId      String                @map("learning_id")
-  objectId        String?               @map("object_id")
-  triggerReason   String                @map("trigger_reason")
-  capitalValue    Float                 @default(0) @map("capital_value")
-  capitalCategory CapitalCategory?      @map("capital_category")
-  status          CapitalizationStatus  @default(TRIGGERED)
-  metadata        Json?                 @default("{}")
-  actorId         String                @map("actor_id")
-  workspaceId     String                @map("workspace_id")
-  createdById     String                @map("created_by_id")
-  createdAt       DateTime              @default(now()) @map("created_at")
+  id              String               @id @default(cuid())
+  learningId      String               @map("learning_id")
+  objectId        String?              @map("object_id")
+  triggerReason   String               @map("trigger_reason")
+  capitalValue    Float                @default(0) @map("capital_value")
+  capitalCategory CapitalCategory?     @map("capital_category")
+  status          CapitalizationStatus @default(TRIGGERED)
+  metadata        Json?                @default("{}")
+  actorId         String               @map("actor_id")
+  workspaceId     String               @map("workspace_id")
+  createdById     String               @map("created_by_id")
+  createdAt       DateTime             @default(now()) @map("created_at")
 
   learning  LearningState @relation(fields: [learningId], references: [id])
   workspace Workspace     @relation(fields: [workspaceId], references: [id])
@@ -511,48 +517,48 @@ model CapitalizationEvent {
 }
 
 model ProviderProfile {
-  id             String @id @default(cuid())
-  providerId     String @unique @map("provider_id")
-  providerName   String @map("provider_name")
-  status         ProviderStatus @default(ACTIVE)
-  priority       Int    @default(1)
-  domainFitness       Float @default(0) @map("domain_fitness")
-  riskFitness         Float @default(0) @map("risk_fitness")
-  historicalPerformance Float @default(0) @map("historical_performance")
-  evidenceQuality     Float @default(0) @map("evidence_quality")
-  judgmentQuality     Float @default(0) @map("judgment_quality")
-  hallucinationResistance Float @default(0) @map("hallucination_resistance")
-  governanceCompliance Float @default(0) @map("governance_compliance")
-  costEfficiency      Float @default(0) @map("cost_efficiency")
-  latency             Float @default(0)
-  reliability         Float @default(0)
-  outcomeSuccess      Float @default(0) @map("outcome_success")
-  ownershipCompatibility Float @default(0) @map("ownership_compatibility")
-  iseScore            Float @default(0) @map("ise_score")
-  totalCapital        Float @default(0) @map("total_capital")
-  models              String[]
-  costPer1kTokens     Float @default(0) @map("cost_per_1k_tokens")
-  latencyMs           Int    @default(0) @map("latency_ms")
-  successRate         Float  @default(0) @map("success_rate")
-  workspaceId         String @map("workspace_id")
-  createdAt           DateTime @default(now()) @map("created_at")
-  updatedAt           DateTime @updatedAt @map("updated_at")
+  id                      String         @id @default(cuid())
+  providerId              String         @unique @map("provider_id")
+  providerName            String         @map("provider_name")
+  status                  ProviderStatus @default(ACTIVE)
+  priority                Int            @default(1)
+  domainFitness           Float          @default(0) @map("domain_fitness")
+  riskFitness             Float          @default(0) @map("risk_fitness")
+  historicalPerformance   Float          @default(0) @map("historical_performance")
+  evidenceQuality         Float          @default(0) @map("evidence_quality")
+  judgmentQuality         Float          @default(0) @map("judgment_quality")
+  hallucinationResistance Float          @default(0) @map("hallucination_resistance")
+  governanceCompliance    Float          @default(0) @map("governance_compliance")
+  costEfficiency          Float          @default(0) @map("cost_efficiency")
+  latency                 Float          @default(0)
+  reliability             Float          @default(0)
+  outcomeSuccess          Float          @default(0) @map("outcome_success")
+  ownershipCompatibility  Float          @default(0) @map("ownership_compatibility")
+  iseScore                Float          @default(0) @map("ise_score")
+  totalCapital            Float          @default(0) @map("total_capital")
+  models                  String[]
+  costPer1kTokens         Float          @default(0) @map("cost_per_1k_tokens")
+  latencyMs               Int            @default(0) @map("latency_ms")
+  successRate             Float          @default(0) @map("success_rate")
+  workspaceId             String         @map("workspace_id")
+  createdAt               DateTime       @default(now()) @map("created_at")
+  updatedAt               DateTime       @updatedAt @map("updated_at")
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  workspace   Workspace            @relation(fields: [workspaceId], references: [id])
   evaluations ProviderEvaluation[]
 
   @@map("provider_profiles")
 }
 
 model ProviderEvaluation {
-  id        String   @id @default(cuid())
-  providerId String  @map("provider_id")
-  iseScore  Float   @map("ise_score")
-  dimensions Json   @default("{}")
-  intent    String
-  context   String?
-  createdAt DateTime @default(now()) @map("created_at")
-  deletedAt DateTime? @map("deleted_at")
+  id         String    @id @default(cuid())
+  providerId String    @map("provider_id")
+  iseScore   Float     @map("ise_score")
+  dimensions Json      @default("{}")
+  intent     String
+  context    String?
+  createdAt  DateTime  @default(now()) @map("created_at")
+  deletedAt  DateTime? @map("deleted_at")
 
   provider ProviderProfile @relation(fields: [providerId], references: [id])
 
@@ -560,17 +566,17 @@ model ProviderEvaluation {
 }
 
 model ToolProfile {
-  id        String @id @default(cuid())
-  toolId    String @unique @map("tool_id")
-  toolName  String @map("tool_name")
-  category  ToolCategory
-  status    ToolStatus @default(ACTIVE)
+  id           String       @id @default(cuid())
+  toolId       String       @unique @map("tool_id")
+  toolName     String       @map("tool_name")
+  category     ToolCategory
+  status       ToolStatus   @default(ACTIVE)
   capabilities String[]
-  costPerCall Float @default(0) @map("cost_per_call")
-  totalCapital Float @default(0) @map("total_capital")
-  workspaceId String @map("workspace_id")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  costPerCall  Float        @default(0) @map("cost_per_call")
+  totalCapital Float        @default(0) @map("total_capital")
+  workspaceId  String       @map("workspace_id")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
 
   workspace Workspace @relation(fields: [workspaceId], references: [id])
 
@@ -578,60 +584,60 @@ model ToolProfile {
 }
 
 model EvidenceRecord {
-  id        String   @id @default(cuid())
-  evidenceId String  @unique @default(cuid()) @map("evidence_id")
-  intent    String
-  intelligenceObjectId String? @map("intelligence_object_id")
-  ownerId   String   @map("owner_id")
-  workspaceId String @map("workspace_id")
-  confidence Float  @default(0)
-  cost      Float   @default(0)
-  latencyMs Int     @default(0) @map("latency_ms")
-  evidenceQuality Float @default(0) @map("evidence_quality")
-  capitalCreated Float @default(0) @map("capital_created")
-  providerCandidates String[] @default([]) @map("provider_candidates")
-  providerSelected String? @map("provider_selected")
-  toolCandidates String[] @default([]) @map("tool_candidates")
-  toolSelected String? @map("tool_selected")
-  judgment  String?
-  outcome   String?
-  learning  String?
-  createdAt DateTime @default(now()) @map("created_at")
-  deletedAt DateTime? @map("deleted_at")
+  id                   String    @id @default(cuid())
+  evidenceId           String    @unique @default(cuid()) @map("evidence_id")
+  intent               String
+  intelligenceObjectId String?   @map("intelligence_object_id")
+  ownerId              String    @map("owner_id")
+  workspaceId          String    @map("workspace_id")
+  confidence           Float     @default(0)
+  cost                 Float     @default(0)
+  latencyMs            Int       @default(0) @map("latency_ms")
+  evidenceQuality      Float     @default(0) @map("evidence_quality")
+  capitalCreated       Float     @default(0) @map("capital_created")
+  providerCandidates   String[]  @default([]) @map("provider_candidates")
+  providerSelected     String?   @map("provider_selected")
+  toolCandidates       String[]  @default([]) @map("tool_candidates")
+  toolSelected         String?   @map("tool_selected")
+  judgment             String?
+  outcome              String?
+  learning             String?
+  createdAt            DateTime  @default(now()) @map("created_at")
+  deletedAt            DateTime? @map("deleted_at")
 
-  owner     User @relation(fields: [ownerId], references: [id])
-  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  owner              User                @relation(fields: [ownerId], references: [id])
+  workspace          Workspace           @relation(fields: [workspaceId], references: [id])
   intelligenceObject IntelligenceObject? @relation(fields: [intelligenceObjectId], references: [id])
 
   @@map("evidence_records")
 }
 
 model GovernanceDecision {
-  id           String @id @default(cuid())
-  decisionType String @map("decision_type")
-  outcome      String @default("UNDEFINED")
-  amanahScore  Float @map("amanah_score")
-  confidence   Float @default(0.5)
-  ficValidated Boolean @default(false) @map("fic_validated")
-  actorId      String @map("actor_id")
-  workspaceId  String @map("workspace_id")
+  id           String   @id @default(cuid())
+  decisionType String   @map("decision_type")
+  outcome      String   @default("UNDEFINED")
+  amanahScore  Float    @map("amanah_score")
+  confidence   Float    @default(0.5)
+  ficValidated Boolean  @default(false) @map("fic_validated")
+  actorId      String   @map("actor_id")
+  workspaceId  String   @map("workspace_id")
   createdAt    DateTime @default(now()) @map("created_at")
 
-  actor     User @relation(fields: [actorId], references: [id])
+  actor     User      @relation(fields: [actorId], references: [id])
   workspace Workspace @relation(fields: [workspaceId], references: [id])
 
   @@map("governance_decisions")
 }
 
 model CapitalRecord {
-  id        String @id @default(cuid())
-  type      String
-  amount    Float
-  category  CapitalCategory
-  workspaceId String @map("workspace_id")
-  ownerId   String @map("owner_id")
-  sourceObjectId String? @map("source_object_id")
-  createdAt DateTime @default(now()) @map("created_at")
+  id             String          @id @default(cuid())
+  type           String
+  amount         Float
+  category       CapitalCategory
+  workspaceId    String          @map("workspace_id")
+  ownerId        String          @map("owner_id")
+  sourceObjectId String?         @map("source_object_id")
+  createdAt      DateTime        @default(now()) @map("created_at")
 
   workspace Workspace @relation(fields: [workspaceId], references: [id])
 
@@ -660,8 +666,8 @@ model CapitalAllocation {
   updatedAt      DateTime                 @updatedAt @map("updated_at")
   deletedAt      DateTime?                @map("deleted_at")
 
-  workspace Workspace         @relation(fields: [workspaceId], references: [id])
-  policy    AllocationPolicy? @relation(fields: [policyId], references: [id])
+  workspace Workspace            @relation(fields: [workspaceId], references: [id])
+  policy    AllocationPolicy?    @relation(fields: [policyId], references: [id])
   decisions AllocationDecision[]
   approvals AllocationApproval[]
   history   AllocationHistory[]
@@ -672,21 +678,21 @@ model CapitalAllocation {
 }
 
 model AllocationPolicy {
-  id         String       @id @default(cuid())
-  workspaceId String      @map("workspace_id")
-  ownerId    String       @map("owner_id")
-  name       String
+  id          String          @id @default(cuid())
+  workspaceId String          @map("workspace_id")
+  ownerId     String          @map("owner_id")
+  name        String
   description String?
-  category   CapitalCategory
-  currency   String       @default("USD")
-  source     String?
-  target     String?
-  status     PolicyStatus @default(ACTIVE)
-  priority   Int          @default(3)
-  rationale  String?
-  createdAt  DateTime     @default(now()) @map("created_at")
-  updatedAt  DateTime     @updatedAt @map("updated_at")
-  deletedAt  DateTime?    @map("deleted_at")
+  category    CapitalCategory
+  currency    String          @default("USD")
+  source      String?
+  target      String?
+  status      PolicyStatus    @default(ACTIVE)
+  priority    Int             @default(3)
+  rationale   String?
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+  deletedAt   DateTime?       @map("deleted_at")
 
   workspace   Workspace           @relation(fields: [workspaceId], references: [id])
   allocations CapitalAllocation[]
@@ -765,16 +771,16 @@ model AllocationHistory {
 }
 
 model ProvenanceRecord {
-  id        String @id @default(cuid())
-  action    String
-  resource  String
-  resourceId String? @map("resource_id")
-  actorId   String @map("actor_id")
-  workspaceId String? @map("workspace_id")
-  oldValue  String? @map("old_value")
-  newValue  String? @map("new_value")
-  createdAt DateTime @default(now()) @map("created_at")
-  deletedAt DateTime? @map("deleted_at")
+  id          String    @id @default(cuid())
+  action      String
+  resource    String
+  resourceId  String?   @map("resource_id")
+  actorId     String    @map("actor_id")
+  workspaceId String?   @map("workspace_id")
+  oldValue    String?   @map("old_value")
+  newValue    String?   @map("new_value")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  deletedAt   DateTime? @map("deleted_at")
 
   intelligenceObject IntelligenceObject? @relation(fields: [resourceId], references: [id])
 
@@ -782,28 +788,28 @@ model ProvenanceRecord {
 }
 
 model FrontierAsset {
-  id          String @id @default(cuid())
-  assetId     String @unique @map("asset_id")
-  name        String
-  assetClass  String @map("asset_class")
-  status      AssetStatus @default(CATALOGED)
-  priorityScore Float @default(0) @map("priority_score")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id            String      @id @default(cuid())
+  assetId       String      @unique @map("asset_id")
+  name          String
+  assetClass    String      @map("asset_class")
+  status        AssetStatus @default(CATALOGED)
+  priorityScore Float       @default(0) @map("priority_score")
+  createdAt     DateTime    @default(now()) @map("created_at")
 
   @@map("frontier_assets")
 }
 
 model SovereigntyMetric {
-  id          String @id @default(cuid())
-  metricType  String @map("metric_type")
-  value       Float
-  ksr         Float?
-  pdr         Float?
-  krr         Float?
-  kor         Float?
-  scg         Float?
-  sai         Float?
-  createdAt   DateTime @default(now()) @map("created_at")
+  id         String   @id @default(cuid())
+  metricType String   @map("metric_type")
+  value      Float
+  ksr        Float?
+  pdr        Float?
+  krr        Float?
+  kor        Float?
+  scg        Float?
+  sai        Float?
+  createdAt  DateTime @default(now()) @map("created_at")
 
   @@map("sovereignty_metrics")
 }
@@ -1083,4 +1089,245 @@ enum AssetStatus {
   OPERATIONAL
   RESEARCH
   DEPRECATED
+}
+
+// ===========================================================================
+// FIC v0.2 — Founder Intent Compiler (IW-06)
+// Additive constitutional governance models. Build-only on D11/D12/D16.
+// ===========================================================================
+
+enum FounderIntentLifecycle {
+  DRAFT
+  SUBMITTED
+  REVIEWED
+  APPROVED
+  ACTIVE
+  SUPERSEDED
+  DEPRECATED
+  ARCHIVED
+}
+
+enum FounderIntentPriority {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum FounderIntentVersionType {
+  MAJOR
+  MINOR
+  REVISION
+}
+
+enum FounderIntentRelationType {
+  DEPENDS_ON
+  BLOCKS
+  SUPPORTS
+  REFINES
+  REPLACES
+  INHERITS
+  IMPLEMENTS
+  GOVERNS
+}
+
+enum FounderIntentConflictType {
+  DUPLICATE
+  CONTRADICTION
+  SUPERSEDED
+  CIRCULAR_DEPENDENCY
+  PRIORITY_CONFLICT
+  AUTHORITY_CONFLICT
+}
+
+enum FounderIntentConflictSeverity {
+  INFO
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum FounderIntentConflictStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+  DISMISSED
+}
+
+enum FounderIntentReviewDecision {
+  PENDING
+  APPROVED
+  REJECTED
+  CHANGES_REQUESTED
+}
+
+enum FounderOverrideType {
+  PRIORITY
+  OWNERSHIP
+  DEPENDENCY
+  STATUS
+  CONSTITUTIONAL_ROUTING
+}
+
+model FounderIntent {
+  id                      String                 @id @default(cuid())
+  intentId                String                 @unique @default(cuid()) @map("intent_id")
+  title                   String
+  description             String
+  rationale               String?
+  constitutionalAuthority String                 @map("constitutional_authority")
+  priority                FounderIntentPriority  @default(MEDIUM)
+  ownerId                 String                 @map("owner_id")
+  dependencies            String[]               @default([])
+  affectedDomains         String[]               @default([]) @map("affected_domains")
+  lifecycle               FounderIntentLifecycle @default(DRAFT)
+  status                  String                 @default("DRAFT")
+  version                 Int                    @default(1)
+  majorVersion            Int                    @default(1) @map("major_version")
+  minorVersion            Int                    @default(0) @map("minor_version")
+  revisionVersion         Int                    @default(0) @map("revision_version")
+  parentIntentId          String?                @map("parent_intent_id")
+  supersededById          String?                @map("superseded_by_id")
+  contentHash             String                 @map("content_hash")
+  metadata                Json?                  @default("{}")
+  workspaceId             String                 @map("workspace_id")
+  createdById             String                 @map("created_by_id")
+  createdAt               DateTime               @default(now()) @map("created_at")
+  updatedAt               DateTime               @updatedAt @map("updated_at")
+  deletedAt               DateTime?              @map("deleted_at")
+
+  workspace            Workspace                   @relation(fields: [workspaceId], references: [id])
+  parentIntent         FounderIntent?              @relation("FounderIntentParent", fields: [parentIntentId], references: [id])
+  childIntents         FounderIntent[]             @relation("FounderIntentParent")
+  supersededBy         FounderIntent?              @relation("FounderIntentSupersede", fields: [supersededById], references: [id])
+  supersedes           FounderIntent[]             @relation("FounderIntentSupersede")
+  versions             FounderIntentVersion[]
+  relationshipsFrom    FounderIntentRelationship[] @relation("FounderIntentRelationSource")
+  relationshipsTo      FounderIntentRelationship[] @relation("FounderIntentRelationTarget")
+  reviews              FounderIntentReview[]
+  conflicts            FounderIntentConflict[]     @relation("FounderIntentConflictPrimary")
+  counterpartConflicts FounderIntentConflict[]     @relation("FounderIntentConflictCounterpart")
+  overrideEvents       FounderOverrideEvent[]
+
+  @@index([workspaceId, deletedAt, lifecycle])
+  @@index([workspaceId, createdAt])
+  @@index([parentIntentId])
+  @@map("founder_intents")
+}
+
+model FounderIntentVersion {
+  id            String                   @id @default(cuid())
+  intentId      String                   @map("intent_id")
+  versionNumber Int                      @map("version_number")
+  versionType   FounderIntentVersionType @map("version_type")
+  majorVersion  Int                      @map("major_version")
+  minorVersion  Int                      @map("minor_version")
+  revision      Int
+  title         String
+  description   String
+  rationale     String?
+  snapshot      Json
+  diff          Json?
+  changeSummary String?                  @map("change_summary")
+  isActive      Boolean                  @default(false) @map("is_active")
+  authorId      String                   @map("author_id")
+  workspaceId   String                   @map("workspace_id")
+  createdAt     DateTime                 @default(now()) @map("created_at")
+
+  intent    FounderIntent @relation(fields: [intentId], references: [id])
+  workspace Workspace     @relation(fields: [workspaceId], references: [id])
+
+  @@unique([intentId, versionNumber])
+  @@index([intentId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@map("founder_intent_versions")
+}
+
+model FounderIntentRelationship {
+  id             String                    @id @default(cuid())
+  sourceIntentId String                    @map("source_intent_id")
+  targetIntentId String                    @map("target_intent_id")
+  relationType   FounderIntentRelationType @map("relation_type")
+  notes          String?
+  metadata       Json?                     @default("{}")
+  workspaceId    String                    @map("workspace_id")
+  createdById    String                    @map("created_by_id")
+  createdAt      DateTime                  @default(now()) @map("created_at")
+  deletedAt      DateTime?                 @map("deleted_at")
+
+  sourceIntent FounderIntent @relation("FounderIntentRelationSource", fields: [sourceIntentId], references: [id])
+  targetIntent FounderIntent @relation("FounderIntentRelationTarget", fields: [targetIntentId], references: [id])
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id])
+
+  @@unique([sourceIntentId, targetIntentId, relationType], map: "founder_intent_relationships_src_tgt_type_key")
+  @@index([workspaceId, createdAt])
+  @@index([sourceIntentId])
+  @@index([targetIntentId])
+  @@map("founder_intent_relationships")
+}
+
+model FounderIntentReview {
+  id                       String                      @id @default(cuid())
+  intentId                 String                      @map("intent_id")
+  reviewerId               String                      @map("reviewer_id")
+  reviewDate               DateTime                    @default(now()) @map("review_date")
+  constitutionalReferences String[]                    @default([]) @map("constitutional_references")
+  decision                 FounderIntentReviewDecision @default(PENDING)
+  notes                    String?
+  metadata                 Json?                       @default("{}")
+  workspaceId              String                      @map("workspace_id")
+  createdAt                DateTime                    @default(now()) @map("created_at")
+
+  intent    FounderIntent @relation(fields: [intentId], references: [id])
+  workspace Workspace     @relation(fields: [workspaceId], references: [id])
+
+  @@index([intentId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@map("founder_intent_reviews")
+}
+
+model FounderIntentConflict {
+  id                    String                        @id @default(cuid())
+  intentId              String                        @map("intent_id")
+  counterpartIntentId   String?                       @map("counterpart_intent_id")
+  conflictType          FounderIntentConflictType     @map("conflict_type")
+  severity              FounderIntentConflictSeverity @default(MEDIUM)
+  status                FounderIntentConflictStatus   @default(OPEN)
+  description           String
+  recommendedResolution String                        @map("recommended_resolution")
+  metadata              Json?                         @default("{}")
+  workspaceId           String                        @map("workspace_id")
+  detectedById          String                        @map("detected_by_id")
+  resolvedById          String?                       @map("resolved_by_id")
+  resolvedAt            DateTime?                     @map("resolved_at")
+  createdAt             DateTime                      @default(now()) @map("created_at")
+  updatedAt             DateTime                      @updatedAt @map("updated_at")
+
+  intent            FounderIntent  @relation("FounderIntentConflictPrimary", fields: [intentId], references: [id])
+  counterpartIntent FounderIntent? @relation("FounderIntentConflictCounterpart", fields: [counterpartIntentId], references: [id])
+  workspace         Workspace      @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, status, severity])
+  @@index([intentId, createdAt])
+  @@map("founder_intent_conflicts")
+}
+
+model FounderOverrideEvent {
+  id           String              @id @default(cuid())
+  intentId     String              @map("intent_id")
+  overrideType FounderOverrideType @map("override_type")
+  reason       String
+  before       Json?
+  after        Json?
+  operatorId   String              @map("operator_id")
+  workspaceId  String              @map("workspace_id")
+  createdAt    DateTime            @default(now()) @map("created_at")
+
+  intent    FounderIntent @relation(fields: [intentId], references: [id])
+  workspace Workspace     @relation(fields: [workspaceId], references: [id])
+
+  @@index([intentId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@map("founder_override_events")
 }
