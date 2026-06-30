@@ -113,6 +113,20 @@ describe('ONX Intelligence (e2e)', () => {
     expect(['ok', 'degraded']).toContain(res.body.status);
   });
 
+  it('/health/liveness returns 200 with uptime and timestamp', async () => {
+    const res = await request(app.getHttpServer()).get('/health/liveness').expect(200);
+    expect(res.body).toBeDefined();
+    expect(res.body.status).toBe('ok');
+    expect(typeof res.body.uptimeSeconds).toBe('number');
+    expect(typeof res.body.timestamp).toBe('string');
+  });
+
+  it('/health/readiness returns 200 with readiness status', async () => {
+    const res = await request(app.getHttpServer()).get('/health/readiness').expect(200);
+    expect(res.body).toBeDefined();
+    expect(['ok', 'degraded']).toContain(res.body.status);
+  });
+
   it('/auth/register creates user and returns JWT token', async () => {
     if (!hasDatabase || !hasSchema) {
       const res = await request(app.getHttpServer())

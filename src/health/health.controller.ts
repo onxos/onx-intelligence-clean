@@ -7,9 +7,29 @@ import { PrismaService } from '../common/prisma.service';
 export class HealthController {
   constructor(private readonly prisma: PrismaService) {}
 
+  @Get('liveness')
+  @ApiOperation({ summary: 'Liveness probe' })
+  liveness() {
+    return {
+      status: 'ok',
+      uptimeSeconds: Math.floor(process.uptime()),
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  @Get('readiness')
+  @ApiOperation({ summary: 'Readiness probe with database dependency check' })
+  async readiness() {
+    return this.databaseStatus();
+  }
+
   @Get()
   @ApiOperation({ summary: 'Health check with database connectivity' })
   async check() {
+    return this.databaseStatus();
+  }
+
+  private async databaseStatus() {
     try {
       await this.prisma.$queryRaw`SELECT 1`;
       return { status: 'ok', database: { status: 'up', version: '1.0.0' } };
