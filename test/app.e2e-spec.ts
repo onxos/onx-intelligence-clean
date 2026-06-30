@@ -1533,6 +1533,191 @@ describe('ONX Intelligence (e2e)', () => {
     await request(server).get('/founder-intent-compiler/intents').expect(401);
   });
 
+  it('IW-07: D13 intelligence capital, accumulation, allocation execution/rollback, and IUC enforce jwt, rules, and OpenAPI', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).get('/intelligence-capital').expect(401);
+      await request(app.getHttpServer()).get('/iuc').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+
+    // --- D13: create intelligence capital ---
+    const capitalRes = await auth(request(server).post('/intelligence-capital'))
+      .send({
+        identity: 'Sovereign knowledge reserve',
+        category: 'KNOWLEDGE',
+        initialValue: 100,
+        minimumValue: 10,
+        authority: 'SOVEREIGN',
+      })
+      .expect(201);
+    const capitalId = capitalRes.body.id;
+    expect(capitalId).toBeDefined();
+    expect(capitalRes.body.currentValue).toBe(100);
+    expect(capitalRes.body.status).toBe('ACTIVE');
+
+    // --- D13 Part B: accumulation (compounding) ---
+    const compoundRes = await auth(
+      request(server).post(`/intelligence-capital/${capitalId}/accumulate`),
+    )
+      .send({ eventType: 'COMPOUNDING', rate: 0.1, reason: 'Quarterly compounding' })
+      .expect(201);
+    expect(compoundRes.body.currentValue).toBeCloseTo(110, 5);
+
+    const eventsRes = await auth(
+      request(server).get(`/intelligence-capital/${capitalId}/accumulation-events`),
+    ).expect(200);
+    expect(eventsRes.body.some((e: any) => e.eventType === 'COMPOUNDING')).toBe(true);
+    expect(eventsRes.body.some((e: any) => e.eventType === 'CREATION')).toBe(true);
+
+    // --- D13.5: create an allocation via the existing capital module, approve it ---
+    const allocRes = await auth(request(server).post('/capital/allocations'))
+      .send({ category: 'KNOWLEDGE', amount: 40, currency: 'IUC', rationale: 'Fund initiative' })
+      .expect(201);
+    const allocId = allocRes.body.id;
+    await auth(request(server).post(`/capital/allocations/${allocId}/approve`))
+      .send({ decisionReason: 'Approved for execution', status: 'APPROVED' })
+      .expect(201);
+
+    // --- D13.5 Part C: execute allocation against capital (rules engine) ---
+    const execRes = await auth(
+      request(server).post(`/intelligence-capital/allocations/${allocId}/execute`),
+    )
+      .send({ capitalId, reason: 'Directive ONX-IW07-001' })
+      .expect(201);
+    expect(execRes.body.status).toBe('EXECUTED');
+
+    const afterExec = await auth(request(server).get(`/intelligence-capital/${capitalId}`)).expect(
+      200,
+    );
+    expect(afterExec.body.currentValue).toBeCloseTo(70, 5);
+    expect(afterExec.body.allocatedValue).toBeCloseTo(40, 5);
+
+    // --- Rollback restores capital ---
+    const rollbackRes = await auth(
+      request(server).post(`/intelligence-capital/allocations/${allocId}/rollback`),
+    )
+      .send({ reason: 'Downstream validation failed' })
+      .expect(201);
+    expect(rollbackRes.body.status).toBe('ROLLED_BACK');
+
+    const afterRollback = await auth(
+      request(server).get(`/intelligence-capital/${capitalId}`),
+    ).expect(200);
+    expect(afterRollback.body.currentValue).toBeCloseTo(110, 5);
+
+    // --- Rules engine rejects an over-large allocation ---
+    const bigAllocRes = await auth(request(server).post('/capital/allocations'))
+      .send({ category: 'KNOWLEDGE', amount: 105, currency: 'IUC' })
+      .expect(201);
+    await auth(request(server).post(`/capital/allocations/${bigAllocRes.body.id}/approve`))
+      .send({ status: 'APPROVED' })
+      .expect(201);
+    await auth(
+      request(server).post(`/intelligence-capital/allocations/${bigAllocRes.body.id}/execute`),
+    )
+      .send({ capitalId })
+      .expect(403);
+
+    // --- D13 status transition ---
+    await auth(request(server).post(`/intelligence-capital/${capitalId}/status`))
+      .send({ status: 'PRESERVED', reason: 'Preservation mode' })
+      .expect(201);
+
+    // --- IUC: create, progress, state machine, evidence, evolution, relationships ---
+    const iucRes = await auth(request(server).post('/iuc'))
+      .send({
+        title: 'Understanding of capital governance',
+        domain: 'CAPITAL',
+        capitalId,
+      })
+      .expect(201);
+    const iucId = iucRes.body.id;
+    expect(iucRes.body.state).toBe('NASCENT');
+
+    await auth(request(server).post(`/iuc/${iucId}/state`))
+      .send({ state: 'FORMING' })
+      .expect(201);
+    await auth(request(server).post(`/iuc/${iucId}/state`))
+      .send({ state: 'DEVELOPING' })
+      .expect(201);
+
+    // Cannot reach ESTABLISHED below the progress threshold.
+    await auth(request(server).post(`/iuc/${iucId}/state`))
+      .send({ state: 'ESTABLISHED' })
+      .expect(400);
+
+    await auth(request(server).post(`/iuc/${iucId}/progress`))
+      .send({ progress: 0.7, notes: 'Milestone reached' })
+      .expect(201);
+    await auth(request(server).post(`/iuc/${iucId}/confidence`))
+      .send({ confidence: 0.8 })
+      .expect(201);
+    const establishedRes = await auth(request(server).post(`/iuc/${iucId}/state`))
+      .send({ state: 'ESTABLISHED' })
+      .expect(201);
+    expect(establishedRes.body.state).toBe('ESTABLISHED');
+
+    await auth(request(server).post(`/iuc/${iucId}/evidence`))
+      .send({ description: 'Governance audit confirms enforcement', weight: 2 })
+      .expect(201);
+
+    const evolveRes = await auth(request(server).post(`/iuc/${iucId}/evolve`))
+      .send({ reason: 'Underlying assumptions changed' })
+      .expect(201);
+    expect(evolveRes.body.state).toBe('EVOLVING');
+
+    // Second IUC + relationship.
+    const iuc2Res = await auth(request(server).post('/iuc'))
+      .send({ title: 'Understanding of allocation discipline', domain: 'CAPITAL' })
+      .expect(201);
+    await auth(request(server).post(`/iuc/${iucId}/relationships`))
+      .send({ targetIucId: iuc2Res.body.id, relationType: 'DEPENDS_ON' })
+      .expect(201);
+
+    const iucDetail = await auth(request(server).get(`/iuc/${iucId}`)).expect(200);
+    expect(iucDetail.body.events.length).toBeGreaterThanOrEqual(1);
+    expect(iucDetail.body.evidence.length).toBeGreaterThanOrEqual(1);
+    expect(iucDetail.body.outgoingRelations.length).toBeGreaterThanOrEqual(1);
+
+    // --- Workspace isolation ---
+    const peerToken = await registerAndLogin(`e2e-iw07-peer-${Date.now()}@onx.test`);
+    await request(server)
+      .get(`/intelligence-capital/${capitalId}`)
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(404);
+    await request(server)
+      .get(`/iuc/${iucId}`)
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(404);
+
+    // --- Audit trail ---
+    const capitalAudit = await listAudit('INTELLIGENCE_CAPITAL_');
+    expect(capitalAudit.some((item) => item.action === 'INTELLIGENCE_CAPITAL_CREATED')).toBe(true);
+    expect(capitalAudit.some((item) => item.action === 'INTELLIGENCE_CAPITAL_ACCUMULATED')).toBe(
+      true,
+    );
+    const allocAudit = await listAudit('CAPITAL_ALLOCATION_EXECUTED');
+    expect(allocAudit.some((item) => item.action === 'CAPITAL_ALLOCATION_EXECUTED')).toBe(true);
+    const iucAudit = await listAudit('IUC_');
+    expect(iucAudit.some((item) => item.action === 'IUC_CREATED')).toBe(true);
+    expect(iucAudit.some((item) => item.action === 'IUC_EVOLVED')).toBe(true);
+
+    // --- OpenAPI exposure ---
+    const openApi = await request(server).get('/api/docs-json').expect(200);
+    expect(openApi.body.paths['/intelligence-capital']).toBeDefined();
+    expect(openApi.body.paths['/intelligence-capital/{id}/accumulate']).toBeDefined();
+    expect(openApi.body.paths['/intelligence-capital/allocations/{id}/execute']).toBeDefined();
+    expect(openApi.body.paths['/iuc']).toBeDefined();
+    expect(openApi.body.paths['/iuc/{id}/state']).toBeDefined();
+    expect(openApi.body.paths['/iuc/{id}/evolve']).toBeDefined();
+
+    await request(server).get('/intelligence-capital').expect(401);
+    await request(server).get('/iuc').expect(401);
+  });
+
   it('reporting depth supports summaries, details, filtering, sorting, date range, and audit compatibility', async () => {
     if (!hasDatabase || !hasSchema) {
       await request(app.getHttpServer()).get('/reports').expect(401);

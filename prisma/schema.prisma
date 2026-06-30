@@ -100,6 +100,12 @@ model Workspace {
   founderIntentReviews       FounderIntentReview[]
   founderIntentConflicts     FounderIntentConflict[]
   founderOverrideEvents      FounderOverrideEvent[]
+  intelligenceCapitals       IntelligenceCapital[]
+  capitalAccumulationEvents  CapitalAccumulationEvent[]
+  iucEntities                IUCEntity[]
+  understandingEvents        UnderstandingEvent[]
+  understandingEvidence      UnderstandingEvidence[]
+  understandingRelationships UnderstandingRelationship[]
 
   @@map("workspaces")
 }
@@ -672,8 +678,16 @@ model CapitalAllocation {
   approvals AllocationApproval[]
   history   AllocationHistory[]
 
+  capitalId    String?              @map("capital_id")
+  executedAt   DateTime?            @map("executed_at")
+  executedBy   String?              @map("executed_by")
+  rolledBackAt DateTime?            @map("rolled_back_at")
+  rolledBackBy String?              @map("rolled_back_by")
+  capital      IntelligenceCapital? @relation(fields: [capitalId], references: [id])
+
   @@index([workspaceId, deletedAt, status])
   @@index([workspaceId, category, createdAt])
+  @@index([capitalId])
   @@map("capital_allocations")
 }
 
@@ -1034,6 +1048,8 @@ enum AllocationStatus {
   APPROVED
   REJECTED
   ALLOCATED
+  EXECUTED
+  ROLLED_BACK
   CANCELLED
   ARCHIVED
 }
@@ -1330,4 +1346,223 @@ model FounderOverrideEvent {
   @@index([intentId, createdAt])
   @@index([workspaceId, createdAt])
   @@map("founder_override_events")
+}
+
+// ---------------------------------------------------------------------------
+// IW-07 — D13 Intelligence Capital, D13.5 Capital Allocation, IUC Foundation
+// ---------------------------------------------------------------------------
+
+enum IntelligenceCapitalCategory {
+  KNOWLEDGE
+  EVIDENCE
+  EXECUTION
+  TRUST
+  LEARNING
+  DECISION
+  FOUNDER
+}
+
+enum IntelligenceCapitalStatus {
+  ACTIVE
+  PRESERVED
+  DECAYING
+  DEPLETED
+  RECOVERING
+  ARCHIVED
+}
+
+enum CapitalAccumulationType {
+  CREATION
+  GROWTH
+  REDUCTION
+  PRESERVATION
+  COMPOUNDING
+  DECAY
+  RECOVERY
+  ALLOCATION
+  ROLLBACK
+}
+
+enum UnderstandingStateType {
+  NASCENT
+  FORMING
+  DEVELOPING
+  ESTABLISHED
+  INSTITUTIONALIZED
+  EVOLVING
+  DEPRECATED
+}
+
+enum UnderstandingEventType {
+  STATE_TRANSITION
+  PROGRESS_UPDATE
+  EVIDENCE_LINKED
+  CONFIDENCE_UPDATE
+  EVOLUTION
+}
+
+enum UnderstandingRelationType {
+  DEPENDS_ON
+  SUPPORTS
+  REFINES
+  CONTRADICTS
+  DERIVES_FROM
+  GOVERNS
+  COMPOSES
+}
+
+model IntelligenceCapital {
+  id                String                      @id @default(cuid())
+  capitalId         String                      @unique @default(cuid()) @map("capital_id")
+  identity          String
+  description       String?
+  category          IntelligenceCapitalCategory
+  ownerId           String                      @map("owner_id")
+  workspaceId       String                      @map("workspace_id")
+  currentValue      Float                       @default(0) @map("current_value")
+  accumulatedValue  Float                       @default(0) @map("accumulated_value")
+  allocatedValue    Float                       @default(0) @map("allocated_value")
+  minimumValue      Float                       @default(0) @map("minimum_value")
+  growthRate        Float                       @default(0) @map("growth_rate")
+  preservationScore Float                       @default(1) @map("preservation_score")
+  riskScore         Float                       @default(0) @map("risk_score")
+  confidence        Float                       @default(0.5)
+  sourceLineage     String[]                    @map("source_lineage")
+  authority         AuthorityLevel              @default(OPERATIONAL)
+  status            IntelligenceCapitalStatus   @default(ACTIVE)
+  currency          String                      @default("IUC")
+  metadata          Json?
+  createdAt         DateTime                    @default(now()) @map("created_at")
+  updatedAt         DateTime                    @updatedAt @map("updated_at")
+  deletedAt         DateTime?                   @map("deleted_at")
+
+  workspace          Workspace                  @relation(fields: [workspaceId], references: [id])
+  accumulationEvents CapitalAccumulationEvent[]
+  allocations        CapitalAllocation[]
+  iucEntities        IUCEntity[]
+
+  @@index([workspaceId, deletedAt, status])
+  @@index([workspaceId, category, createdAt])
+  @@index([capitalId])
+  @@map("intelligence_capital")
+}
+
+model CapitalAccumulationEvent {
+  id          String                  @id @default(cuid())
+  capitalId   String                  @map("capital_id")
+  eventType   CapitalAccumulationType @map("event_type")
+  amount      Float                   @default(0)
+  valueBefore Float                   @map("value_before")
+  valueAfter  Float                   @map("value_after")
+  reason      String?
+  actorId     String                  @map("actor_id")
+  workspaceId String                  @map("workspace_id")
+  metadata    Json?
+  createdAt   DateTime                @default(now()) @map("created_at")
+
+  capital   IntelligenceCapital @relation(fields: [capitalId], references: [id])
+  workspace Workspace           @relation(fields: [workspaceId], references: [id])
+
+  @@index([capitalId, createdAt])
+  @@index([workspaceId, eventType, createdAt])
+  @@map("capital_accumulation_events")
+}
+
+model IUCEntity {
+  id          String                 @id @default(cuid())
+  iucId       String                 @unique @default(cuid()) @map("iuc_id")
+  title       String
+  description String?
+  domain      String?
+  ownerId     String                 @map("owner_id")
+  workspaceId String                 @map("workspace_id")
+  state       UnderstandingStateType @default(NASCENT)
+  progress    Float                  @default(0)
+  confidence  Float                  @default(0)
+  authority   AuthorityLevel         @default(OPERATIONAL)
+  capitalId   String?                @map("capital_id")
+  status      String                 @default("ACTIVE")
+  metadata    Json?
+  createdAt   DateTime               @default(now()) @map("created_at")
+  updatedAt   DateTime               @updatedAt @map("updated_at")
+  deletedAt   DateTime?              @map("deleted_at")
+
+  workspace         Workspace                   @relation(fields: [workspaceId], references: [id])
+  capital           IntelligenceCapital?        @relation(fields: [capitalId], references: [id])
+  events            UnderstandingEvent[]
+  evidence          UnderstandingEvidence[]
+  outgoingRelations UnderstandingRelationship[] @relation("UnderstandingRelationSource")
+  incomingRelations UnderstandingRelationship[] @relation("UnderstandingRelationTarget")
+
+  @@index([workspaceId, deletedAt, state])
+  @@index([workspaceId, domain, createdAt])
+  @@index([iucId])
+  @@map("iuc_entities")
+}
+
+model UnderstandingEvent {
+  id               String                  @id @default(cuid())
+  iucId            String                  @map("iuc_id")
+  eventType        UnderstandingEventType  @map("event_type")
+  fromState        UnderstandingStateType? @map("from_state")
+  toState          UnderstandingStateType? @map("to_state")
+  progressBefore   Float?                  @map("progress_before")
+  progressAfter    Float?                  @map("progress_after")
+  confidenceBefore Float?                  @map("confidence_before")
+  confidenceAfter  Float?                  @map("confidence_after")
+  actorId          String                  @map("actor_id")
+  workspaceId      String                  @map("workspace_id")
+  notes            String?
+  metadata         Json?
+  createdAt        DateTime                @default(now()) @map("created_at")
+
+  iuc       IUCEntity @relation(fields: [iucId], references: [id])
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([iucId, createdAt])
+  @@index([workspaceId, eventType, createdAt])
+  @@map("understanding_events")
+}
+
+model UnderstandingEvidence {
+  id               String    @id @default(cuid())
+  iucId            String    @map("iuc_id")
+  evidenceRecordId String?   @map("evidence_record_id")
+  objectId         String?   @map("object_id")
+  description      String
+  weight           Float     @default(1)
+  actorId          String    @map("actor_id")
+  workspaceId      String    @map("workspace_id")
+  metadata         Json?
+  createdAt        DateTime  @default(now()) @map("created_at")
+  deletedAt        DateTime? @map("deleted_at")
+
+  iuc       IUCEntity @relation(fields: [iucId], references: [id])
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([iucId, deletedAt, createdAt])
+  @@index([workspaceId, createdAt])
+  @@map("understanding_evidence")
+}
+
+model UnderstandingRelationship {
+  id           String                    @id @default(cuid())
+  sourceIucId  String                    @map("source_iuc_id")
+  targetIucId  String                    @map("target_iuc_id")
+  relationType UnderstandingRelationType @map("relation_type")
+  notes        String?
+  metadata     Json?
+  workspaceId  String                    @map("workspace_id")
+  createdById  String                    @map("created_by_id")
+  createdAt    DateTime                  @default(now()) @map("created_at")
+  deletedAt    DateTime?                 @map("deleted_at")
+
+  source    IUCEntity @relation("UnderstandingRelationSource", fields: [sourceIucId], references: [id])
+  target    IUCEntity @relation("UnderstandingRelationTarget", fields: [targetIucId], references: [id])
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@unique([sourceIucId, targetIucId, relationType], map: "understanding_relationships_src_tgt_type_key")
+  @@index([workspaceId, deletedAt, relationType])
+  @@index([targetIucId])
+  @@map("understanding_relationships")
 }

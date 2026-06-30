@@ -18,6 +18,7 @@ import { CommitModule } from './commit/commit.module';
 import { CapitalModule } from './capital/capital.module';
 import { FounderIntentModule } from './founder-intent/founder-intent.module';
 import { IntentCompilerModule } from './intent-compiler/intent-compiler.module';
+import { IUCModule } from './iuc/iuc.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { IntentCompilerModule } from './intent-compiler/intent-compiler.module';
     CapitalModule,
     FounderIntentModule,
     IntentCompilerModule,
+    IUCModule,
     CommitModule,
   ],
 })
