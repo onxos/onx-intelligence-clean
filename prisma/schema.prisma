@@ -70,6 +70,9 @@ model Workspace {
 
   users       User[]
   intelligenceObjects IntelligenceObject[]
+  intelObjectRelationships   IntelligenceObjectRelationship[]
+  intelObjectProvenance      IntelligenceObjectProvenance[]
+  intelObjectLifecycleEvents IntelligenceObjectLifecycleEvent[]
   evidence    EvidenceRecord[]
   providers   ProviderProfile[]
   tools       ToolProfile[]
@@ -213,18 +216,91 @@ model IntelligenceObject {
   constraintBasis String?           @map("constraint_basis")
   capitalCategory CapitalCategory?  @map("capital_category")
   capitalValue    Float             @default(0) @map("capital_value")
+  lifecycleState  IntelligenceLifecycleState @default(DRAFT) @map("lifecycle_state")
+  authorityLevel  AuthorityLevel    @default(OPERATIONAL) @map("authority_level")
   ownerId         String            @map("owner_id")
   creatorId       String            @map("creator_id")
   workspaceId     String            @map("workspace_id")
   createdAt       DateTime          @default(now()) @map("created_at")
   updatedAt       DateTime          @updatedAt @map("updated_at")
+  deletedAt       DateTime?         @map("deleted_at")
 
   owner         User   @relation(fields: [ownerId], references: [id])
   workspace     Workspace @relation(fields: [workspaceId], references: [id])
   evidence      EvidenceRecord[]
   provenance    ProvenanceRecord[]
+  relationshipsFrom    IntelligenceObjectRelationship[] @relation("RelationshipSource")
+  relationshipsTo      IntelligenceObjectRelationship[] @relation("RelationshipTarget")
+  provenanceDimensions IntelligenceObjectProvenance[]
+  lifecycleEvents      IntelligenceObjectLifecycleEvent[]
 
+  @@index([workspaceId, deletedAt, lifecycleState])
   @@map("intelligence_objects")
+}
+
+model IntelligenceObjectRelationship {
+  id               String   @id @default(cuid())
+  sourceObjectId   String   @map("source_object_id")
+  targetObjectId   String   @map("target_object_id")
+  relationshipType IntelligenceRelationshipType @map("relationship_type")
+  workspaceId      String   @map("workspace_id")
+  createdById      String   @map("created_by_id")
+  metadata         Json?    @default("{}")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
+
+  sourceObject IntelligenceObject @relation("RelationshipSource", fields: [sourceObjectId], references: [id])
+  targetObject IntelligenceObject @relation("RelationshipTarget", fields: [targetObjectId], references: [id])
+  workspace    Workspace          @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, createdAt])
+  @@index([sourceObjectId])
+  @@index([targetObjectId])
+  @@map("intelligence_object_relationships")
+}
+
+model IntelligenceObjectProvenance {
+  id                 String   @id @default(cuid())
+  objectId           String   @map("object_id")
+  sourceIdentity     String   @map("source_identity")
+  origin             String
+  creator            String
+  extractionMethod   String   @map("extraction_method")
+  verificationStatus ProvenanceVerificationStatus @default(UNVERIFIED) @map("verification_status")
+  confidence         Float    @default(0.5)
+  authorityLevel     AuthorityLevel @default(OPERATIONAL) @map("authority_level")
+  recordedAt         DateTime @default(now()) @map("recorded_at")
+  workspaceId        String   @map("workspace_id")
+  createdById        String   @map("created_by_id")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  object    IntelligenceObject @relation(fields: [objectId], references: [id])
+  workspace Workspace          @relation(fields: [workspaceId], references: [id])
+
+  @@index([objectId])
+  @@index([workspaceId, createdAt])
+  @@map("intelligence_object_provenance")
+}
+
+model IntelligenceObjectLifecycleEvent {
+  id          String   @id @default(cuid())
+  objectId    String   @map("object_id")
+  fromState   IntelligenceLifecycleState? @map("from_state")
+  toState     IntelligenceLifecycleState  @map("to_state")
+  actorId     String   @map("actor_id")
+  workspaceId String   @map("workspace_id")
+  reason      String?
+  metadata    Json?    @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  object    IntelligenceObject @relation(fields: [objectId], references: [id])
+  workspace Workspace          @relation(fields: [workspaceId], references: [id])
+
+  @@index([objectId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@map("intelligence_object_lifecycle_events")
 }
 
 model ProviderProfile {
@@ -574,6 +650,18 @@ enum IntelligenceObjectType {
   UNDERSTANDING
   WISDOM
   EXTERNAL_INTELLIGENCE
+  INTENT
+  KNOWLEDGE
+  EVIDENCE
+  SOURCE
+  MODEL
+  TOOL
+  AGENT
+  EVALUATION
+  MEMORY
+  DECISION
+  MEASUREMENT
+  CAPITAL
 }
 
 enum ObjectState {
@@ -581,6 +669,45 @@ enum ObjectState {
   DORMANT
   DEPRECATED
   ARCHIVED
+}
+
+enum IntelligenceLifecycleState {
+  DRAFT
+  INGESTED
+  VALIDATED
+  ACTIVE
+  LINKED
+  MEASURED
+  CAPITALIZED
+  DEPRECATED
+  ARCHIVED
+}
+
+enum IntelligenceRelationshipType {
+  DERIVES_FROM
+  SUPPORTS
+  CONTRADICTS
+  REFINES
+  REPLACES
+  DEPENDS_ON
+  MEASURES
+  GOVERNS
+  CAPITALIZES
+  BELONGS_TO
+}
+
+enum ProvenanceVerificationStatus {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum AuthorityLevel {
+  SYSTEM
+  OPERATIONAL
+  INSTITUTIONAL
+  SOVEREIGN
 }
 
 enum ShadowStatus {

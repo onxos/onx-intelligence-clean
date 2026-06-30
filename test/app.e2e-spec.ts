@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import request from 'supertest';
 import { AppModule } from './../src/app.module';
 import { PrismaService } from '../src/common/prisma.service';
@@ -261,6 +262,201 @@ describe('ONX Intelligence (e2e)', () => {
       true,
     );
     expectUnifiedAuditShape(createdAudit[0]);
+  });
+
+  it('D16 intelligence object foundation: full lifecycle, relationships, provenance, validation', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer())
+        .post('/intelligence-objects')
+        .send({ name: 'D16', content: 'payload', objectType: 'KNOWLEDGE' })
+        .expect(401);
+      return;
+    }
+
+    const createRes = await request(app.getHttpServer())
+      .post('/intelligence-objects')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        name: 'D16 Knowledge Object',
+        content: 'Canonical D16 knowledge payload',
+        objectType: 'KNOWLEDGE',
+        semanticSummary: 'Foundational knowledge',
+        authorityLevel: 'INSTITUTIONAL',
+      })
+      .expect(201);
+    const objectId = createRes.body.id as string;
+    expect(objectId).toBeDefined();
+    expect(createRes.body.lifecycleState).toBe('DRAFT');
+
+    const secondRes = await request(app.getHttpServer())
+      .post('/intelligence-objects')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        name: 'D16 Source Object',
+        content: 'Canonical D16 source payload',
+        objectType: 'SOURCE',
+      })
+      .expect(201);
+    const sourceObjectId = secondRes.body.id as string;
+
+    const listRes = await request(app.getHttpServer())
+      .get('/intelligence-objects?type=KNOWLEDGE')
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(Array.isArray(listRes.body.items)).toBe(true);
+    expect(listRes.body.items.some((item: { id: string }) => item.id === objectId)).toBe(true);
+
+    await request(app.getHttpServer())
+      .get(`/intelligence-objects/${objectId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+
+    const updateRes = await request(app.getHttpServer())
+      .put(`/intelligence-objects/${objectId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ name: 'D16 Knowledge Object Updated', trustScore: 0.91 })
+      .expect(200);
+    expect(updateRes.body.name).toBe('D16 Knowledge Object Updated');
+
+    // valid lifecycle transition
+    const transitionRes = await request(app.getHttpServer())
+      .post(`/intelligence-objects/${objectId}/lifecycle`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ toState: 'INGESTED', reason: 'Ingested from corpus' })
+      .expect(201);
+    expect(transitionRes.body.lifecycleState).toBe('INGESTED');
+
+    // invalid lifecycle transition
+    await request(app.getHttpServer())
+      .post(`/intelligence-objects/${objectId}/lifecycle`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ toState: 'CAPITALIZED' })
+      .expect(400);
+
+    const lifecycleEvents = await request(app.getHttpServer())
+      .get(`/intelligence-objects/${objectId}/lifecycle`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(Array.isArray(lifecycleEvents.body)).toBe(true);
+    expect(lifecycleEvents.body.length).toBeGreaterThanOrEqual(2);
+
+    // relationship creation
+    const relRes = await request(app.getHttpServer())
+      .post(`/intelligence-objects/${objectId}/relationships`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ targetObjectId: sourceObjectId, relationshipType: 'DERIVES_FROM' })
+      .expect(201);
+    expect(relRes.body.relationshipType).toBe('DERIVES_FROM');
+
+    // invalid relationship (self-reference)
+    await request(app.getHttpServer())
+      .post(`/intelligence-objects/${objectId}/relationships`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ targetObjectId: objectId, relationshipType: 'SUPPORTS' })
+      .expect(400);
+
+    const relsRes = await request(app.getHttpServer())
+      .get(`/intelligence-objects/${objectId}/relationships`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(relsRes.body.outgoing.length).toBeGreaterThanOrEqual(1);
+
+    // lineage traversal
+    const lineageRes = await request(app.getHttpServer())
+      .get(`/intelligence-objects/${objectId}/lineage`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(
+      lineageRes.body.lineage.some((edge: any) => edge.targetObjectId === sourceObjectId),
+    ).toBe(true);
+
+    // provenance
+    await request(app.getHttpServer())
+      .post(`/intelligence-objects/${objectId}/provenance`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        sourceIdentity: 'corpus-001',
+        origin: 'L2_SIL',
+        creator: 'founder-intent-engine',
+        extractionMethod: 'structured-extraction',
+        verificationStatus: 'VERIFIED',
+        confidence: 0.88,
+      })
+      .expect(201);
+
+    // invalid provenance (missing dimensions)
+    await request(app.getHttpServer())
+      .post(`/intelligence-objects/${objectId}/provenance`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ sourceIdentity: '', origin: 'L2', creator: 'x', extractionMethod: '' })
+      .expect(400);
+
+    const provRes = await request(app.getHttpServer())
+      .get(`/intelligence-objects/${objectId}/provenance`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(provRes.body.length).toBeGreaterThanOrEqual(1);
+
+    // validation
+    const validateRes = await request(app.getHttpServer())
+      .get(`/intelligence-objects/${objectId}/validate`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    expect(validateRes.body.valid).toBe(true);
+    expect(validateRes.body.canonicalD16Type).toBe(true);
+
+    // soft delete + restore
+    await request(app.getHttpServer())
+      .delete(`/intelligence-objects/${objectId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(200);
+    await request(app.getHttpServer())
+      .get(`/intelligence-objects/${objectId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(404);
+    const restoreRes = await request(app.getHttpServer())
+      .post(`/intelligence-objects/${objectId}/restore`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .expect(201);
+    expect(restoreRes.body.deletedAt).toBeNull();
+
+    // audit trail evidence
+    const createdAudit = await listAudit('INTELLIGENCE_OBJECT_CREATED');
+    const lifecycleAudit = await listAudit('INTELLIGENCE_OBJECT_LIFECYCLE_CHANGED');
+    const relationshipAudit = await listAudit('INTELLIGENCE_OBJECT_RELATIONSHIP_CREATED');
+    expect(createdAudit.length).toBeGreaterThan(0);
+    expect(lifecycleAudit.length).toBeGreaterThan(0);
+    expect(relationshipAudit.length).toBeGreaterThan(0);
+    expectUnifiedAuditShape(createdAudit[0]);
+
+    // workspace ownership isolation
+    const otherToken = await registerAndLogin(`d16-isolation-${Date.now()}@onx.test`);
+    await request(app.getHttpServer())
+      .get(`/intelligence-objects/${objectId}`)
+      .set('Authorization', `Bearer ${otherToken}`)
+      .expect(404);
+  });
+
+  it('exposes intelligence object endpoints and schemas in the OpenAPI document', async () => {
+    const config = new DocumentBuilder()
+      .setTitle('ONX Intelligence API')
+      .setVersion('1.0.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, config);
+
+    expect(document.paths['/intelligence-objects']).toBeDefined();
+    expect(document.paths['/intelligence-objects'].post).toBeDefined();
+    expect(document.paths['/intelligence-objects'].get).toBeDefined();
+    expect(document.paths['/intelligence-objects/{id}/lifecycle']).toBeDefined();
+    expect(document.paths['/intelligence-objects/{id}/relationships']).toBeDefined();
+    expect(document.paths['/intelligence-objects/{id}/provenance']).toBeDefined();
+    expect(document.paths['/intelligence-objects/{id}/lineage']).toBeDefined();
+    expect(document.paths['/intelligence-objects/{id}/validate']).toBeDefined();
+    expect(document.components?.schemas?.CreateIntelligenceObjectDto).toBeDefined();
+    expect(document.components?.schemas?.CreateRelationshipDto).toBeDefined();
+    expect(document.components?.schemas?.LifecycleTransitionDto).toBeDefined();
+    expect(document.components?.schemas?.CreateProvenanceDto).toBeDefined();
   });
 
   it('evidence create/list returns created records correctly', async () => {

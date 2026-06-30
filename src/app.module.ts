@@ -6,6 +6,7 @@ import { CommonModule } from './common/common.module';
 import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health/health.module';
 import { IntelligenceModule } from './intelligence/intelligence.module';
+import { IntelligenceObjectModule } from './intelligence-object/intelligence-object.module';
 import { ProviderModule } from './provider/provider.module';
 import { ToolModule } from './tool/tool.module';
 import { SovereigntyModule } from './sovereignty/sovereignty.module';
@@ -27,6 +28,7 @@ import { FounderIntentModule } from './founder-intent/founder-intent.module';
     AuthModule,
     HealthModule,
     IntelligenceModule,
+    IntelligenceObjectModule,
     ProviderModule,
     ToolModule,
     SovereigntyModule,
