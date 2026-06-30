@@ -346,3 +346,18 @@
 	- `/capital/allocations`, `/capital/policies`, `/capital/reports`, `/capital/history` documented
 	- Allocation/Policy/Action DTOs present
 	- Report/History DTOs are not separately defined in schema components; endpoint coverage validated
+
+## RWO-01 Repository Implementation Completion Record (2026-06-30)
+
+- Mode: repository execution (implementation defect repair only)
+- Scope executed:
+	- Runtime integrity repair: fixed Docker Compose app start command to `node dist/src/main.js`.
+	- API/runtime integrity repair: auth service now short-circuits with `503 Database unavailable` when Prisma is offline instead of surfacing Prisma initialization exceptions.
+	- Runtime integrity hardening: Prisma startup now skips DB connect attempt when `DATABASE_URL` is unset and enters explicit degraded mode.
+- Verification evidence (local `main` execution):
+	- CI-equivalent pipeline: PASS (`npm run ci`)
+	- Database integrity: PASS (`DATABASE_URL=postgresql://postgres:postgres@localhost:5432/onx?schema=public npm run db:deploy`, `npm run db:seed`, `npx prisma migrate status`)
+	- Smoke: PASS (`BASE_URL=http://localhost:3000 bash scripts/smoke.sh` against local production start)
+- Result:
+	- No new constitutional or Atlas scope introduced.
+	- Implementation register synchronized to current repository behavior.

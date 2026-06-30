@@ -14,6 +14,13 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       return;
     }
 
+    if (!process.env.DATABASE_URL) {
+      console.warn(
+        'Prisma startup skipped because DATABASE_URL is not set; running in degraded mode.',
+      );
+      return;
+    }
+
     try {
       await this.$connect();
       this.connected = true;

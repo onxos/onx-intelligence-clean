@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../common/prisma.service';
@@ -52,6 +52,8 @@ export class AuthService {
     },
     auditContext?: MutationAuditContext,
   ) {
+    this.ensureDatabaseAvailable();
+
     try {
       const defaults = await this.resolveDefaults({
         roleId: data.roleId,
@@ -114,6 +116,8 @@ export class AuthService {
   }
 
   async login(email: string, password: string, auditContext?: MutationAuditContext) {
+    this.ensureDatabaseAvailable();
+
     let user: any = null;
     try {
       user = await this.prisma.user.findUnique({ where: { email } });
@@ -159,6 +163,8 @@ export class AuthService {
   }
 
   async validateUser(userId: string) {
+    this.ensureDatabaseAvailable();
+
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -197,6 +203,8 @@ export class AuthService {
     workspaceId?: string,
     auditContext?: MutationAuditContext,
   ) {
+    this.ensureDatabaseAvailable();
+
     try {
       const result = await this.prisma.session.updateMany({
         where: { userId, revokedAt: null },
@@ -240,7 +248,15 @@ export class AuthService {
   }
 
   async getUserDevices(userId: string) {
+    this.ensureDatabaseAvailable();
+
     return this.prisma.device.findMany({ where: { userId } });
+  }
+
+  private ensureDatabaseAvailable() {
+    if (!this.prisma.isConnected()) {
+      throw new ServiceUnavailableException('Database unavailable');
+    }
   }
 
   private async resolveDefaults(
