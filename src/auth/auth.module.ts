@@ -6,13 +6,26 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
 
+function resolveJwtSecret(config: ConfigService) {
+  const configuredSecret = config.get<string>('JWT_SECRET');
+  if (configuredSecret) {
+    return configuredSecret;
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET is required in production');
+  }
+
+  return 'default-secret';
+}
+
 @Module({
   imports: [
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (config: ConfigService) => ({
-        secret: config.get('JWT_SECRET', 'default-secret'),
+        secret: resolveJwtSecret(config),
         signOptions: {
           expiresIn: config.get('JWT_EXPIRATION', '24h'),
         },

@@ -19,6 +19,7 @@ async function bootstrap() {
   try {
     bootstrapDatabaseSchema();
     const app = await NestFactory.create(AppModule);
+    app.enableShutdownHooks();
 
     app.useGlobalPipes(
       new ValidationPipe({
