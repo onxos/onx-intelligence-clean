@@ -22,6 +22,7 @@ import { IUCModule } from './iuc/iuc.module';
 import { MeasurementModule } from './measurement/measurement.module';
 import { RuntimeModule } from './runtime/runtime.module';
 import { ExchangeModule } from './exchange/exchange.module';
+import { ProofModule } from './proof/proof.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { ExchangeModule } from './exchange/exchange.module';
     MeasurementModule,
     RuntimeModule,
     ExchangeModule,
+    ProofModule,
     CommitModule,
   ],
 })

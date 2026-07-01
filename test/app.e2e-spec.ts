@@ -2220,6 +2220,193 @@ describe('ONX Intelligence (e2e)', () => {
     await request(server).get('/exchange/dashboard').expect(401);
   });
 
+  it('IW-11: D15 proof & stress architecture — proof sessions, certification gates, failure injection, contradictions, stress campaigns, recovery, dashboards, isolation, audit, OpenAPI', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).get('/proof/dashboard').expect(401);
+      await request(app.getHttpServer()).get('/stress/dashboard').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+
+    // --- Create a proof session (Part A) ---
+    const sessionRes = await auth(request(server).post('/proof/sessions'))
+      .send({ name: 'Constitutional verification', scope: 'full-system', targetDomain: 'EXCHANGE' })
+      .expect(201);
+    const proofSessionId = sessionRes.body.id;
+    expect(proofSessionId).toBeDefined();
+    expect(sessionRes.body.state).toBe('OPEN');
+
+    // --- Create a proof scenario (Part F) ---
+    const scenarioRes = await auth(
+      request(server).post(`/proof/sessions/${proofSessionId}/scenarios`),
+    )
+      .send({ name: 'Exchange integrity replay', group: 'EXCHANGE', gate: 'EXCHANGE_INTEGRITY' })
+      .expect(201);
+    expect(scenarioRes.body.id).toBeDefined();
+    expect(scenarioRes.body.version).toBe(1);
+
+    // --- Run the certification gates (Part C) ---
+    const runRes = await auth(request(server).post(`/proof/sessions/${proofSessionId}/run`))
+      .send({})
+      .expect(201);
+    expect(runRes.body.results.length).toBe(10);
+    expect(runRes.body.summary.gatesTotal).toBe(10);
+
+    // --- Certify the session across all gates (Part G) ---
+    const certifyRes = await auth(request(server).post(`/proof/sessions/${proofSessionId}/certify`))
+      .send({})
+      .expect(201);
+    expect(certifyRes.body.certifications.length).toBe(10);
+    expect(certifyRes.body.session.state).toBe('CERTIFIED');
+    expect(['PASS', 'WARNING', 'FAIL', 'CRITICAL']).toContain(certifyRes.body.summary.outcome);
+
+    // --- A gate run with injected violations produces findings ---
+    const failRun = await auth(request(server).post(`/proof/sessions/${proofSessionId}/run`))
+      .send({ gate: 'CAPITAL_INTEGRITY', signals: { capitalViolations: 6 } })
+      .expect(201);
+    expect(failRun.body.summary.passed).toBe(false);
+
+    const findingsRes = await auth(
+      request(server).get(`/proof/sessions/${proofSessionId}/findings`),
+    ).expect(200);
+    expect(findingsRes.body.length).toBeGreaterThanOrEqual(1);
+
+    // --- Certification report enumerates all ten gates (Part G) ---
+    const reportRes = await auth(
+      request(server).get(`/proof/sessions/${proofSessionId}/report`),
+    ).expect(200);
+    expect(reportRes.body.gates.length).toBe(10);
+    expect(reportRes.body.gatesTotal).toBe(10);
+
+    // --- Certifications list ---
+    const certsRes = await auth(
+      request(server).get(`/proof/sessions/${proofSessionId}/certifications`),
+    ).expect(200);
+    expect(certsRes.body.length).toBeGreaterThanOrEqual(10);
+
+    // --- History + evidence trails ---
+    const proofHistory = await auth(
+      request(server).get(`/proof/sessions/${proofSessionId}/history`),
+    ).expect(200);
+    expect(proofHistory.body.some((e: any) => e.eventType === 'PROOF_CERTIFIED')).toBe(true);
+    const proofEvidence = await auth(
+      request(server).get(`/proof/sessions/${proofSessionId}/evidence`),
+    ).expect(200);
+    expect(proofEvidence.body.length).toBeGreaterThanOrEqual(1);
+
+    // --- Contradiction engine (Part E) ---
+    const contraRes = await auth(request(server).post('/proof/contradictions'))
+      .send({
+        sessionId: proofSessionId,
+        candidates: [
+          { type: 'KNOWLEDGE', leftValue: 1, rightValue: 1 },
+          { type: 'GOVERNANCE', leftValue: true, rightValue: false },
+        ],
+      })
+      .expect(201);
+    expect(contraRes.body.count).toBe(1);
+    expect(contraRes.body.evaluated).toBe(2);
+    const contraList = await auth(request(server).get('/proof/contradictions')).expect(200);
+    expect(contraList.body.length).toBeGreaterThanOrEqual(1);
+
+    // --- Proof dashboard ---
+    const proofDash = await auth(request(server).get('/proof/dashboard')).expect(200);
+    expect(proofDash.body.gates.length).toBe(10);
+    expect(proofDash.body.sessions).toBeGreaterThanOrEqual(1);
+
+    // --- Create a stress campaign (Part B) ---
+    const campaignRes = await auth(request(server).post('/stress/campaigns'))
+      .send({ name: 'Runtime resilience campaign', group: 'RUNTIME' })
+      .expect(201);
+    const campaignId = campaignRes.body.id;
+    expect(campaignId).toBeDefined();
+    expect(campaignRes.body.state).toBe('OPEN');
+
+    // --- Create a stress scenario (Part F) ---
+    const stressScenarioRes = await auth(
+      request(server).post(`/stress/campaigns/${campaignId}/scenarios`),
+    )
+      .send({
+        name: 'Runtime interruption',
+        group: 'RUNTIME',
+        injectionType: 'RUNTIME_INTERRUPTION',
+      })
+      .expect(201);
+    expect(stressScenarioRes.body.id).toBeDefined();
+
+    // --- Run the full failure-injection battery (Part D) ---
+    const stressRun = await auth(request(server).post(`/stress/campaigns/${campaignId}/run`))
+      .send({})
+      .expect(201);
+    expect(stressRun.body.results.length).toBe(10);
+    expect(stressRun.body.resilienceScore).toBe(1);
+    expect(stressRun.body.recoveredCount).toBe(10);
+
+    // --- Inject a single controlled failure that cannot recover (Part D) ---
+    const injectRes = await auth(request(server).post(`/stress/campaigns/${campaignId}/inject`))
+      .send({ injectionType: 'STATE_CORRUPTION', defenses: { canDetect: false } })
+      .expect(201);
+    expect(injectRes.body.result.status).toBe('UNRECOVERED');
+    expect(injectRes.body.result.outcome).toBe('CRITICAL');
+
+    // --- Stress evidence + history ---
+    const stressEvidence = await auth(
+      request(server).get(`/stress/campaigns/${campaignId}/evidence`),
+    ).expect(200);
+    expect(stressEvidence.body.length).toBeGreaterThanOrEqual(1);
+    const stressHistory = await auth(
+      request(server).get(`/stress/campaigns/${campaignId}/history`),
+    ).expect(200);
+    expect(stressHistory.body.some((e: any) => e.eventType === 'STRESS_RUN')).toBe(true);
+    expect(stressHistory.body.some((e: any) => e.eventType === 'FAILURE_INJECTED')).toBe(true);
+
+    // --- Stress dashboard ---
+    const stressDash = await auth(request(server).get('/stress/dashboard')).expect(200);
+    expect(stressDash.body.injectionTypes.length).toBe(10);
+    expect(stressDash.body.campaigns).toBeGreaterThanOrEqual(1);
+
+    // --- Workspace isolation ---
+    const peerToken = await registerAndLogin(`e2e-iw11-peer-${Date.now()}@onx.test`);
+    await request(server)
+      .get(`/proof/sessions/${proofSessionId}`)
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(404);
+    await request(server)
+      .get(`/stress/campaigns/${campaignId}`)
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(404);
+
+    // --- Audit trail ---
+    const proofAudit = await listAudit('PROOF_');
+    expect(proofAudit.some((item) => item.action === 'PROOF_SESSION_CREATED')).toBe(true);
+    expect(proofAudit.some((item) => item.action === 'PROOF_RUN')).toBe(true);
+    expect(proofAudit.some((item) => item.action === 'PROOF_CERTIFIED')).toBe(true);
+    proofAudit.slice(0, 3).forEach(expectUnifiedAuditShape);
+    const stressAudit = await listAudit('STRESS_');
+    expect(stressAudit.some((item) => item.action === 'STRESS_CAMPAIGN_CREATED')).toBe(true);
+    expect(stressAudit.some((item) => item.action === 'STRESS_RUN')).toBe(true);
+    const injectAudit = await listAudit('FAILURE_INJECTED');
+    expect(injectAudit.some((item) => item.action === 'FAILURE_INJECTED')).toBe(true);
+
+    // --- OpenAPI exposure ---
+    const openApi = await request(server).get('/api/docs-json').expect(200);
+    expect(openApi.body.paths['/proof/sessions']).toBeDefined();
+    expect(openApi.body.paths['/proof/dashboard']).toBeDefined();
+    expect(openApi.body.paths['/proof/contradictions']).toBeDefined();
+    expect(openApi.body.paths['/proof/sessions/{id}/run']).toBeDefined();
+    expect(openApi.body.paths['/proof/sessions/{id}/certify']).toBeDefined();
+    expect(openApi.body.paths['/proof/sessions/{id}/report']).toBeDefined();
+    expect(openApi.body.paths['/stress/campaigns']).toBeDefined();
+    expect(openApi.body.paths['/stress/dashboard']).toBeDefined();
+    expect(openApi.body.paths['/stress/campaigns/{id}/run']).toBeDefined();
+    expect(openApi.body.paths['/stress/campaigns/{id}/inject']).toBeDefined();
+
+    await request(server).get('/proof/dashboard').expect(401);
+    await request(server).get('/stress/dashboard').expect(401);
+  });
+
   it('reporting depth supports summaries, details, filtering, sorting, date range, and audit compatibility', async () => {
     if (!hasDatabase || !hasSchema) {
       await request(app.getHttpServer()).get('/reports').expect(401);

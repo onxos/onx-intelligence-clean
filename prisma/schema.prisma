@@ -132,6 +132,24 @@ model Workspace {
   exchangeLineages           ExchangeLineage[]
   exchangeContexts           ExchangeContext[]
 
+  proofSessions       ProofSession[]
+  proofScenarios      ProofScenario[]
+  proofExecutions     ProofExecution[]
+  proofResults        ProofResult[]
+  proofEvidence       ProofEvidence[]
+  proofFindings       ProofFinding[]
+  proofCertifications ProofCertification[]
+  proofHistory        ProofHistory[]
+  stressCampaigns     StressCampaign[]
+  stressScenarios     StressScenario[]
+  stressExecutions    StressExecution[]
+  failureInjections   FailureInjection[]
+  stressResults       StressResult[]
+  stressEvidence      StressEvidence[]
+  recoveryEvidence    RecoveryEvidence[]
+  stressHistory       StressHistory[]
+  contradictions      Contradiction[]
+
   @@map("workspaces")
 }
 
@@ -2518,4 +2536,587 @@ model ExchangeContext {
   @@index([sessionId, deletedAt, contextType])
   @@index([workspaceId, createdAt])
   @@map("exchange_contexts")
+}
+
+// ============================================================================
+// IW-11 — D15 Proof & Stress Architecture
+// Constitutional verification + resilience layer. Additive only.
+// Cross-domain integration via plain String references (no cross-domain FKs).
+// ============================================================================
+
+enum ProofSessionState {
+  OPEN
+  ACTIVE
+  CERTIFIED
+  FAILED
+  ARCHIVED
+}
+
+enum ProofExecutionStatus {
+  PENDING
+  RUNNING
+  PASSED
+  FAILED
+  ERROR
+}
+
+enum CertificationGate {
+  KNOWLEDGE_INTEGRITY
+  MEMORY_INTEGRITY
+  RUNTIME_INTEGRITY
+  EXCHANGE_INTEGRITY
+  CAPITAL_INTEGRITY
+  MEASUREMENT_INTEGRITY
+  GOVERNANCE_INTEGRITY
+  AUDIT_INTEGRITY
+  EVIDENCE_INTEGRITY
+  SECURITY_INTEGRITY
+}
+
+enum CertificationOutcome {
+  PASS
+  WARNING
+  FAIL
+  CRITICAL
+}
+
+enum ProofFindingSeverity {
+  INFO
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ProofScenarioGroup {
+  KNOWLEDGE
+  LEARNING
+  RUNTIME
+  EXCHANGE
+  CAPITAL
+  MEASUREMENT
+  GOVERNANCE
+  SECURITY
+  RECOVERY
+}
+
+enum FailureInjectionType {
+  MISSING_KNOWLEDGE
+  CORRUPTED_MEMORY
+  INVALID_EXCHANGE
+  AUTHORITY_VIOLATION
+  TRUST_FAILURE
+  EVIDENCE_LOSS
+  RUNTIME_INTERRUPTION
+  RECOVERY_FAILURE
+  STATE_CORRUPTION
+  MEASUREMENT_INCONSISTENCY
+}
+
+enum FailureInjectionStatus {
+  INJECTED
+  DETECTED
+  CONTAINED
+  RECOVERED
+  UNRECOVERED
+}
+
+enum ContradictionType {
+  KNOWLEDGE
+  INTENT
+  CAPITAL
+  MEASUREMENT
+  RUNTIME
+  GOVERNANCE
+}
+
+enum ContradictionSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum StressCampaignState {
+  OPEN
+  RUNNING
+  COMPLETED
+  FAILED
+  ARCHIVED
+}
+
+enum StressExecutionStatus {
+  PENDING
+  RUNNING
+  PASSED
+  DEGRADED
+  FAILED
+}
+
+enum RecoveryStatus {
+  PENDING
+  RECOVERED
+  PARTIAL
+  FAILED
+}
+
+model ProofSession {
+  id                   String                @id @default(cuid())
+  proofSessionId       String                @unique @default(cuid()) @map("proof_session_id")
+  name                 String
+  description          String?
+  workspaceId          String                @map("workspace_id")
+  ownerId              String                @map("owner_id")
+  state                ProofSessionState     @default(OPEN)
+  scope                String?
+  targetDomain         String?               @map("target_domain")
+  certificationOutcome CertificationOutcome? @map("certification_outcome")
+  certificationScore   Float                 @default(0) @map("certification_score")
+  scenarioSeq          Int                   @default(0) @map("scenario_seq")
+  eventSeq             Int                   @default(0) @map("event_seq")
+  status               String                @default("ACTIVE")
+  metadata             Json?
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @updatedAt @map("updated_at")
+  deletedAt            DateTime?             @map("deleted_at")
+
+  workspace      Workspace            @relation(fields: [workspaceId], references: [id])
+  scenarios      ProofScenario[]
+  executions     ProofExecution[]
+  results        ProofResult[]
+  evidence       ProofEvidence[]
+  findings       ProofFinding[]
+  certifications ProofCertification[]
+  history        ProofHistory[]
+
+  @@index([workspaceId, deletedAt, state])
+  @@index([workspaceId, createdAt])
+  @@index([proofSessionId])
+  @@map("proof_sessions")
+}
+
+model ProofScenario {
+  id          String             @id @default(cuid())
+  scenarioId  String             @unique @default(cuid()) @map("scenario_id")
+  sessionId   String             @map("session_id")
+  workspaceId String             @map("workspace_id")
+  name        String
+  description String?
+  group       ProofScenarioGroup
+  gate        CertificationGate?
+  version     Int                @default(1)
+  definition  Json?
+  expectation Json?
+  repeatable  Boolean            @default(true)
+  enabled     Boolean            @default(true)
+  actorId     String             @map("actor_id")
+  metadata    Json?
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+  deletedAt   DateTime?          @map("deleted_at")
+
+  session    ProofSession     @relation(fields: [sessionId], references: [id])
+  workspace  Workspace        @relation(fields: [workspaceId], references: [id])
+  executions ProofExecution[]
+
+  @@index([sessionId, deletedAt, group])
+  @@index([workspaceId, createdAt])
+  @@index([scenarioId])
+  @@map("proof_scenarios")
+}
+
+model ProofExecution {
+  id          String                @id @default(cuid())
+  executionId String                @unique @default(cuid()) @map("execution_id")
+  sessionId   String                @map("session_id")
+  scenarioId  String?               @map("scenario_id")
+  workspaceId String                @map("workspace_id")
+  gate        CertificationGate?
+  status      ProofExecutionStatus  @default(PENDING)
+  outcome     CertificationOutcome?
+  score       Float                 @default(0)
+  durationMs  Int                   @default(0) @map("duration_ms")
+  detail      String?
+  actorId     String                @map("actor_id")
+  startedAt   DateTime              @default(now()) @map("started_at")
+  completedAt DateTime?             @map("completed_at")
+  metadata    Json?
+  createdAt   DateTime              @default(now()) @map("created_at")
+
+  session   ProofSession    @relation(fields: [sessionId], references: [id])
+  scenario  ProofScenario?  @relation(fields: [scenarioId], references: [id])
+  workspace Workspace       @relation(fields: [workspaceId], references: [id])
+  results   ProofResult[]
+  evidence  ProofEvidence[]
+  findings  ProofFinding[]
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, status])
+  @@index([executionId])
+  @@map("proof_executions")
+}
+
+model ProofResult {
+  id          String               @id @default(cuid())
+  resultId    String               @unique @default(cuid()) @map("result_id")
+  executionId String               @map("execution_id")
+  sessionId   String               @map("session_id")
+  workspaceId String               @map("workspace_id")
+  gate        CertificationGate
+  outcome     CertificationOutcome
+  score       Float                @default(0)
+  expected    String?
+  actual      String?
+  detail      String?
+  actorId     String               @map("actor_id")
+  metadata    Json?
+  createdAt   DateTime             @default(now()) @map("created_at")
+
+  execution ProofExecution @relation(fields: [executionId], references: [id])
+  session   ProofSession   @relation(fields: [sessionId], references: [id])
+  workspace Workspace      @relation(fields: [workspaceId], references: [id])
+
+  @@index([executionId])
+  @@index([workspaceId, gate])
+  @@map("proof_results")
+}
+
+model ProofEvidence {
+  id            String   @id @default(cuid())
+  evidenceId    String   @unique @default(cuid()) @map("evidence_id")
+  sessionId     String   @map("session_id")
+  executionId   String?  @map("execution_id")
+  workspaceId   String   @map("workspace_id")
+  evidenceType  String   @map("evidence_type")
+  referenceId   String?  @map("reference_id")
+  referenceType String?  @map("reference_type")
+  summary       String?
+  payload       Json?
+  actorId       String   @map("actor_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  session   ProofSession    @relation(fields: [sessionId], references: [id])
+  execution ProofExecution? @relation(fields: [executionId], references: [id])
+  workspace Workspace       @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, evidenceType])
+  @@map("proof_evidence")
+}
+
+model ProofFinding {
+  id                 String               @id @default(cuid())
+  findingId          String               @unique @default(cuid()) @map("finding_id")
+  sessionId          String               @map("session_id")
+  executionId        String?              @map("execution_id")
+  workspaceId        String               @map("workspace_id")
+  severity           ProofFindingSeverity @default(INFO)
+  gate               CertificationGate?
+  title              String
+  detail             String?
+  recommendation     String?
+  constitutionalRefs Json?                @map("constitutional_refs")
+  resolved           Boolean              @default(false)
+  actorId            String               @map("actor_id")
+  metadata           Json?
+  createdAt          DateTime             @default(now()) @map("created_at")
+
+  session   ProofSession    @relation(fields: [sessionId], references: [id])
+  execution ProofExecution? @relation(fields: [executionId], references: [id])
+  workspace Workspace       @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, severity])
+  @@index([findingId])
+  @@map("proof_findings")
+}
+
+model ProofCertification {
+  id              String               @id @default(cuid())
+  certificationId String               @unique @default(cuid()) @map("certification_id")
+  sessionId       String               @map("session_id")
+  workspaceId     String               @map("workspace_id")
+  gate            CertificationGate
+  outcome         CertificationOutcome
+  score           Float                @default(0)
+  summary         String?
+  evidenceRef     String?              @map("evidence_ref")
+  validUntil      DateTime?            @map("valid_until")
+  actorId         String               @map("actor_id")
+  metadata        Json?
+  createdAt       DateTime             @default(now()) @map("created_at")
+
+  session   ProofSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace    @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, gate])
+  @@index([certificationId])
+  @@map("proof_certifications")
+}
+
+model ProofHistory {
+  id          String   @id @default(cuid())
+  sessionId   String   @map("session_id")
+  executionId String?  @map("execution_id")
+  workspaceId String   @map("workspace_id")
+  eventType   String   @map("event_type")
+  referenceId String?  @map("reference_id")
+  notes       String?
+  actorId     String   @map("actor_id")
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  session   ProofSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace    @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, eventType])
+  @@map("proof_history")
+}
+
+model StressCampaign {
+  id              String              @id @default(cuid())
+  campaignId      String              @unique @default(cuid()) @map("campaign_id")
+  name            String
+  description     String?
+  workspaceId     String              @map("workspace_id")
+  ownerId         String              @map("owner_id")
+  state           StressCampaignState @default(OPEN)
+  group           ProofScenarioGroup?
+  targetDomain    String?             @map("target_domain")
+  scenarioSeq     Int                 @default(0) @map("scenario_seq")
+  eventSeq        Int                 @default(0) @map("event_seq")
+  resilienceScore Float               @default(0) @map("resilience_score")
+  status          String              @default("ACTIVE")
+  metadata        Json?
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+  deletedAt       DateTime?           @map("deleted_at")
+
+  workspace  Workspace          @relation(fields: [workspaceId], references: [id])
+  scenarios  StressScenario[]
+  executions StressExecution[]
+  injections FailureInjection[]
+  results    StressResult[]
+  evidence   StressEvidence[]
+  history    StressHistory[]
+
+  @@index([workspaceId, deletedAt, state])
+  @@index([workspaceId, createdAt])
+  @@index([campaignId])
+  @@map("stress_campaigns")
+}
+
+model StressScenario {
+  id            String                @id @default(cuid())
+  scenarioId    String                @unique @default(cuid()) @map("scenario_id")
+  campaignId    String                @map("campaign_id")
+  workspaceId   String                @map("workspace_id")
+  name          String
+  description   String?
+  group         ProofScenarioGroup
+  injectionType FailureInjectionType? @map("injection_type")
+  version       Int                   @default(1)
+  definition    Json?
+  repeatable    Boolean               @default(true)
+  enabled       Boolean               @default(true)
+  actorId       String                @map("actor_id")
+  metadata      Json?
+  createdAt     DateTime              @default(now()) @map("created_at")
+  updatedAt     DateTime              @updatedAt @map("updated_at")
+  deletedAt     DateTime?             @map("deleted_at")
+
+  campaign   StressCampaign    @relation(fields: [campaignId], references: [id])
+  workspace  Workspace         @relation(fields: [workspaceId], references: [id])
+  executions StressExecution[]
+
+  @@index([campaignId, deletedAt, group])
+  @@index([workspaceId, createdAt])
+  @@index([scenarioId])
+  @@map("stress_scenarios")
+}
+
+model StressExecution {
+  id              String                @id @default(cuid())
+  executionId     String                @unique @default(cuid()) @map("execution_id")
+  campaignId      String                @map("campaign_id")
+  scenarioId      String?               @map("scenario_id")
+  workspaceId     String                @map("workspace_id")
+  status          StressExecutionStatus @default(PENDING)
+  outcome         CertificationOutcome?
+  resilienceScore Float                 @default(0) @map("resilience_score")
+  injectionsCount Int                   @default(0) @map("injections_count")
+  recoveredCount  Int                   @default(0) @map("recovered_count")
+  durationMs      Int                   @default(0) @map("duration_ms")
+  detail          String?
+  actorId         String                @map("actor_id")
+  startedAt       DateTime              @default(now()) @map("started_at")
+  completedAt     DateTime?             @map("completed_at")
+  metadata        Json?
+  createdAt       DateTime              @default(now()) @map("created_at")
+
+  campaign         StressCampaign     @relation(fields: [campaignId], references: [id])
+  scenario         StressScenario?    @relation(fields: [scenarioId], references: [id])
+  workspace        Workspace          @relation(fields: [workspaceId], references: [id])
+  injections       FailureInjection[]
+  results          StressResult[]
+  evidence         StressEvidence[]
+  recoveryEvidence RecoveryEvidence[]
+
+  @@index([campaignId, createdAt])
+  @@index([workspaceId, status])
+  @@index([executionId])
+  @@map("stress_executions")
+}
+
+model FailureInjection {
+  id                  String                 @id @default(cuid())
+  injectionId         String                 @unique @default(cuid()) @map("injection_id")
+  executionId         String                 @map("execution_id")
+  campaignId          String                 @map("campaign_id")
+  workspaceId         String                 @map("workspace_id")
+  injectionType       FailureInjectionType   @map("injection_type")
+  status              FailureInjectionStatus @default(INJECTED)
+  targetReferenceId   String?                @map("target_reference_id")
+  targetReferenceType String?                @map("target_reference_type")
+  detected            Boolean                @default(false)
+  contained           Boolean                @default(false)
+  recovered           Boolean                @default(false)
+  detail              String?
+  actorId             String                 @map("actor_id")
+  injectedAt          DateTime               @default(now()) @map("injected_at")
+  resolvedAt          DateTime?              @map("resolved_at")
+  metadata            Json?
+  createdAt           DateTime               @default(now()) @map("created_at")
+
+  execution        StressExecution    @relation(fields: [executionId], references: [id])
+  campaign         StressCampaign     @relation(fields: [campaignId], references: [id])
+  workspace        Workspace          @relation(fields: [workspaceId], references: [id])
+  recoveryEvidence RecoveryEvidence[]
+
+  @@index([executionId])
+  @@index([workspaceId, injectionType])
+  @@index([injectionId])
+  @@map("failure_injections")
+}
+
+model StressResult {
+  id          String               @id @default(cuid())
+  resultId    String               @unique @default(cuid()) @map("result_id")
+  executionId String               @map("execution_id")
+  campaignId  String               @map("campaign_id")
+  workspaceId String               @map("workspace_id")
+  dimension   String
+  outcome     CertificationOutcome
+  score       Float                @default(0)
+  detail      String?
+  actorId     String               @map("actor_id")
+  metadata    Json?
+  createdAt   DateTime             @default(now()) @map("created_at")
+
+  execution StressExecution @relation(fields: [executionId], references: [id])
+  campaign  StressCampaign  @relation(fields: [campaignId], references: [id])
+  workspace Workspace       @relation(fields: [workspaceId], references: [id])
+
+  @@index([executionId])
+  @@index([workspaceId, dimension])
+  @@map("stress_results")
+}
+
+model StressEvidence {
+  id            String   @id @default(cuid())
+  evidenceId    String   @unique @default(cuid()) @map("evidence_id")
+  campaignId    String   @map("campaign_id")
+  executionId   String?  @map("execution_id")
+  workspaceId   String   @map("workspace_id")
+  evidenceType  String   @map("evidence_type")
+  referenceId   String?  @map("reference_id")
+  referenceType String?  @map("reference_type")
+  summary       String?
+  payload       Json?
+  actorId       String   @map("actor_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  campaign  StressCampaign   @relation(fields: [campaignId], references: [id])
+  execution StressExecution? @relation(fields: [executionId], references: [id])
+  workspace Workspace        @relation(fields: [workspaceId], references: [id])
+
+  @@index([campaignId, createdAt])
+  @@index([workspaceId, evidenceType])
+  @@map("stress_evidence")
+}
+
+model RecoveryEvidence {
+  id          String         @id @default(cuid())
+  recoveryId  String         @unique @default(cuid()) @map("recovery_id")
+  executionId String         @map("execution_id")
+  injectionId String?        @map("injection_id")
+  campaignId  String         @map("campaign_id")
+  workspaceId String         @map("workspace_id")
+  status      RecoveryStatus @default(PENDING)
+  strategy    String?
+  durationMs  Int            @default(0) @map("duration_ms")
+  detail      String?
+  actorId     String         @map("actor_id")
+  metadata    Json?
+  createdAt   DateTime       @default(now()) @map("created_at")
+
+  execution StressExecution   @relation(fields: [executionId], references: [id])
+  injection FailureInjection? @relation(fields: [injectionId], references: [id])
+  workspace Workspace         @relation(fields: [workspaceId], references: [id])
+
+  @@index([executionId])
+  @@index([workspaceId, status])
+  @@index([recoveryId])
+  @@map("recovery_evidence")
+}
+
+model StressHistory {
+  id          String   @id @default(cuid())
+  campaignId  String   @map("campaign_id")
+  executionId String?  @map("execution_id")
+  workspaceId String   @map("workspace_id")
+  eventType   String   @map("event_type")
+  referenceId String?  @map("reference_id")
+  notes       String?
+  actorId     String   @map("actor_id")
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  campaign  StressCampaign @relation(fields: [campaignId], references: [id])
+  workspace Workspace      @relation(fields: [workspaceId], references: [id])
+
+  @@index([campaignId, createdAt])
+  @@index([workspaceId, eventType])
+  @@map("stress_history")
+}
+
+model Contradiction {
+  id                 String                @id @default(cuid())
+  contradictionId    String                @unique @default(cuid()) @map("contradiction_id")
+  workspaceId        String                @map("workspace_id")
+  sessionId          String?               @map("session_id")
+  executionId        String?               @map("execution_id")
+  type               ContradictionType
+  severity           ContradictionSeverity @default(LOW)
+  impact             String?
+  recommendedAction  String?               @map("recommended_action")
+  constitutionalRefs Json?                 @map("constitutional_refs")
+  leftReferenceId    String?               @map("left_reference_id")
+  leftReferenceType  String?               @map("left_reference_type")
+  rightReferenceId   String?               @map("right_reference_id")
+  rightReferenceType String?               @map("right_reference_type")
+  detail             String?
+  resolved           Boolean               @default(false)
+  actorId            String                @map("actor_id")
+  metadata           Json?
+  createdAt          DateTime              @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, type])
+  @@index([contradictionId])
+  @@map("contradictions")
 }
