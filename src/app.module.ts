@@ -24,6 +24,7 @@ import { RuntimeModule } from './runtime/runtime.module';
 import { ExchangeModule } from './exchange/exchange.module';
 import { ProofModule } from './proof/proof.module';
 import { MetaModule } from './meta/meta.module';
+import { UsfipModule } from './usfip/usfip.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { MetaModule } from './meta/meta.module';
     ExchangeModule,
     ProofModule,
     MetaModule,
+    UsfipModule,
     CommitModule,
   ],
 })

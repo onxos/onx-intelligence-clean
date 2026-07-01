@@ -2551,6 +2551,135 @@ describe('ONX Intelligence (e2e)', () => {
     await request(server).get('/meta/dashboard').expect(401);
   });
 
+  it('IW-14: USFIP universal strategic founder intelligence protocol — session, interpretation, protocol, rules, policies, execution, governance, override, history, isolation, audit, OpenAPI', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).get('/usfip/dashboard').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+
+    // --- Create a USFIP session — interprets founder intent (Part A/B) ---
+    const sessionRes = await auth(request(server).post('/usfip/sessions'))
+      .send({
+        name: 'FY26 strategic protocol',
+        founderDirective: 'Establish durable capital advantage',
+        strategicPriority: 'HIGH',
+        strategicHorizon: 'SHORT',
+      })
+      .expect(201);
+    const sessionId = sessionRes.body.id;
+    expect(sessionId).toBeDefined();
+    expect(sessionRes.body.state).toBe('INTERPRETING');
+    expect(sessionRes.body.strategicPriority).toBe('HIGH');
+
+    // --- Re-interpret the directive (Part B) ---
+    const interpretRes = await auth(request(server).post(`/usfip/sessions/${sessionId}/interpret`))
+      .send({ strategicPriority: 'CRITICAL' })
+      .expect(201);
+    expect(interpretRes.body.interpretation.strategicPriority).toBe('CRITICAL');
+
+    // --- Create a protocol under the session (Part A) ---
+    const protocolRes = await auth(request(server).post(`/usfip/sessions/${sessionId}/protocols`))
+      .send({ name: 'Capital advantage protocol' })
+      .expect(201);
+    const protocolId = protocolRes.body.id;
+    expect(protocolId).toBeDefined();
+    expect(protocolRes.body.status).toBe('DRAFT');
+
+    // --- Add a rule and a policy (Part C management) ---
+    await auth(request(server).post(`/usfip/protocols/${protocolId}/rules`))
+      .send({ name: 'Prioritise compounding', ordering: 1, weight: 0.8 })
+      .expect(201);
+    const policyRes = await auth(request(server).post(`/usfip/protocols/${protocolId}/policies`))
+      .send({ name: 'Capital-first', priority: 5, strategicPriority: 'HIGH' })
+      .expect(201);
+    const policyId = policyRes.body.id;
+    expect(policyId).toBeDefined();
+
+    // --- Activate the protocol (Part C) ---
+    const activateRes = await auth(request(server).post(`/usfip/protocols/${protocolId}/activate`))
+      .send({})
+      .expect(201);
+    expect(activateRes.body.status).toBe('ACTIVE');
+
+    // --- Protocol detail with ordered rules + policies (Part A/C) ---
+    const detailRes = await auth(request(server).get(`/usfip/protocols/${protocolId}`)).expect(200);
+    expect(detailRes.body.rules.length).toBe(1);
+    expect(detailRes.body.policies.length).toBe(1);
+
+    // --- Constitutional governance validation (Part D) ---
+    const validateRes = await auth(
+      request(server).get(`/usfip/protocols/${protocolId}/validate`),
+    ).expect(200);
+    expect(validateRes.body.validation.valid).toBe(true);
+    expect(validateRes.body.validation.founderAuthorityValid).toBe(true);
+
+    // --- Execute the protocol — governed policy + rule ordering (Part C) ---
+    const executeRes = await auth(request(server).post(`/usfip/protocols/${protocolId}/execute`))
+      .send({})
+      .expect(201);
+    expect(executeRes.body.evaluation.selectedPolicyId).toBe(policyId);
+    expect(executeRes.body.evaluation.selectedRuleIds.length).toBe(1);
+    expect(executeRes.body.evaluation.executionPath[0]).toBe('INTERPRET');
+    expect(
+      executeRes.body.evaluation.executionPath[executeRes.body.evaluation.executionPath.length - 1],
+    ).toBe('EXECUTE');
+    expect(executeRes.body.evaluation.score).toBeGreaterThan(0);
+
+    // --- Immutable protocol history (Part E) ---
+    const historyRes = await auth(
+      request(server).get(`/usfip/sessions/${sessionId}/history`),
+    ).expect(200);
+    expect(historyRes.body.some((e: any) => e.eventType === 'PROTOCOL_EXECUTED')).toBe(true);
+    expect(historyRes.body.some((e: any) => e.eventType === 'PROTOCOL_ACTIVATED')).toBe(true);
+
+    // --- Founder override (Part D) — immutable, locks the session ---
+    const overrideRes = await auth(request(server).post(`/usfip/sessions/${sessionId}/override`))
+      .send({ directive: 'Halt under founder authority' })
+      .expect(201);
+    expect(overrideRes.body.overridden).toBe(true);
+    expect(overrideRes.body.state).toBe('OVERRIDDEN');
+    // Re-execution is refused under an override
+    await auth(request(server).post(`/usfip/protocols/${protocolId}/execute`))
+      .send({})
+      .expect(400);
+
+    // --- Dashboard + reused runtimes (compatibility) ---
+    const dashRes = await auth(request(server).get('/usfip/dashboard')).expect(200);
+    expect(dashRes.body.protocols.active).toBeGreaterThanOrEqual(1);
+    expect(dashRes.body.reusedRuntimes).toContain('FIC');
+    expect(dashRes.body.reusedRuntimes).toContain('IUC');
+    expect(dashRes.body.sessions.overridden).toBeGreaterThanOrEqual(1);
+
+    // --- Workspace isolation ---
+    const peerToken = await registerAndLogin(`e2e-iw14-peer-${Date.now()}@onx.test`);
+    await request(server)
+      .get(`/usfip/sessions/${sessionId}`)
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(404);
+
+    // --- Audit trail ---
+    const usfipAudit = await listAudit('USFIP_');
+    expect(usfipAudit.some((item) => item.action === 'USFIP_CREATE_SESSION')).toBe(true);
+    expect(usfipAudit.some((item) => item.action === 'USFIP_EXECUTE')).toBe(true);
+    expect(usfipAudit.some((item) => item.action === 'USFIP_OVERRIDE')).toBe(true);
+    usfipAudit.slice(0, 3).forEach(expectUnifiedAuditShape);
+
+    // --- OpenAPI exposure ---
+    const openApi = await request(server).get('/api/docs-json').expect(200);
+    expect(openApi.body.paths['/usfip/sessions']).toBeDefined();
+    expect(openApi.body.paths['/usfip/dashboard']).toBeDefined();
+    expect(openApi.body.paths['/usfip/protocols/{protocolId}/execute']).toBeDefined();
+    expect(openApi.body.paths['/usfip/protocols/{protocolId}/validate']).toBeDefined();
+    expect(openApi.body.paths['/usfip/protocols/{protocolId}/activate']).toBeDefined();
+    expect(openApi.body.paths['/usfip/sessions/{id}/override']).toBeDefined();
+    expect(openApi.body.paths['/usfip/sessions/{id}/history']).toBeDefined();
+
+    await request(server).get('/usfip/dashboard').expect(401);
+  });
+
   it('reporting depth supports summaries, details, filtering, sorting, date range, and audit compatibility', async () => {
     if (!hasDatabase || !hasSchema) {
       await request(app.getHttpServer()).get('/reports').expect(401);

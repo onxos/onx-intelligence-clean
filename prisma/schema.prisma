@@ -167,6 +167,14 @@ model Workspace {
   metaMergePolicies         MetaMergePolicy[]
   metaExecutionPolicies     MetaExecutionPolicy[]
 
+  usfipSessions   USFIPSession[]
+  usfipProtocols  USFIPProtocol[]
+  usfipRules      USFIPRule[]
+  usfipPolicies   USFIPPolicy[]
+  usfipExecutions USFIPExecution[]
+  usfipHistory    USFIPHistory[]
+  usfipEvidence   USFIPEvidence[]
+
   @@map("workspaces")
 }
 
@@ -3615,4 +3623,253 @@ model MetaExecutionPolicy {
   @@index([workspaceId, deletedAt, status])
   @@index([policyId])
   @@map("meta_execution_policies")
+}
+
+// ============================================================
+// USFIP — Universal Strategic Founder Intelligence Protocol
+// (Wave 10). Constitutional protocol governing how Founder
+// intent becomes strategic intelligence. Additive only —
+// reuses FIC/D14/D16/D17/D18/D19/IUC by reference (no FK).
+// ============================================================
+
+enum USFIPSessionState {
+  OPEN
+  INTERPRETING
+  EXECUTING
+  COMPLETED
+  OVERRIDDEN
+  ARCHIVED
+}
+
+enum USFIPProtocolStatus {
+  DRAFT
+  ACTIVE
+  DEPRECATED
+}
+
+enum USFIPComponentStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum USFIPExecutionStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum StrategicPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum StrategicHorizon {
+  IMMEDIATE
+  SHORT
+  MEDIUM
+  LONG
+}
+
+model USFIPSession {
+  id                   String            @id @default(cuid())
+  usfipSessionId       String            @unique @default(cuid()) @map("usfip_session_id")
+  name                 String
+  description          String?
+  workspaceId          String            @map("workspace_id")
+  ownerId              String            @map("owner_id")
+  state                USFIPSessionState @default(OPEN)
+  founderDirective     String?           @map("founder_directive")
+  strategicObjective   String?           @map("strategic_objective")
+  strategicContext     String?           @map("strategic_context")
+  strategicConstraints Json?             @map("strategic_constraints")
+  strategicPriority    StrategicPriority @default(MEDIUM) @map("strategic_priority")
+  strategicHorizon     StrategicHorizon  @default(MEDIUM) @map("strategic_horizon")
+  strategicOutcome     String?           @map("strategic_outcome")
+  intentReferenceId    String?           @map("intent_reference_id")
+  intentReferenceType  String?           @map("intent_reference_type")
+  overridden           Boolean           @default(false)
+  executionSeq         Int               @default(0) @map("execution_seq")
+  status               String            @default("ACTIVE")
+  metadata             Json?
+  createdAt            DateTime          @default(now()) @map("created_at")
+  updatedAt            DateTime          @updatedAt @map("updated_at")
+  deletedAt            DateTime?         @map("deleted_at")
+
+  workspace  Workspace        @relation(fields: [workspaceId], references: [id])
+  protocols  USFIPProtocol[]
+  executions USFIPExecution[]
+  history    USFIPHistory[]
+  evidence   USFIPEvidence[]
+
+  @@index([workspaceId, deletedAt, state])
+  @@index([workspaceId, createdAt])
+  @@index([usfipSessionId])
+  @@map("usfip_sessions")
+}
+
+model USFIPProtocol {
+  id                String              @id @default(cuid())
+  protocolId        String              @unique @default(cuid()) @map("protocol_id")
+  sessionId         String              @map("session_id")
+  workspaceId       String              @map("workspace_id")
+  name              String
+  description       String?
+  status            USFIPProtocolStatus @default(DRAFT)
+  version           Int                 @default(1)
+  strategicPriority StrategicPriority   @default(MEDIUM) @map("strategic_priority")
+  strategicHorizon  StrategicHorizon    @default(MEDIUM) @map("strategic_horizon")
+  constitutionalRef String?             @map("constitutional_ref")
+  definition        Json?
+  actorId           String              @map("actor_id")
+  activatedAt       DateTime?           @map("activated_at")
+  metadata          Json?
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+  deletedAt         DateTime?           @map("deleted_at")
+
+  session    USFIPSession     @relation(fields: [sessionId], references: [id])
+  workspace  Workspace        @relation(fields: [workspaceId], references: [id])
+  rules      USFIPRule[]
+  policies   USFIPPolicy[]
+  executions USFIPExecution[]
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, status])
+  @@index([protocolId])
+  @@map("usfip_protocols")
+}
+
+model USFIPRule {
+  id                String               @id @default(cuid())
+  ruleId            String               @unique @default(cuid()) @map("rule_id")
+  protocolId        String               @map("protocol_id")
+  workspaceId       String               @map("workspace_id")
+  name              String
+  description       String?
+  status            USFIPComponentStatus @default(ACTIVE)
+  ordering          Int                  @default(0)
+  weight            Float                @default(0.5)
+  condition         String?
+  action            String?
+  constitutionalRef String?              @map("constitutional_ref")
+  definition        Json?
+  actorId           String               @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
+  deletedAt         DateTime?            @map("deleted_at")
+
+  protocol  USFIPProtocol @relation(fields: [protocolId], references: [id])
+  workspace Workspace     @relation(fields: [workspaceId], references: [id])
+
+  @@index([protocolId, ordering])
+  @@index([workspaceId, status])
+  @@index([ruleId])
+  @@map("usfip_rules")
+}
+
+model USFIPPolicy {
+  id                String               @id @default(cuid())
+  policyId          String               @unique @default(cuid()) @map("policy_id")
+  protocolId        String               @map("protocol_id")
+  workspaceId       String               @map("workspace_id")
+  name              String
+  description       String?
+  status            USFIPComponentStatus @default(ACTIVE)
+  priority          Int                  @default(0)
+  strategicPriority StrategicPriority    @default(MEDIUM) @map("strategic_priority")
+  constitutionalRef String?              @map("constitutional_ref")
+  rules             Json?
+  actorId           String               @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
+  deletedAt         DateTime?            @map("deleted_at")
+
+  protocol  USFIPProtocol @relation(fields: [protocolId], references: [id])
+  workspace Workspace     @relation(fields: [workspaceId], references: [id])
+
+  @@index([protocolId, priority])
+  @@index([workspaceId, status])
+  @@index([policyId])
+  @@map("usfip_policies")
+}
+
+model USFIPExecution {
+  id                String               @id @default(cuid())
+  executionId       String               @unique @default(cuid()) @map("execution_id")
+  sessionId         String               @map("session_id")
+  protocolId        String               @map("protocol_id")
+  workspaceId       String               @map("workspace_id")
+  status            USFIPExecutionStatus @default(PENDING)
+  selectedPolicyId  String?              @map("selected_policy_id")
+  selectedRuleIds   Json?                @map("selected_rule_ids")
+  executionPath     Json?                @map("execution_path")
+  strategicPriority StrategicPriority    @default(MEDIUM) @map("strategic_priority")
+  strategicHorizon  StrategicHorizon     @default(MEDIUM) @map("strategic_horizon")
+  outcome           String?
+  reason            String?
+  constitutionalRef String?              @map("constitutional_ref")
+  score             Float                @default(0)
+  actorId           String               @map("actor_id")
+  startedAt         DateTime?            @map("started_at")
+  completedAt       DateTime?            @map("completed_at")
+  metadata          Json?
+  createdAt         DateTime             @default(now()) @map("created_at")
+
+  session   USFIPSession  @relation(fields: [sessionId], references: [id])
+  protocol  USFIPProtocol @relation(fields: [protocolId], references: [id])
+  workspace Workspace     @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([protocolId, createdAt])
+  @@index([workspaceId, status])
+  @@index([executionId])
+  @@map("usfip_executions")
+}
+
+model USFIPHistory {
+  id                String   @id @default(cuid())
+  sessionId         String   @map("session_id")
+  workspaceId       String   @map("workspace_id")
+  eventType         String   @map("event_type")
+  referenceId       String?  @map("reference_id")
+  referenceType     String?  @map("reference_type")
+  constitutionalRef String?  @map("constitutional_ref")
+  notes             String?
+  actorId           String   @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  session   USFIPSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace    @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, eventType])
+  @@map("usfip_history")
+}
+
+model USFIPEvidence {
+  id            String   @id @default(cuid())
+  evidenceId    String   @unique @default(cuid()) @map("evidence_id")
+  sessionId     String   @map("session_id")
+  workspaceId   String   @map("workspace_id")
+  evidenceType  String   @map("evidence_type")
+  referenceId   String?  @map("reference_id")
+  referenceType String?  @map("reference_type")
+  summary       String?
+  payload       Json?
+  actorId       String   @map("actor_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  session   USFIPSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace    @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, evidenceType])
+  @@index([evidenceId])
+  @@map("usfip_evidence")
 }
