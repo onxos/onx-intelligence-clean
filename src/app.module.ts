@@ -19,6 +19,7 @@ import { CapitalModule } from './capital/capital.module';
 import { FounderIntentModule } from './founder-intent/founder-intent.module';
 import { IntentCompilerModule } from './intent-compiler/intent-compiler.module';
 import { IUCModule } from './iuc/iuc.module';
+import { MeasurementModule } from './measurement/measurement.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { IUCModule } from './iuc/iuc.module';
     FounderIntentModule,
     IntentCompilerModule,
     IUCModule,
+    MeasurementModule,
     CommitModule,
   ],
 })

@@ -106,6 +106,12 @@ model Workspace {
   understandingEvents        UnderstandingEvent[]
   understandingEvidence      UnderstandingEvidence[]
   understandingRelationships UnderstandingRelationship[]
+  measurementProfiles        MeasurementProfile[]
+  measurementRecords         MeasurementRecord[]
+  measurementHistory         MeasurementHistory[]
+  measurementEvidence        MeasurementEvidence[]
+  measurementBenchmarks      MeasurementBenchmark[]
+  measurementFeedback        MeasurementFeedback[]
 
   @@map("workspaces")
 }
@@ -1565,4 +1571,217 @@ model UnderstandingRelationship {
   @@index([workspaceId, deletedAt, relationType])
   @@index([targetIucId])
   @@map("understanding_relationships")
+}
+
+// ---------------------------------------------------------------------------
+// IW-08 — D17 Intelligence Measurement Architecture
+// ---------------------------------------------------------------------------
+
+enum MeasurementIndexType {
+  UQI
+  JQI
+  WQI
+  ICI
+  OQI
+  IRS
+  CUSTOM
+}
+
+enum MeasurementProgressState {
+  NASCENT
+  GROWTH
+  IMPROVEMENT
+  PLATEAU
+  REGRESSION
+  STABLE
+  COMPLETION
+}
+
+enum MeasurementTrend {
+  UNKNOWN
+  RISING
+  FALLING
+  STABLE
+  VOLATILE
+}
+
+enum MeasurementFeedbackType {
+  MEASUREMENT_UPDATE
+  LEARNING_FEEDBACK
+  CAPITAL_FEEDBACK
+  KNOWLEDGE_FEEDBACK
+  RECOMMENDATION
+}
+
+enum MeasurementFailureType {
+  MEASUREMENT_FAILURE
+  MISSING_EVIDENCE
+  LOW_CONFIDENCE
+  CONFLICT
+  QUALITY_DEGRADATION
+  CONSTITUTIONAL_VIOLATION
+}
+
+enum MeasurementHistoryEventType {
+  PROFILE_CREATED
+  PROFILE_UPDATED
+  CALCULATED
+  BENCHMARK_SET
+  FEEDBACK_RECORDED
+  FAILURE_RECORDED
+  PROGRESS_TRANSITION
+}
+
+model MeasurementProfile {
+  id                String                   @id @default(cuid())
+  profileId         String                   @unique @default(cuid()) @map("profile_id")
+  name              String
+  description       String?
+  indexType         MeasurementIndexType     @map("index_type")
+  ownerId           String                   @map("owner_id")
+  workspaceId       String                   @map("workspace_id")
+  targetValue       Float                    @default(1) @map("target_value")
+  minimumValue      Float                    @default(0) @map("minimum_value")
+  weight            Float                    @default(1)
+  normalizationMin  Float                    @default(0) @map("normalization_min")
+  normalizationMax  Float                    @default(100) @map("normalization_max")
+  currentScore      Float                    @default(0) @map("current_score")
+  currentConfidence Float                    @default(0) @map("current_confidence")
+  progressState     MeasurementProgressState @default(NASCENT) @map("progress_state")
+  trend             MeasurementTrend         @default(UNKNOWN)
+  authority         AuthorityLevel           @default(OPERATIONAL)
+  status            String                   @default("ACTIVE")
+  metadata          Json?
+  createdAt         DateTime                 @default(now()) @map("created_at")
+  updatedAt         DateTime                 @updatedAt @map("updated_at")
+  deletedAt         DateTime?                @map("deleted_at")
+
+  workspace     Workspace              @relation(fields: [workspaceId], references: [id])
+  records       MeasurementRecord[]
+  historyEvents MeasurementHistory[]
+  evidence      MeasurementEvidence[]
+  benchmarks    MeasurementBenchmark[]
+  feedback      MeasurementFeedback[]
+
+  @@index([workspaceId, deletedAt, indexType])
+  @@index([workspaceId, progressState, createdAt])
+  @@index([profileId])
+  @@map("measurement_profiles")
+}
+
+model MeasurementRecord {
+  id              String                   @id @default(cuid())
+  profileId       String                   @map("profile_id")
+  rawScore        Float                    @map("raw_score")
+  weightedScore   Float                    @map("weighted_score")
+  normalizedScore Float                    @map("normalized_score")
+  confidence      Float                    @default(0)
+  delta           Float                    @default(0)
+  benchmarkDelta  Float?                   @map("benchmark_delta")
+  trend           MeasurementTrend         @default(UNKNOWN)
+  progressState   MeasurementProgressState @default(NASCENT) @map("progress_state")
+  components      Json?
+  actorId         String                   @map("actor_id")
+  workspaceId     String                   @map("workspace_id")
+  metadata        Json?
+  createdAt       DateTime                 @default(now()) @map("created_at")
+
+  profile   MeasurementProfile @relation(fields: [profileId], references: [id])
+  workspace Workspace          @relation(fields: [workspaceId], references: [id])
+
+  @@index([profileId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@map("measurement_records")
+}
+
+model MeasurementHistory {
+  id               String                      @id @default(cuid())
+  profileId        String                      @map("profile_id")
+  recordId         String?                     @map("record_id")
+  eventType        MeasurementHistoryEventType @map("event_type")
+  scoreBefore      Float?                      @map("score_before")
+  scoreAfter       Float?                      @map("score_after")
+  confidenceBefore Float?                      @map("confidence_before")
+  confidenceAfter  Float?                      @map("confidence_after")
+  trend            MeasurementTrend?
+  progressState    MeasurementProgressState?   @map("progress_state")
+  failureType      MeasurementFailureType?     @map("failure_type")
+  severity         String?
+  actorId          String                      @map("actor_id")
+  workspaceId      String                      @map("workspace_id")
+  notes            String?
+  metadata         Json?
+  createdAt        DateTime                    @default(now()) @map("created_at")
+
+  profile   MeasurementProfile @relation(fields: [profileId], references: [id])
+  workspace Workspace          @relation(fields: [workspaceId], references: [id])
+
+  @@index([profileId, createdAt])
+  @@index([workspaceId, eventType, createdAt])
+  @@index([workspaceId, failureType, createdAt])
+  @@map("measurement_history")
+}
+
+model MeasurementEvidence {
+  id               String    @id @default(cuid())
+  profileId        String    @map("profile_id")
+  recordId         String?   @map("record_id")
+  evidenceRecordId String?   @map("evidence_record_id")
+  objectId         String?   @map("object_id")
+  description      String
+  weight           Float     @default(1)
+  actorId          String    @map("actor_id")
+  workspaceId      String    @map("workspace_id")
+  metadata         Json?
+  createdAt        DateTime  @default(now()) @map("created_at")
+  deletedAt        DateTime? @map("deleted_at")
+
+  profile   MeasurementProfile @relation(fields: [profileId], references: [id])
+  workspace Workspace          @relation(fields: [workspaceId], references: [id])
+
+  @@index([profileId, deletedAt, createdAt])
+  @@index([workspaceId, createdAt])
+  @@map("measurement_evidence")
+}
+
+model MeasurementBenchmark {
+  id          String    @id @default(cuid())
+  profileId   String    @map("profile_id")
+  name        String
+  value       Float
+  comparator  String    @default("GTE")
+  source      String?
+  actorId     String    @map("actor_id")
+  workspaceId String    @map("workspace_id")
+  metadata    Json?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  profile   MeasurementProfile @relation(fields: [profileId], references: [id])
+  workspace Workspace          @relation(fields: [workspaceId], references: [id])
+
+  @@index([profileId, deletedAt, createdAt])
+  @@map("measurement_benchmarks")
+}
+
+model MeasurementFeedback {
+  id             String                  @id @default(cuid())
+  profileId      String                  @map("profile_id")
+  recordId       String?                 @map("record_id")
+  feedbackType   MeasurementFeedbackType @map("feedback_type")
+  targetType     String?                 @map("target_type")
+  targetId       String?                 @map("target_id")
+  recommendation String?
+  payload        Json?
+  actorId        String                  @map("actor_id")
+  workspaceId    String                  @map("workspace_id")
+  metadata       Json?
+  createdAt      DateTime                @default(now()) @map("created_at")
+
+  profile   MeasurementProfile @relation(fields: [profileId], references: [id])
+  workspace Workspace          @relation(fields: [workspaceId], references: [id])
+
+  @@index([profileId, createdAt])
+  @@index([workspaceId, feedbackType, createdAt])
+  @@map("measurement_feedback")
 }

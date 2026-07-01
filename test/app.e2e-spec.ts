@@ -1718,6 +1718,162 @@ describe('ONX Intelligence (e2e)', () => {
     await request(server).get('/iuc').expect(401);
   });
 
+  it('IW-08: D17 intelligence measurement — profiles, scoring, trend, benchmarks, evidence, feedback, failures, dashboard, isolation, audit, OpenAPI', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).get('/measurement').expect(401);
+      await request(app.getHttpServer()).get('/measurement/dashboard').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+
+    // --- Create a measurement profile (index) ---
+    const profileRes = await auth(request(server).post('/measurement'))
+      .send({
+        name: 'Understanding Quality Index',
+        indexType: 'UQI',
+        normalizationMin: 0,
+        normalizationMax: 100,
+        weight: 1,
+        authority: 'OPERATIONAL',
+      })
+      .expect(201);
+    const profileId = profileRes.body.id;
+    expect(profileId).toBeDefined();
+    expect(profileRes.body.progressState).toBe('NASCENT');
+    expect(profileRes.body.currentScore).toBe(0);
+
+    // --- First calculation: NASCENT baseline ---
+    const calc1 = await auth(request(server).post(`/measurement/${profileId}/calculate`))
+      .send({ components: [{ key: 'clarity', value: 40 }], reason: 'Baseline measurement' })
+      .expect(201);
+    expect(calc1.body.record.normalizedScore).toBe(40);
+    expect(calc1.body.profile.progressState).toBe('NASCENT');
+
+    // --- Second calculation: improvement + rising trend ---
+    const calc2 = await auth(request(server).post(`/measurement/${profileId}/calculate`))
+      .send({ components: [{ key: 'clarity', value: 80, confidence: 0.9 }] })
+      .expect(201);
+    expect(calc2.body.record.normalizedScore).toBe(80);
+    expect(calc2.body.record.delta).toBeCloseTo(40, 5);
+    expect(['RISING', 'VOLATILE']).toContain(calc2.body.profile.trend);
+
+    // --- Trend + history ---
+    const trendRes = await auth(request(server).get(`/measurement/${profileId}/trend`)).expect(200);
+    expect(trendRes.body.points).toBe(2);
+    expect(trendRes.body.currentScore).toBe(80);
+    expect(trendRes.body.series).toHaveLength(2);
+
+    const historyRes = await auth(request(server).get(`/measurement/${profileId}/history`)).expect(
+      200,
+    );
+    expect(historyRes.body.events.some((e: any) => e.eventType === 'CALCULATED')).toBe(true);
+    expect(historyRes.body.events.some((e: any) => e.eventType === 'PROFILE_CREATED')).toBe(true);
+
+    // --- Benchmark: set + compare ---
+    const benchRes = await auth(request(server).post(`/measurement/${profileId}/benchmarks`))
+      .send({ name: 'Target', value: 70, comparator: 'GTE' })
+      .expect(201);
+    expect(benchRes.body.comparison.met).toBe(true);
+    expect(benchRes.body.comparison.benchmarkDelta).toBeCloseTo(10, 5);
+
+    const benchListRes = await auth(
+      request(server).get(`/measurement/${profileId}/benchmarks`),
+    ).expect(200);
+    expect(benchListRes.body.benchmarks.length).toBeGreaterThanOrEqual(1);
+
+    // --- Evidence: integrates with D16 objects via optional references ---
+    await auth(request(server).post(`/measurement/${profileId}/evidence`))
+      .send({ description: 'Judgement transcript supports the score', weight: 2 })
+      .expect(201);
+
+    // --- Feedback loop: cross-domain target (D12/D13/IUC) ---
+    await auth(request(server).post(`/measurement/${profileId}/feedback`))
+      .send({
+        feedbackType: 'LEARNING_FEEDBACK',
+        targetType: 'IUC',
+        targetId: 'iuc-example',
+        recommendation: 'Reinforce clarity training',
+      })
+      .expect(201);
+
+    // --- Failure dimension ---
+    await auth(request(server).post(`/measurement/${profileId}/failures`))
+      .send({
+        failureType: 'LOW_CONFIDENCE',
+        severity: 'HIGH',
+        notes: 'Confidence briefly dropped below the reliability floor',
+      })
+      .expect(201);
+
+    const failureReport = await auth(request(server).get('/measurement/failures')).expect(200);
+    expect(failureReport.body.total).toBeGreaterThanOrEqual(1);
+    expect(failureReport.body.byType.LOW_CONFIDENCE).toBeGreaterThanOrEqual(1);
+
+    // --- Profile detail aggregates all related entities ---
+    const detailRes = await auth(request(server).get(`/measurement/${profileId}`)).expect(200);
+    expect(detailRes.body.records.length).toBeGreaterThanOrEqual(2);
+    expect(detailRes.body.benchmarks.length).toBeGreaterThanOrEqual(1);
+    expect(detailRes.body.evidence.length).toBeGreaterThanOrEqual(1);
+    expect(detailRes.body.feedback.length).toBeGreaterThanOrEqual(1);
+
+    // --- Update + list ---
+    await auth(request(server).put(`/measurement/${profileId}`))
+      .send({ description: 'Primary understanding quality index' })
+      .expect(200);
+    const listRes = await auth(request(server).get('/measurement?indexType=UQI')).expect(200);
+    expect(listRes.body.total).toBeGreaterThanOrEqual(1);
+
+    // --- Dashboard composite ---
+    const dashboardRes = await auth(request(server).get('/measurement/dashboard')).expect(200);
+    expect(dashboardRes.body.totalProfiles).toBeGreaterThanOrEqual(1);
+    expect(dashboardRes.body.byIndexType.UQI).toBeDefined();
+    expect(typeof dashboardRes.body.compositeScore).toBe('number');
+    expect(dashboardRes.body.totalFailures).toBeGreaterThanOrEqual(1);
+
+    // --- Workspace isolation ---
+    const peerToken = await registerAndLogin(`e2e-iw08-peer-${Date.now()}@onx.test`);
+    await request(server)
+      .get(`/measurement/${profileId}`)
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(404);
+    await request(server)
+      .post(`/measurement/${profileId}/calculate`)
+      .set('Authorization', `Bearer ${peerToken}`)
+      .send({ components: [{ key: 'clarity', value: 10 }] })
+      .expect(404);
+
+    // --- Audit trail ---
+    const measurementAudit = await listAudit('MEASUREMENT_');
+    expect(measurementAudit.some((item) => item.action === 'MEASUREMENT_PROFILE_CREATED')).toBe(
+      true,
+    );
+    expect(measurementAudit.some((item) => item.action === 'MEASUREMENT_CALCULATED')).toBe(true);
+    expect(measurementAudit.some((item) => item.action === 'MEASUREMENT_BENCHMARK_SET')).toBe(true);
+    expect(measurementAudit.some((item) => item.action === 'MEASUREMENT_FEEDBACK_RECORDED')).toBe(
+      true,
+    );
+    expect(measurementAudit.some((item) => item.action === 'MEASUREMENT_FAILURE_RECORDED')).toBe(
+      true,
+    );
+    measurementAudit.slice(0, 3).forEach(expectUnifiedAuditShape);
+
+    // --- OpenAPI exposure ---
+    const openApi = await request(server).get('/api/docs-json').expect(200);
+    expect(openApi.body.paths['/measurement']).toBeDefined();
+    expect(openApi.body.paths['/measurement/dashboard']).toBeDefined();
+    expect(openApi.body.paths['/measurement/failures']).toBeDefined();
+    expect(openApi.body.paths['/measurement/{id}/calculate']).toBeDefined();
+    expect(openApi.body.paths['/measurement/{id}/trend']).toBeDefined();
+    expect(openApi.body.paths['/measurement/{id}/benchmarks']).toBeDefined();
+    expect(openApi.body.paths['/measurement/{id}/feedback']).toBeDefined();
+    expect(openApi.body.paths['/measurement/{id}/failures']).toBeDefined();
+
+    await request(server).get('/measurement').expect(401);
+    await request(server).get('/measurement/dashboard').expect(401);
+  });
+
   it('reporting depth supports summaries, details, filtering, sorting, date range, and audit compatibility', async () => {
     if (!hasDatabase || !hasSchema) {
       await request(app.getHttpServer()).get('/reports').expect(401);
