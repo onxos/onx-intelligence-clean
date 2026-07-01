@@ -112,6 +112,15 @@ model Workspace {
   measurementEvidence        MeasurementEvidence[]
   measurementBenchmarks      MeasurementBenchmark[]
   measurementFeedback        MeasurementFeedback[]
+  runtimeSessions            RuntimeSession[]
+  runtimeStates              RuntimeState[]
+  runtimeContexts            RuntimeContext[]
+  runtimeEvents              RuntimeEvent[]
+  runtimeCheckpoints         RuntimeCheckpoint[]
+  runtimeSnapshots           RuntimeSnapshot[]
+  runtimeRecoveries          RuntimeRecovery[]
+  runtimeHistory             RuntimeHistory[]
+  runtimePolicies            RuntimePolicy[]
 
   @@map("workspaces")
 }
@@ -1784,4 +1793,322 @@ model MeasurementFeedback {
   @@index([profileId, createdAt])
   @@index([workspaceId, feedbackType, createdAt])
   @@map("measurement_feedback")
+}
+
+// ---------------------------------------------------------------------------
+// IW-09 — D18 Intelligence Runtime Architecture
+// Additive only. Build-only on D11/D12/D13/D16/FIC/IUC/D17. Backward compatible.
+// ---------------------------------------------------------------------------
+
+enum RuntimeSessionState {
+  CREATED
+  INITIALIZING
+  READY
+  RUNNING
+  WAITING
+  PAUSED
+  RECOVERING
+  DEGRADED
+  FAILED
+  STOPPING
+  STOPPED
+  ARCHIVED
+}
+
+enum RuntimeHealthStatus {
+  UNKNOWN
+  HEALTHY
+  DEGRADED
+  UNHEALTHY
+}
+
+enum RuntimeContextType {
+  EXECUTION
+  KNOWLEDGE
+  LEARNING
+  CAPITAL
+  MEASUREMENT
+  INTENT
+  WORKSPACE
+  PROVIDER
+  MEMORY
+}
+
+enum RuntimeEventType {
+  SESSION_CREATED
+  STATE_TRANSITION
+  CONTEXT_ATTACHED
+  CHECKPOINT_CREATED
+  CHECKPOINT_RESTORED
+  SNAPSHOT_CREATED
+  RECOVERY_STARTED
+  RECOVERY_COMPLETED
+  ROLLBACK
+  HEARTBEAT
+  RESUMED
+  ERROR
+}
+
+enum RuntimeHistoryEventType {
+  SESSION_CREATED
+  STATE_TRANSITION
+  CONTEXT_ATTACHED
+  CHECKPOINT_CREATED
+  CHECKPOINT_RESTORED
+  SNAPSHOT_CREATED
+  RECOVERY
+  ROLLBACK
+  POLICY_SET
+  RESUMED
+  HEALTH_CHECK
+}
+
+enum RuntimeCheckpointType {
+  MANUAL
+  AUTOMATIC
+  PRE_RECOVERY
+  PRE_ROLLBACK
+  MILESTONE
+}
+
+enum RuntimeRecoveryType {
+  CHECKPOINT_RESTORE
+  RUNTIME_ROLLBACK
+  CRASH_RECOVERY
+  CONTINUITY_RECOVERY
+  SESSION_RESUME
+}
+
+enum RuntimeRecoveryStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+model RuntimeSession {
+  id               String               @id @default(cuid())
+  sessionId        String               @unique @default(cuid()) @map("session_id")
+  name             String
+  description      String?
+  workspaceId      String               @map("workspace_id")
+  ownerId          String               @map("owner_id")
+  state            RuntimeSessionState  @default(CREATED)
+  previousState    RuntimeSessionState? @map("previous_state")
+  healthStatus     RuntimeHealthStatus  @default(UNKNOWN) @map("health_status")
+  authority        AuthorityLevel       @default(OPERATIONAL)
+  lineageRoot      String?              @map("lineage_root")
+  parentSessionId  String?              @map("parent_session_id")
+  continuitySeq    Int                  @default(0) @map("continuity_seq")
+  eventSeq         Int                  @default(0) @map("event_seq")
+  recoveryCount    Int                  @default(0) @map("recovery_count")
+  lastCheckpointId String?              @map("last_checkpoint_id")
+  lastHeartbeatAt  DateTime?            @map("last_heartbeat_at")
+  stateEnteredAt   DateTime             @default(now()) @map("state_entered_at")
+  status           String               @default("ACTIVE")
+  metadata         Json?
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @updatedAt @map("updated_at")
+  deletedAt        DateTime?            @map("deleted_at")
+
+  workspace     Workspace           @relation(fields: [workspaceId], references: [id])
+  states        RuntimeState[]
+  contexts      RuntimeContext[]
+  events        RuntimeEvent[]
+  checkpoints   RuntimeCheckpoint[]
+  snapshots     RuntimeSnapshot[]
+  recoveries    RuntimeRecovery[]
+  historyEvents RuntimeHistory[]
+  policies      RuntimePolicy[]
+
+  @@index([workspaceId, deletedAt, state])
+  @@index([workspaceId, healthStatus, createdAt])
+  @@index([lineageRoot])
+  @@index([sessionId])
+  @@map("runtime_sessions")
+}
+
+model RuntimeState {
+  id          String               @id @default(cuid())
+  sessionId   String               @map("session_id")
+  fromState   RuntimeSessionState? @map("from_state")
+  toState     RuntimeSessionState  @map("to_state")
+  reason      String?
+  actorId     String               @map("actor_id")
+  workspaceId String               @map("workspace_id")
+  metadata    Json?
+  createdAt   DateTime             @default(now()) @map("created_at")
+
+  session   RuntimeSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace      @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@map("runtime_states")
+}
+
+model RuntimeContext {
+  id            String             @id @default(cuid())
+  sessionId     String             @map("session_id")
+  contextType   RuntimeContextType @map("context_type")
+  key           String
+  referenceId   String?            @map("reference_id")
+  referenceType String?            @map("reference_type")
+  payload       Json?
+  version       Int                @default(1)
+  active        Boolean            @default(true)
+  actorId       String             @map("actor_id")
+  workspaceId   String             @map("workspace_id")
+  metadata      Json?
+  createdAt     DateTime           @default(now()) @map("created_at")
+  updatedAt     DateTime           @updatedAt @map("updated_at")
+  deletedAt     DateTime?          @map("deleted_at")
+
+  session   RuntimeSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace      @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, deletedAt, contextType])
+  @@index([workspaceId, createdAt])
+  @@map("runtime_contexts")
+}
+
+model RuntimeEvent {
+  id          String               @id @default(cuid())
+  sessionId   String               @map("session_id")
+  eventType   RuntimeEventType     @map("event_type")
+  sequence    Int
+  state       RuntimeSessionState?
+  description String?
+  actorId     String               @map("actor_id")
+  workspaceId String               @map("workspace_id")
+  payload     Json?
+  metadata    Json?
+  createdAt   DateTime             @default(now()) @map("created_at")
+
+  session   RuntimeSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace      @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, sequence])
+  @@index([workspaceId, eventType, createdAt])
+  @@map("runtime_events")
+}
+
+model RuntimeCheckpoint {
+  id              String                @id @default(cuid())
+  checkpointId    String                @unique @default(cuid()) @map("checkpoint_id")
+  sessionId       String                @map("session_id")
+  checkpointType  RuntimeCheckpointType @default(MANUAL) @map("checkpoint_type")
+  label           String
+  sequence        Int
+  capturedState   RuntimeSessionState   @map("captured_state")
+  healthStatus    RuntimeHealthStatus   @default(UNKNOWN) @map("health_status")
+  contextSnapshot Json?                 @map("context_snapshot")
+  contextCount    Int                   @default(0) @map("context_count")
+  actorId         String                @map("actor_id")
+  workspaceId     String                @map("workspace_id")
+  metadata        Json?
+  createdAt       DateTime              @default(now()) @map("created_at")
+  deletedAt       DateTime?             @map("deleted_at")
+
+  session    RuntimeSession    @relation(fields: [sessionId], references: [id])
+  workspace  Workspace         @relation(fields: [workspaceId], references: [id])
+  recoveries RuntimeRecovery[]
+
+  @@index([sessionId, deletedAt, sequence])
+  @@index([workspaceId, createdAt])
+  @@map("runtime_checkpoints")
+}
+
+model RuntimeSnapshot {
+  id           String              @id @default(cuid())
+  snapshotId   String              @unique @default(cuid()) @map("snapshot_id")
+  sessionId    String              @map("session_id")
+  checkpointId String?             @map("checkpoint_id")
+  label        String
+  state        RuntimeSessionState
+  payload      Json
+  contextCount Int                 @default(0) @map("context_count")
+  actorId      String              @map("actor_id")
+  workspaceId  String              @map("workspace_id")
+  metadata     Json?
+  createdAt    DateTime            @default(now()) @map("created_at")
+
+  session   RuntimeSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace      @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@map("runtime_snapshots")
+}
+
+model RuntimeRecovery {
+  id           String                @id @default(cuid())
+  recoveryId   String                @unique @default(cuid()) @map("recovery_id")
+  sessionId    String                @map("session_id")
+  checkpointId String?               @map("checkpoint_id")
+  recoveryType RuntimeRecoveryType   @map("recovery_type")
+  status       RuntimeRecoveryStatus @default(PENDING)
+  fromState    RuntimeSessionState?  @map("from_state")
+  toState      RuntimeSessionState?  @map("to_state")
+  reason       String?
+  success      Boolean               @default(false)
+  actorId      String                @map("actor_id")
+  workspaceId  String                @map("workspace_id")
+  metadata     Json?
+  createdAt    DateTime              @default(now()) @map("created_at")
+  completedAt  DateTime?             @map("completed_at")
+
+  session    RuntimeSession     @relation(fields: [sessionId], references: [id])
+  workspace  Workspace          @relation(fields: [workspaceId], references: [id])
+  checkpoint RuntimeCheckpoint? @relation(fields: [checkpointId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, recoveryType, createdAt])
+  @@map("runtime_recoveries")
+}
+
+model RuntimeHistory {
+  id           String                  @id @default(cuid())
+  sessionId    String                  @map("session_id")
+  eventType    RuntimeHistoryEventType @map("event_type")
+  fromState    RuntimeSessionState?    @map("from_state")
+  toState      RuntimeSessionState?    @map("to_state")
+  healthStatus RuntimeHealthStatus?    @map("health_status")
+  referenceId  String?                 @map("reference_id")
+  actorId      String                  @map("actor_id")
+  workspaceId  String                  @map("workspace_id")
+  notes        String?
+  metadata     Json?
+  createdAt    DateTime                @default(now()) @map("created_at")
+
+  session   RuntimeSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace      @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, eventType, createdAt])
+  @@map("runtime_history")
+}
+
+model RuntimePolicy {
+  id          String         @id @default(cuid())
+  policyId    String         @unique @default(cuid()) @map("policy_id")
+  sessionId   String         @map("session_id")
+  name        String
+  policyType  String         @map("policy_type")
+  rules       Json?
+  enabled     Boolean        @default(true)
+  authority   AuthorityLevel @default(OPERATIONAL)
+  actorId     String         @map("actor_id")
+  workspaceId String         @map("workspace_id")
+  metadata    Json?
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+  deletedAt   DateTime?      @map("deleted_at")
+
+  session   RuntimeSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace      @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, deletedAt])
+  @@index([workspaceId, policyType, createdAt])
+  @@map("runtime_policies")
 }

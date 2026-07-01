@@ -20,6 +20,7 @@ import { FounderIntentModule } from './founder-intent/founder-intent.module';
 import { IntentCompilerModule } from './intent-compiler/intent-compiler.module';
 import { IUCModule } from './iuc/iuc.module';
 import { MeasurementModule } from './measurement/measurement.module';
+import { RuntimeModule } from './runtime/runtime.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { MeasurementModule } from './measurement/measurement.module';
     IntentCompilerModule,
     IUCModule,
     MeasurementModule,
+    RuntimeModule,
     CommitModule,
   ],
 })

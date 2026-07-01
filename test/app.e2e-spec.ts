@@ -1874,6 +1874,177 @@ describe('ONX Intelligence (e2e)', () => {
     await request(server).get('/measurement/dashboard').expect(401);
   });
 
+  it('IW-09: D18 intelligence runtime — sessions, state machine, contexts, events, checkpoints, recovery, continuity, health, dashboard, isolation, audit, OpenAPI', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).get('/runtime').expect(401);
+      await request(app.getHttpServer()).get('/runtime/dashboard').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+
+    // --- Create a runtime session (Part A) ---
+    const createRes = await auth(request(server).post('/runtime'))
+      .send({ name: 'Orchestration Runtime', authority: 'OPERATIONAL' })
+      .expect(201);
+    const sessionId = createRes.body.id;
+    expect(sessionId).toBeDefined();
+    expect(createRes.body.state).toBe('CREATED');
+    expect(createRes.body.healthStatus).toBe('UNKNOWN');
+
+    // --- Drive the validated state machine (Part B): CREATED -> INITIALIZING -> READY -> RUNNING ---
+    const transition = (state: string) =>
+      auth(request(server).post(`/runtime/${sessionId}/state`))
+        .send({ state })
+        .expect(201);
+    await transition('INITIALIZING');
+    await transition('READY');
+    const runningRes = await transition('RUNNING');
+    expect(runningRes.body.state).toBe('RUNNING');
+
+    // --- Invalid transition is rejected ---
+    await auth(request(server).post(`/runtime/${sessionId}/state`))
+      .send({ state: 'CREATED' })
+      .expect(400);
+
+    // --- Attach a runtime context object (Part C), integrating with a prior domain by reference ---
+    const ctxRes = await auth(request(server).post(`/runtime/${sessionId}/contexts`))
+      .send({
+        contextType: 'KNOWLEDGE',
+        key: 'primary-corpus',
+        referenceId: 'd16-object-1',
+        referenceType: 'IntelligenceObject',
+        payload: { scope: 'session' },
+      })
+      .expect(201);
+    expect(ctxRes.body.version).toBe(1);
+    const ctxList = await auth(request(server).get(`/runtime/${sessionId}/contexts`)).expect(200);
+    expect(ctxList.body.contexts.length).toBeGreaterThanOrEqual(1);
+
+    // --- Record a heartbeat event ---
+    await auth(request(server).post(`/runtime/${sessionId}/events`))
+      .send({ eventType: 'HEARTBEAT' })
+      .expect(201);
+    const events = await auth(request(server).get(`/runtime/${sessionId}/events`)).expect(200);
+    expect(events.body.events.some((e: any) => e.eventType === 'HEARTBEAT')).toBe(true);
+
+    // --- Create a checkpoint capturing current contexts (Part D) ---
+    const checkpointRes = await auth(request(server).post(`/runtime/${sessionId}/checkpoints`))
+      .send({ label: 'stable-milestone', checkpointType: 'MILESTONE' })
+      .expect(201);
+    const checkpointId = checkpointRes.body.id;
+    expect(checkpointRes.body.capturedState).toBe('RUNNING');
+    expect(checkpointRes.body.contextCount).toBeGreaterThanOrEqual(1);
+
+    // --- Snapshot the runtime ---
+    await auth(request(server).post(`/runtime/${sessionId}/snapshots`)).expect(201);
+
+    // --- Degrade then fail the runtime, then recover from the checkpoint ---
+    await transition('DEGRADED');
+    await transition('FAILED');
+    const recoverRes = await auth(request(server).post(`/runtime/${sessionId}/recover`))
+      .send({ recoveryType: 'CHECKPOINT_RESTORE', checkpointId, reason: 'Restore after failure' })
+      .expect(201);
+    expect(recoverRes.body.recovery.status).toBe('COMPLETED');
+    expect(recoverRes.body.session.state).toBe('RUNNING');
+    expect(recoverRes.body.session.recoveryCount).toBe(1);
+
+    // --- Restore endpoint (dedicated checkpoint restore) after pausing ---
+    await transition('PAUSED');
+    const restoreRes = await auth(
+      request(server).post(`/runtime/${sessionId}/checkpoints/${checkpointId}/restore`),
+    )
+      .send({ reason: 'Restore from milestone' })
+      .expect(201);
+    expect(restoreRes.body.session.recoveryCount).toBe(2);
+
+    // --- Session resume from a paused posture ---
+    await transition('PAUSED');
+    const resumeRes = await auth(request(server).post(`/runtime/${sessionId}/resume`))
+      .send({ reason: 'Resume work' })
+      .expect(201);
+    expect(resumeRes.body.session.state).toBe('RUNNING');
+
+    // --- Recovery history ---
+    const recoveries = await auth(request(server).get(`/runtime/${sessionId}/recoveries`)).expect(
+      200,
+    );
+    expect(recoveries.body.recoveries.length).toBeGreaterThanOrEqual(3);
+
+    // --- Continuity (Part E): lineage + state history ---
+    const continuity = await auth(request(server).get(`/runtime/${sessionId}/continuity`)).expect(
+      200,
+    );
+    expect(continuity.body.recoveryCount).toBeGreaterThanOrEqual(3);
+    expect(continuity.body.stateHistory.length).toBeGreaterThanOrEqual(4);
+
+    // --- History stream ---
+    const history = await auth(request(server).get(`/runtime/${sessionId}/history`)).expect(200);
+    expect(history.body.events.some((e: any) => e.eventType === 'RECOVERY')).toBe(true);
+    expect(history.body.events.some((e: any) => e.eventType === 'CHECKPOINT_CREATED')).toBe(true);
+
+    // --- Governance policy (Part F) ---
+    await auth(request(server).post(`/runtime/${sessionId}/policies`))
+      .send({ name: 'recovery-ceiling', policyType: 'RECOVERY', rules: { maxRecoveries: 5 } })
+      .expect(201);
+    const policies = await auth(request(server).get(`/runtime/${sessionId}/policies`)).expect(200);
+    expect(policies.body.policies.length).toBeGreaterThanOrEqual(1);
+
+    // --- Health evaluation ---
+    const healthRes = await auth(request(server).get(`/runtime/${sessionId}/health`)).expect(200);
+    expect(['HEALTHY', 'DEGRADED', 'UNHEALTHY', 'UNKNOWN']).toContain(healthRes.body.healthStatus);
+
+    // --- Session detail aggregates related entities ---
+    const detail = await auth(request(server).get(`/runtime/${sessionId}`)).expect(200);
+    expect(detail.body.states.length).toBeGreaterThanOrEqual(4);
+    expect(detail.body.checkpoints.length).toBeGreaterThanOrEqual(1);
+    expect(detail.body.recoveries.length).toBeGreaterThanOrEqual(3);
+
+    // --- Dashboard composite ---
+    const dashboard = await auth(request(server).get('/runtime/dashboard')).expect(200);
+    expect(dashboard.body.totalSessions).toBeGreaterThanOrEqual(1);
+    expect(dashboard.body.totalCheckpoints).toBeGreaterThanOrEqual(1);
+    expect(dashboard.body.totalRecoveries).toBeGreaterThanOrEqual(3);
+    expect(dashboard.body.states.length).toBe(12);
+
+    // --- Workspace isolation ---
+    const peerToken = await registerAndLogin(`e2e-iw09-peer-${Date.now()}@onx.test`);
+    await request(server)
+      .get(`/runtime/${sessionId}`)
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(404);
+    await request(server)
+      .post(`/runtime/${sessionId}/state`)
+      .set('Authorization', `Bearer ${peerToken}`)
+      .send({ state: 'STOPPING' })
+      .expect(404);
+
+    // --- Audit trail ---
+    const runtimeAudit = await listAudit('RUNTIME_');
+    expect(runtimeAudit.some((item) => item.action === 'RUNTIME_SESSION_CREATED')).toBe(true);
+    expect(runtimeAudit.some((item) => item.action === 'RUNTIME_STATE_TRANSITIONED')).toBe(true);
+    expect(runtimeAudit.some((item) => item.action === 'RUNTIME_CHECKPOINT_CREATED')).toBe(true);
+    expect(runtimeAudit.some((item) => item.action === 'RUNTIME_RECOVERED')).toBe(true);
+    expect(runtimeAudit.some((item) => item.action === 'RUNTIME_POLICY_SET')).toBe(true);
+    runtimeAudit.slice(0, 3).forEach(expectUnifiedAuditShape);
+
+    // --- OpenAPI exposure ---
+    const openApi = await request(server).get('/api/docs-json').expect(200);
+    expect(openApi.body.paths['/runtime']).toBeDefined();
+    expect(openApi.body.paths['/runtime/dashboard']).toBeDefined();
+    expect(openApi.body.paths['/runtime/{id}/state']).toBeDefined();
+    expect(openApi.body.paths['/runtime/{id}/contexts']).toBeDefined();
+    expect(openApi.body.paths['/runtime/{id}/checkpoints']).toBeDefined();
+    expect(openApi.body.paths['/runtime/{id}/checkpoints/{checkpointId}/restore']).toBeDefined();
+    expect(openApi.body.paths['/runtime/{id}/recover']).toBeDefined();
+    expect(openApi.body.paths['/runtime/{id}/continuity']).toBeDefined();
+    expect(openApi.body.paths['/runtime/{id}/health']).toBeDefined();
+
+    await request(server).get('/runtime').expect(401);
+    await request(server).get('/runtime/dashboard').expect(401);
+  });
+
   it('reporting depth supports summaries, details, filtering, sorting, date range, and audit compatibility', async () => {
     if (!hasDatabase || !hasSchema) {
       await request(app.getHttpServer()).get('/reports').expect(401);
