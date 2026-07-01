@@ -2045,6 +2045,181 @@ describe('ONX Intelligence (e2e)', () => {
     await request(server).get('/runtime/dashboard').expect(401);
   });
 
+  it('IW-10: D19 intelligence exchange — sessions, pipeline, ownership, trust, lineage, validation, governance, replay, rollback, isolation, audit, OpenAPI', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).get('/exchange').expect(401);
+      await request(app.getHttpServer()).get('/exchange/dashboard').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+
+    // --- Create an exchange session (Part A) ---
+    const sessionRes = await auth(request(server).post('/exchange/sessions'))
+      .send({ name: 'Intelligence Exchange', authority: 'SOVEREIGN', ownershipClass: 'FOUNDER' })
+      .expect(201);
+    const sessionId = sessionRes.body.id;
+    expect(sessionId).toBeDefined();
+    expect(sessionRes.body.state).toBe('OPEN');
+    expect(sessionRes.body.ownershipClass).toBe('FOUNDER');
+
+    // --- Create an exchange transaction (Part A/C/D/E), sealing an envelope at INTEND ---
+    const createRes = await auth(request(server).post('/exchange'))
+      .send({
+        sessionId,
+        intent: 'Transfer insight to runtime',
+        authority: 'SOVEREIGN',
+        origin: 'agent-a',
+        destination: 'agent-b',
+        sourceObjectId: 'd16-object-1',
+        sourceObjectType: 'IntelligenceObject',
+        targetObjectId: 'd18-runtime-1',
+        targetObjectType: 'Runtime',
+        confidence: 1,
+        provenance: 'founder-intent',
+        payload: { subject: 'insight', value: 42 },
+      })
+      .expect(201);
+    const txnId = createRes.body.id;
+    expect(txnId).toBeDefined();
+    expect(createRes.body.stage).toBe('INTEND');
+    expect(createRes.body.ownershipClass).toBe('FOUNDER');
+
+    // --- Submit through the full validated pipeline (Part B) to COMPLETE ---
+    const submitRes = await auth(request(server).post(`/exchange/${txnId}/submit`))
+      .send({})
+      .expect(201);
+    expect(submitRes.body.transaction.stage).toBe('COMPLETE');
+    expect(submitRes.body.transaction.status).toBe('COMPLETED');
+    expect(submitRes.body.validation.passed).toBe(true);
+
+    // --- Cannot submit twice (guarded to INTEND) ---
+    await auth(request(server).post(`/exchange/${txnId}/submit`))
+      .send({})
+      .expect(400);
+
+    // --- Status snapshot (Part B/D) ---
+    const statusRes = await auth(request(server).get(`/exchange/${txnId}/status`)).expect(200);
+    expect(statusRes.body.stage).toBe('COMPLETE');
+    expect(statusRes.body.terminal).toBe(true);
+    expect(statusRes.body.trustScore).toBeGreaterThan(0);
+
+    // --- History records every persisted stage transition (Part B) ---
+    const historyRes = await auth(request(server).get(`/exchange/${txnId}/history`)).expect(200);
+    const eventTypes = historyRes.body.events.map((e: any) => e.eventType);
+    expect(eventTypes).toContain('STAGE_ADVANCED');
+    expect(eventTypes).toContain('COMPLETED');
+    expect(eventTypes).toContain('RECEIPT_ISSUED');
+    expect(eventTypes).toContain('LINEAGE_RECORDED');
+
+    // --- Lineage (Part E) ---
+    const lineageRes = await auth(request(server).get(`/exchange/${txnId}/lineage`)).expect(200);
+    expect(lineageRes.body.lineages.length).toBeGreaterThanOrEqual(1);
+    expect(lineageRes.body.origin).toBe('agent-a');
+
+    // --- Audit/validation records (Part F) ---
+    const auditRes = await auth(request(server).get(`/exchange/${txnId}/audit`)).expect(200);
+    expect(auditRes.body.audits.some((a: any) => a.dimension === 'integrity')).toBe(true);
+
+    // --- Receipts issued during VERIFY ---
+    const receiptsRes = await auth(request(server).get(`/exchange/${txnId}/receipts`)).expect(200);
+    expect(receiptsRes.body.receipts.length).toBeGreaterThanOrEqual(1);
+
+    // --- Explicit validation run (Part F) ---
+    const validateRes = await auth(request(server).post(`/exchange/${txnId}/validate`))
+      .send({})
+      .expect(201);
+    expect(validateRes.body.passed).toBe(true);
+    expect(validateRes.body.checks.length).toBe(8);
+
+    // --- Replay a completed exchange (Part G) ---
+    const replayRes = await auth(request(server).post(`/exchange/${txnId}/replay`))
+      .send({ reason: 'Re-run exchange' })
+      .expect(201);
+    expect(replayRes.body.transaction.stage).toBe('COMPLETE');
+
+    // --- Rollback the (now completed) exchange (Part G) ---
+    const rollbackRes = await auth(request(server).post(`/exchange/${txnId}/rollback`))
+      .send({ reason: 'Manual reversal' })
+      .expect(201);
+    expect(rollbackRes.body.status).toBe('ROLLED_BACK');
+    expect(rollbackRes.body.rolledBack).toBe(true);
+
+    // --- Governance policy that forces a validation failure (Part F/G) ---
+    await auth(request(server).post(`/exchange/sessions/${sessionId}/policies`))
+      .send({ name: 'unreachable-trust', policyType: 'TRUST', rules: { minTrust: 0.999 } })
+      .expect(201);
+    const policiesRes = await auth(
+      request(server).get(`/exchange/sessions/${sessionId}/policies`),
+    ).expect(200);
+    expect(policiesRes.body.policies.length).toBeGreaterThanOrEqual(1);
+
+    const failCreate = await auth(request(server).post('/exchange'))
+      .send({
+        sessionId,
+        intent: 'Low-trust exchange',
+        payload: { subject: 'weak' },
+      })
+      .expect(201);
+    const failSubmit = await auth(request(server).post(`/exchange/${failCreate.body.id}/submit`))
+      .send({})
+      .expect(201);
+    expect(failSubmit.body.transaction.stage).toBe('FAILED');
+    expect(failSubmit.body.validation.passed).toBe(false);
+
+    // --- Transaction detail aggregates related entities ---
+    const detail = await auth(request(server).get(`/exchange/${txnId}`)).expect(200);
+    expect(detail.body.envelopes.length).toBeGreaterThanOrEqual(1);
+    expect(detail.body.receipts.length).toBeGreaterThanOrEqual(1);
+    expect(detail.body.lineages.length).toBeGreaterThanOrEqual(1);
+
+    // --- Dashboard composite ---
+    const dashboard = await auth(request(server).get('/exchange/dashboard')).expect(200);
+    expect(dashboard.body.totalSessions).toBeGreaterThanOrEqual(1);
+    expect(dashboard.body.totalTransactions).toBeGreaterThanOrEqual(2);
+    expect(dashboard.body.stages.length).toBe(10);
+    expect(dashboard.body.ownershipClasses.length).toBe(7);
+
+    // --- Workspace isolation ---
+    const peerToken = await registerAndLogin(`e2e-iw10-peer-${Date.now()}@onx.test`);
+    await request(server)
+      .get(`/exchange/${txnId}`)
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(404);
+    await request(server)
+      .post(`/exchange/${txnId}/submit`)
+      .set('Authorization', `Bearer ${peerToken}`)
+      .send({})
+      .expect(404);
+
+    // --- Audit trail ---
+    const exchangeAudit = await listAudit('EXCHANGE_');
+    expect(exchangeAudit.some((item) => item.action === 'EXCHANGE_SESSION_CREATED')).toBe(true);
+    expect(exchangeAudit.some((item) => item.action === 'EXCHANGE_CREATED')).toBe(true);
+    expect(exchangeAudit.some((item) => item.action === 'EXCHANGE_SUBMITTED')).toBe(true);
+    expect(exchangeAudit.some((item) => item.action === 'EXCHANGE_VALIDATED')).toBe(true);
+    expect(exchangeAudit.some((item) => item.action === 'EXCHANGE_REPLAYED')).toBe(true);
+    expect(exchangeAudit.some((item) => item.action === 'EXCHANGE_ROLLED_BACK')).toBe(true);
+    expect(exchangeAudit.some((item) => item.action === 'EXCHANGE_POLICY_SET')).toBe(true);
+    exchangeAudit.slice(0, 3).forEach(expectUnifiedAuditShape);
+
+    // --- OpenAPI exposure ---
+    const openApi = await request(server).get('/api/docs-json').expect(200);
+    expect(openApi.body.paths['/exchange']).toBeDefined();
+    expect(openApi.body.paths['/exchange/dashboard']).toBeDefined();
+    expect(openApi.body.paths['/exchange/sessions']).toBeDefined();
+    expect(openApi.body.paths['/exchange/{id}/submit']).toBeDefined();
+    expect(openApi.body.paths['/exchange/{id}/status']).toBeDefined();
+    expect(openApi.body.paths['/exchange/{id}/lineage']).toBeDefined();
+    expect(openApi.body.paths['/exchange/{id}/validate']).toBeDefined();
+    expect(openApi.body.paths['/exchange/{id}/replay']).toBeDefined();
+    expect(openApi.body.paths['/exchange/{id}/rollback']).toBeDefined();
+
+    await request(server).get('/exchange').expect(401);
+    await request(server).get('/exchange/dashboard').expect(401);
+  });
+
   it('reporting depth supports summaries, details, filtering, sorting, date range, and audit compatibility', async () => {
     if (!hasDatabase || !hasSchema) {
       await request(app.getHttpServer()).get('/reports').expect(401);

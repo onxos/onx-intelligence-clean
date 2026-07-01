@@ -121,6 +121,16 @@ model Workspace {
   runtimeRecoveries          RuntimeRecovery[]
   runtimeHistory             RuntimeHistory[]
   runtimePolicies            RuntimePolicy[]
+  exchangeSessions           ExchangeSession[]
+  exchangeTransactions       ExchangeTransaction[]
+  exchangeEnvelopes          ExchangeEnvelope[]
+  exchangeMessages           ExchangeMessage[]
+  exchangeReceipts           ExchangeReceipt[]
+  exchangeAudits             ExchangeAudit[]
+  exchangeHistory            ExchangeHistory[]
+  exchangePolicies           ExchangePolicy[]
+  exchangeLineages           ExchangeLineage[]
+  exchangeContexts           ExchangeContext[]
 
   @@map("workspaces")
 }
@@ -2111,4 +2121,401 @@ model RuntimePolicy {
   @@index([sessionId, deletedAt])
   @@index([workspaceId, policyType, createdAt])
   @@map("runtime_policies")
+}
+
+// ============================================================================
+// D19 — Intelligence Exchange Architecture (IW-10, Wave 7)
+// Additive: constitutional Intelligence Exchange Layer. NOT platform/federation.
+// ============================================================================
+
+enum ExchangeSessionState {
+  OPEN
+  ACTIVE
+  SUSPENDED
+  CLOSED
+  ARCHIVED
+}
+
+enum ExchangeStage {
+  INTEND
+  COMPREHEND
+  VALIDATE
+  TRANSFER
+  VERIFY
+  LINEAGE
+  MEASURE
+  CAPITALIZE
+  COMPLETE
+  FAILED
+}
+
+enum ExchangeTransactionStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  ROLLED_BACK
+  REPLAYED
+}
+
+enum ExchangeOwnershipClass {
+  FOUNDER
+  WORKSPACE
+  AGENT
+  RUNTIME
+  KNOWLEDGE
+  CAPITAL
+  SHARED
+}
+
+enum ExchangeVerificationState {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum ExchangeValidationState {
+  PENDING
+  PASSED
+  FAILED
+}
+
+enum ExchangeMessageType {
+  REQUEST
+  RESPONSE
+  EVENT
+  RECEIPT
+  ERROR
+}
+
+enum ExchangeReceiptStatus {
+  ISSUED
+  ACKNOWLEDGED
+  REJECTED
+}
+
+enum ExchangeAuditOutcome {
+  PASS
+  FAIL
+  WARN
+}
+
+enum ExchangeEventType {
+  SESSION_CREATED
+  SESSION_UPDATED
+  TRANSACTION_CREATED
+  STAGE_ADVANCED
+  MESSAGE_SENT
+  ENVELOPE_SEALED
+  RECEIPT_ISSUED
+  VALIDATED
+  TRANSFERRED
+  VERIFIED
+  LINEAGE_RECORDED
+  MEASURED
+  CAPITALIZED
+  COMPLETED
+  FAILED
+  ROLLED_BACK
+  REPLAYED
+  POLICY_SET
+}
+
+model ExchangeSession {
+  id             String                 @id @default(cuid())
+  exchangeId     String                 @unique @default(cuid()) @map("exchange_id")
+  name           String
+  description    String?
+  workspaceId    String                 @map("workspace_id")
+  ownerId        String                 @map("owner_id")
+  ownershipClass ExchangeOwnershipClass @default(WORKSPACE) @map("ownership_class")
+  state          ExchangeSessionState   @default(OPEN)
+  authority      AuthorityLevel         @default(OPERATIONAL)
+  transactionSeq Int                    @default(0) @map("transaction_seq")
+  eventSeq       Int                    @default(0) @map("event_seq")
+  status         String                 @default("ACTIVE")
+  metadata       Json?
+  createdAt      DateTime               @default(now()) @map("created_at")
+  updatedAt      DateTime               @updatedAt @map("updated_at")
+  deletedAt      DateTime?              @map("deleted_at")
+
+  workspace     Workspace             @relation(fields: [workspaceId], references: [id])
+  transactions  ExchangeTransaction[]
+  envelopes     ExchangeEnvelope[]
+  messages      ExchangeMessage[]
+  receipts      ExchangeReceipt[]
+  audits        ExchangeAudit[]
+  historyEvents ExchangeHistory[]
+  policies      ExchangePolicy[]
+  lineages      ExchangeLineage[]
+  contexts      ExchangeContext[]
+
+  @@index([workspaceId, deletedAt, state])
+  @@index([workspaceId, createdAt])
+  @@index([exchangeId])
+  @@map("exchange_sessions")
+}
+
+model ExchangeTransaction {
+  id                  String                    @id @default(cuid())
+  transactionId       String                    @unique @default(cuid()) @map("transaction_id")
+  sessionId           String                    @map("session_id")
+  workspaceId         String                    @map("workspace_id")
+  ownerId             String                    @map("owner_id")
+  intent              String
+  description         String?
+  stage               ExchangeStage             @default(INTEND)
+  previousStage       ExchangeStage?            @map("previous_stage")
+  status              ExchangeTransactionStatus @default(PENDING)
+  ownershipClass      ExchangeOwnershipClass    @default(WORKSPACE) @map("ownership_class")
+  origin              String?
+  destination         String?
+  parentTransactionId String?                   @map("parent_transaction_id")
+  sourceObjectId      String?                   @map("source_object_id")
+  sourceObjectType    String?                   @map("source_object_type")
+  targetObjectId      String?                   @map("target_object_id")
+  targetObjectType    String?                   @map("target_object_type")
+  authority           AuthorityLevel            @default(OPERATIONAL)
+  confidence          Float                     @default(0)
+  verification        ExchangeVerificationState @default(UNVERIFIED)
+  provenance          String?
+  integrityHash       String?                   @map("integrity_hash")
+  integrityVerified   Boolean                   @default(false) @map("integrity_verified")
+  traceable           Boolean                   @default(true)
+  trustScore          Float                     @default(0) @map("trust_score")
+  validationState     ExchangeValidationState   @default(PENDING) @map("validation_state")
+  stageSeq            Int                       @default(0) @map("stage_seq")
+  eventSeq            Int                       @default(0) @map("event_seq")
+  replayCount         Int                       @default(0) @map("replay_count")
+  rolledBack          Boolean                   @default(false) @map("rolled_back")
+  completedAt         DateTime?                 @map("completed_at")
+  metadata            Json?
+  createdAt           DateTime                  @default(now()) @map("created_at")
+  updatedAt           DateTime                  @updatedAt @map("updated_at")
+  deletedAt           DateTime?                 @map("deleted_at")
+
+  session       ExchangeSession    @relation(fields: [sessionId], references: [id])
+  workspace     Workspace          @relation(fields: [workspaceId], references: [id])
+  envelopes     ExchangeEnvelope[]
+  messages      ExchangeMessage[]
+  receipts      ExchangeReceipt[]
+  audits        ExchangeAudit[]
+  historyEvents ExchangeHistory[]
+  lineages      ExchangeLineage[]
+  contexts      ExchangeContext[]
+
+  @@index([sessionId, deletedAt, stage])
+  @@index([workspaceId, deletedAt, stage])
+  @@index([workspaceId, status, createdAt])
+  @@index([parentTransactionId])
+  @@index([transactionId])
+  @@map("exchange_transactions")
+}
+
+model ExchangeEnvelope {
+  id             String                 @id @default(cuid())
+  envelopeId     String                 @unique @default(cuid()) @map("envelope_id")
+  transactionId  String                 @map("transaction_id")
+  sessionId      String                 @map("session_id")
+  workspaceId    String                 @map("workspace_id")
+  payload        Json
+  contentType    String                 @default("application/json") @map("content_type")
+  checksum       String
+  sealed         Boolean                @default(true)
+  ownershipClass ExchangeOwnershipClass @default(WORKSPACE) @map("ownership_class")
+  authority      AuthorityLevel         @default(OPERATIONAL)
+  actorId        String                 @map("actor_id")
+  metadata       Json?
+  sealedAt       DateTime               @default(now()) @map("sealed_at")
+  createdAt      DateTime               @default(now()) @map("created_at")
+
+  transaction ExchangeTransaction @relation(fields: [transactionId], references: [id])
+  session     ExchangeSession     @relation(fields: [sessionId], references: [id])
+  workspace   Workspace           @relation(fields: [workspaceId], references: [id])
+
+  @@index([transactionId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@map("exchange_envelopes")
+}
+
+model ExchangeMessage {
+  id            String              @id @default(cuid())
+  messageId     String              @unique @default(cuid()) @map("message_id")
+  transactionId String              @map("transaction_id")
+  sessionId     String              @map("session_id")
+  workspaceId   String              @map("workspace_id")
+  messageType   ExchangeMessageType @map("message_type")
+  sequence      Int
+  stage         ExchangeStage
+  fromParty     String?             @map("from_party")
+  toParty       String?             @map("to_party")
+  body          String?
+  payload       Json?
+  actorId       String              @map("actor_id")
+  metadata      Json?
+  createdAt     DateTime            @default(now()) @map("created_at")
+
+  transaction ExchangeTransaction @relation(fields: [transactionId], references: [id])
+  session     ExchangeSession     @relation(fields: [sessionId], references: [id])
+  workspace   Workspace           @relation(fields: [workspaceId], references: [id])
+
+  @@index([transactionId, sequence])
+  @@index([workspaceId, createdAt])
+  @@map("exchange_messages")
+}
+
+model ExchangeReceipt {
+  id            String                    @id @default(cuid())
+  receiptId     String                    @unique @default(cuid()) @map("receipt_id")
+  transactionId String                    @map("transaction_id")
+  sessionId     String                    @map("session_id")
+  workspaceId   String                    @map("workspace_id")
+  status        ExchangeReceiptStatus     @default(ISSUED)
+  stage         ExchangeStage
+  trustScore    Float                     @default(0) @map("trust_score")
+  verification  ExchangeVerificationState @default(UNVERIFIED)
+  issuedTo      String?                   @map("issued_to")
+  notes         String?
+  actorId       String                    @map("actor_id")
+  metadata      Json?
+  createdAt     DateTime                  @default(now()) @map("created_at")
+
+  transaction ExchangeTransaction @relation(fields: [transactionId], references: [id])
+  session     ExchangeSession     @relation(fields: [sessionId], references: [id])
+  workspace   Workspace           @relation(fields: [workspaceId], references: [id])
+
+  @@index([transactionId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@map("exchange_receipts")
+}
+
+model ExchangeAudit {
+  id            String               @id @default(cuid())
+  auditId       String               @unique @default(cuid()) @map("audit_id")
+  transactionId String               @map("transaction_id")
+  sessionId     String               @map("session_id")
+  workspaceId   String               @map("workspace_id")
+  dimension     String
+  outcome       ExchangeAuditOutcome
+  stage         ExchangeStage?
+  detail        String?
+  score         Float?
+  actorId       String               @map("actor_id")
+  metadata      Json?
+  createdAt     DateTime             @default(now()) @map("created_at")
+
+  transaction ExchangeTransaction @relation(fields: [transactionId], references: [id])
+  session     ExchangeSession     @relation(fields: [sessionId], references: [id])
+  workspace   Workspace           @relation(fields: [workspaceId], references: [id])
+
+  @@index([transactionId, createdAt])
+  @@index([workspaceId, dimension, createdAt])
+  @@map("exchange_audits")
+}
+
+model ExchangeHistory {
+  id            String            @id @default(cuid())
+  transactionId String?           @map("transaction_id")
+  sessionId     String            @map("session_id")
+  workspaceId   String            @map("workspace_id")
+  eventType     ExchangeEventType @map("event_type")
+  fromStage     ExchangeStage?    @map("from_stage")
+  toStage       ExchangeStage?    @map("to_stage")
+  referenceId   String?           @map("reference_id")
+  notes         String?
+  actorId       String            @map("actor_id")
+  metadata      Json?
+  createdAt     DateTime          @default(now()) @map("created_at")
+
+  transaction ExchangeTransaction? @relation(fields: [transactionId], references: [id])
+  session     ExchangeSession      @relation(fields: [sessionId], references: [id])
+  workspace   Workspace            @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([transactionId, createdAt])
+  @@index([workspaceId, eventType, createdAt])
+  @@map("exchange_history")
+}
+
+model ExchangePolicy {
+  id          String         @id @default(cuid())
+  policyId    String         @unique @default(cuid()) @map("policy_id")
+  sessionId   String         @map("session_id")
+  workspaceId String         @map("workspace_id")
+  name        String
+  policyType  String         @map("policy_type")
+  rules       Json?
+  enabled     Boolean        @default(true)
+  authority   AuthorityLevel @default(OPERATIONAL)
+  actorId     String         @map("actor_id")
+  metadata    Json?
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+  deletedAt   DateTime?      @map("deleted_at")
+
+  session   ExchangeSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace       @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, deletedAt])
+  @@index([workspaceId, policyType, createdAt])
+  @@map("exchange_policies")
+}
+
+model ExchangeLineage {
+  id                  String   @id @default(cuid())
+  lineageId           String   @unique @default(cuid()) @map("lineage_id")
+  transactionId       String   @map("transaction_id")
+  sessionId           String   @map("session_id")
+  workspaceId         String   @map("workspace_id")
+  origin              String?
+  destination         String?
+  parentTransactionId String?  @map("parent_transaction_id")
+  childTransactionId  String?  @map("child_transaction_id")
+  sourceObjectId      String?  @map("source_object_id")
+  sourceObjectType    String?  @map("source_object_type")
+  targetObjectId      String?  @map("target_object_id")
+  targetObjectType    String?  @map("target_object_type")
+  executionChain      Json?    @map("execution_chain")
+  depth               Int      @default(0)
+  actorId             String   @map("actor_id")
+  metadata            Json?
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  transaction ExchangeTransaction @relation(fields: [transactionId], references: [id])
+  session     ExchangeSession     @relation(fields: [sessionId], references: [id])
+  workspace   Workspace           @relation(fields: [workspaceId], references: [id])
+
+  @@index([transactionId, createdAt])
+  @@index([parentTransactionId])
+  @@index([workspaceId, createdAt])
+  @@map("exchange_lineage")
+}
+
+model ExchangeContext {
+  id            String    @id @default(cuid())
+  contextId     String    @unique @default(cuid()) @map("context_id")
+  sessionId     String    @map("session_id")
+  transactionId String?   @map("transaction_id")
+  workspaceId   String    @map("workspace_id")
+  contextType   String    @map("context_type")
+  key           String
+  referenceId   String?   @map("reference_id")
+  referenceType String?   @map("reference_type")
+  payload       Json?
+  version       Int       @default(1)
+  active        Boolean   @default(true)
+  actorId       String    @map("actor_id")
+  metadata      Json?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+
+  session     ExchangeSession      @relation(fields: [sessionId], references: [id])
+  workspace   Workspace            @relation(fields: [workspaceId], references: [id])
+  transaction ExchangeTransaction? @relation(fields: [transactionId], references: [id])
+
+  @@index([sessionId, deletedAt, contextType])
+  @@index([workspaceId, createdAt])
+  @@map("exchange_contexts")
 }

@@ -21,6 +21,7 @@ import { IntentCompilerModule } from './intent-compiler/intent-compiler.module';
 import { IUCModule } from './iuc/iuc.module';
 import { MeasurementModule } from './measurement/measurement.module';
 import { RuntimeModule } from './runtime/runtime.module';
+import { ExchangeModule } from './exchange/exchange.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { RuntimeModule } from './runtime/runtime.module';
     IUCModule,
     MeasurementModule,
     RuntimeModule,
+    ExchangeModule,
     CommitModule,
   ],
 })
