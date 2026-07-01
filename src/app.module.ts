@@ -23,6 +23,7 @@ import { MeasurementModule } from './measurement/measurement.module';
 import { RuntimeModule } from './runtime/runtime.module';
 import { ExchangeModule } from './exchange/exchange.module';
 import { ProofModule } from './proof/proof.module';
+import { MetaModule } from './meta/meta.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { ProofModule } from './proof/proof.module';
     RuntimeModule,
     ExchangeModule,
     ProofModule,
+    MetaModule,
     CommitModule,
   ],
 })

@@ -150,6 +150,23 @@ model Workspace {
   stressHistory       StressHistory[]
   contradictions      Contradiction[]
 
+  metaOrchestrationSessions MetaOrchestrationSession[]
+  metaExecutionPlans        MetaExecutionPlan[]
+  metaExecutionSteps        MetaExecutionStep[]
+  metaExecutionContexts     MetaExecutionContext[]
+  metaExecutionStates       MetaExecutionState[]
+  metaExecutionHistory      MetaExecutionHistory[]
+  metaExecutionEvidence     MetaExecutionEvidence[]
+  metaRoutingDecisions      MetaRoutingDecision[]
+  metaArbitrations          MetaArbitration[]
+  metaMergeRequests         MetaMergeRequest[]
+  metaMergeHistory          MetaMergeHistory[]
+  metaOverrideEvents        MetaOverrideEvent[]
+  metaRoutingPolicies       MetaRoutingPolicy[]
+  metaArbitrationPolicies   MetaArbitrationPolicy[]
+  metaMergePolicies         MetaMergePolicy[]
+  metaExecutionPolicies     MetaExecutionPolicy[]
+
   @@map("workspaces")
 }
 
@@ -3119,4 +3136,483 @@ model Contradiction {
   @@index([workspaceId, type])
   @@index([contradictionId])
   @@map("contradictions")
+}
+
+// ============================================================
+// D14 — Meta-Intelligence Orchestration (Wave 9)
+// Constitutional coordination engine for all Intelligence
+// subsystems. Additive orchestration only — no new engines.
+// ============================================================
+
+enum MetaSessionState {
+  OPEN
+  PLANNING
+  EXECUTING
+  MERGING
+  COMPLETED
+  OVERRIDDEN
+  FAILED
+  ARCHIVED
+}
+
+enum MetaPlanStatus {
+  DRAFT
+  READY
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum MetaStepStatus {
+  PENDING
+  ROUTED
+  RUNNING
+  COMPLETED
+  SKIPPED
+  FAILED
+}
+
+enum MetaExecutionStatus {
+  IDLE
+  RUNNING
+  BLOCKED
+  COMPLETED
+  FAILED
+}
+
+enum MetaRouteTarget {
+  KNOWLEDGE
+  LEARNING
+  RUNTIME
+  EXCHANGE
+  MEASUREMENT
+  CAPITAL
+  INTENT
+  WORKSPACE
+  PROVIDER
+}
+
+enum MetaArbitrationType {
+  CONFLICT
+  PRIORITY
+  AUTHORITY
+  EVIDENCE
+  CAPITAL
+  EXECUTION
+}
+
+enum MetaArbitrationOutcome {
+  RESOLVED
+  ESCALATED
+  DEADLOCK
+}
+
+enum MetaMergeStatus {
+  REQUESTED
+  VALIDATED
+  MERGED
+  REJECTED
+  ROLLED_BACK
+}
+
+enum MetaOverrideType {
+  MANUAL
+  CONSTITUTIONAL
+  PRIORITY
+  EXECUTION
+}
+
+enum MetaPolicyStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model MetaOrchestrationSession {
+  id              String           @id @default(cuid())
+  orchestrationId String           @unique @default(cuid()) @map("orchestration_id")
+  name            String
+  description     String?
+  workspaceId     String           @map("workspace_id")
+  ownerId         String           @map("owner_id")
+  state           MetaSessionState @default(OPEN)
+  objective       String?
+  targetDomain    String?          @map("target_domain")
+  planSeq         Int              @default(0) @map("plan_seq")
+  eventSeq        Int              @default(0) @map("event_seq")
+  overridden      Boolean          @default(false)
+  status          String           @default("ACTIVE")
+  metadata        Json?
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  deletedAt       DateTime?        @map("deleted_at")
+
+  workspace        Workspace               @relation(fields: [workspaceId], references: [id])
+  plans            MetaExecutionPlan[]
+  steps            MetaExecutionStep[]
+  contexts         MetaExecutionContext[]
+  states           MetaExecutionState[]
+  history          MetaExecutionHistory[]
+  evidence         MetaExecutionEvidence[]
+  routingDecisions MetaRoutingDecision[]
+  arbitrations     MetaArbitration[]
+  mergeRequests    MetaMergeRequest[]
+  overrideEvents   MetaOverrideEvent[]
+
+  @@index([workspaceId, deletedAt, state])
+  @@index([workspaceId, createdAt])
+  @@index([orchestrationId])
+  @@map("meta_orchestration_sessions")
+}
+
+model MetaExecutionPlan {
+  id             String         @id @default(cuid())
+  planId         String         @unique @default(cuid()) @map("plan_id")
+  sessionId      String         @map("session_id")
+  workspaceId    String         @map("workspace_id")
+  name           String
+  description    String?
+  status         MetaPlanStatus @default(DRAFT)
+  version        Int            @default(1)
+  stepCount      Int            @default(0) @map("step_count")
+  completedCount Int            @default(0) @map("completed_count")
+  definition     Json?
+  actorId        String         @map("actor_id")
+  startedAt      DateTime?      @map("started_at")
+  completedAt    DateTime?      @map("completed_at")
+  metadata       Json?
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  deletedAt      DateTime?      @map("deleted_at")
+
+  session   MetaOrchestrationSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace                @relation(fields: [workspaceId], references: [id])
+  steps     MetaExecutionStep[]
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, status])
+  @@index([planId])
+  @@map("meta_execution_plans")
+}
+
+model MetaExecutionStep {
+  id            String          @id @default(cuid())
+  stepId        String          @unique @default(cuid()) @map("step_id")
+  planId        String          @map("plan_id")
+  sessionId     String          @map("session_id")
+  workspaceId   String          @map("workspace_id")
+  sequence      Int             @default(0)
+  name          String
+  target        MetaRouteTarget
+  status        MetaStepStatus  @default(PENDING)
+  referenceId   String?         @map("reference_id")
+  referenceType String?         @map("reference_type")
+  routeReason   String?         @map("route_reason")
+  detail        String?
+  actorId       String          @map("actor_id")
+  startedAt     DateTime?       @map("started_at")
+  completedAt   DateTime?       @map("completed_at")
+  metadata      Json?
+  createdAt     DateTime        @default(now()) @map("created_at")
+
+  plan      MetaExecutionPlan        @relation(fields: [planId], references: [id])
+  session   MetaOrchestrationSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace                @relation(fields: [workspaceId], references: [id])
+
+  @@index([planId, sequence])
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, status])
+  @@index([stepId])
+  @@map("meta_execution_steps")
+}
+
+model MetaExecutionContext {
+  id            String   @id @default(cuid())
+  contextId     String   @unique @default(cuid()) @map("context_id")
+  sessionId     String   @map("session_id")
+  workspaceId   String   @map("workspace_id")
+  contextType   String   @map("context_type")
+  referenceId   String?  @map("reference_id")
+  referenceType String?  @map("reference_type")
+  payload       Json?
+  actorId       String   @map("actor_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  session   MetaOrchestrationSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace                @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, contextType])
+  @@map("meta_execution_contexts")
+}
+
+model MetaExecutionState {
+  id          String              @id @default(cuid())
+  sessionId   String              @map("session_id")
+  planId      String?             @map("plan_id")
+  workspaceId String              @map("workspace_id")
+  status      MetaExecutionStatus @default(IDLE)
+  currentStep Int                 @default(0) @map("current_step")
+  totalSteps  Int                 @default(0) @map("total_steps")
+  progress    Float               @default(0)
+  detail      String?
+  actorId     String              @map("actor_id")
+  metadata    Json?
+  createdAt   DateTime            @default(now()) @map("created_at")
+
+  session   MetaOrchestrationSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace                @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, status])
+  @@map("meta_execution_states")
+}
+
+model MetaExecutionHistory {
+  id          String   @id @default(cuid())
+  sessionId   String   @map("session_id")
+  planId      String?  @map("plan_id")
+  workspaceId String   @map("workspace_id")
+  eventType   String   @map("event_type")
+  referenceId String?  @map("reference_id")
+  notes       String?
+  actorId     String   @map("actor_id")
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  session   MetaOrchestrationSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace                @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, eventType])
+  @@map("meta_execution_history")
+}
+
+model MetaExecutionEvidence {
+  id            String   @id @default(cuid())
+  evidenceId    String   @unique @default(cuid()) @map("evidence_id")
+  sessionId     String   @map("session_id")
+  workspaceId   String   @map("workspace_id")
+  evidenceType  String   @map("evidence_type")
+  referenceId   String?  @map("reference_id")
+  referenceType String?  @map("reference_type")
+  summary       String?
+  payload       Json?
+  actorId       String   @map("actor_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  session   MetaOrchestrationSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace                @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, evidenceType])
+  @@index([evidenceId])
+  @@map("meta_execution_evidence")
+}
+
+model MetaRoutingDecision {
+  id                String          @id @default(cuid())
+  routingId         String          @unique @default(cuid()) @map("routing_id")
+  sessionId         String          @map("session_id")
+  stepId            String?         @map("step_id")
+  workspaceId       String          @map("workspace_id")
+  target            MetaRouteTarget
+  intent            String?
+  referenceId       String?         @map("reference_id")
+  referenceType     String?         @map("reference_type")
+  score             Float           @default(0)
+  reason            String?
+  constitutionalRef String?         @map("constitutional_ref")
+  actorId           String          @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime        @default(now()) @map("created_at")
+
+  session   MetaOrchestrationSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace                @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, target])
+  @@index([routingId])
+  @@map("meta_routing_decisions")
+}
+
+model MetaArbitration {
+  id                String                 @id @default(cuid())
+  arbitrationId     String                 @unique @default(cuid()) @map("arbitration_id")
+  sessionId         String                 @map("session_id")
+  workspaceId       String                 @map("workspace_id")
+  type              MetaArbitrationType
+  outcome           MetaArbitrationOutcome @default(RESOLVED)
+  winningPath       String?                @map("winning_path")
+  losingPaths       Json?                  @map("losing_paths")
+  reason            String?
+  constitutionalRef String?                @map("constitutional_ref")
+  actorId           String                 @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime               @default(now()) @map("created_at")
+
+  session   MetaOrchestrationSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace                @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, type])
+  @@index([arbitrationId])
+  @@map("meta_arbitrations")
+}
+
+model MetaMergeRequest {
+  id               String          @id @default(cuid())
+  mergeId          String          @unique @default(cuid()) @map("merge_id")
+  sessionId        String          @map("session_id")
+  workspaceId      String          @map("workspace_id")
+  status           MetaMergeStatus @default(REQUESTED)
+  sourcePaths      Json?           @map("source_paths")
+  validated        Boolean         @default(false)
+  validationDetail String?         @map("validation_detail")
+  mergedResult     Json?           @map("merged_result")
+  rolledBack       Boolean         @default(false)
+  reason           String?
+  actorId          String          @map("actor_id")
+  mergedAt         DateTime?       @map("merged_at")
+  rolledBackAt     DateTime?       @map("rolled_back_at")
+  metadata         Json?
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+
+  session   MetaOrchestrationSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace                @relation(fields: [workspaceId], references: [id])
+  history   MetaMergeHistory[]
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, status])
+  @@index([mergeId])
+  @@map("meta_merge_requests")
+}
+
+model MetaMergeHistory {
+  id          String   @id @default(cuid())
+  mergeRefId  String   @map("merge_ref_id")
+  sessionId   String   @map("session_id")
+  workspaceId String   @map("workspace_id")
+  eventType   String   @map("event_type")
+  notes       String?
+  actorId     String   @map("actor_id")
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  merge     MetaMergeRequest @relation(fields: [mergeRefId], references: [id])
+  workspace Workspace        @relation(fields: [workspaceId], references: [id])
+
+  @@index([mergeRefId, createdAt])
+  @@index([workspaceId, eventType])
+  @@map("meta_merge_history")
+}
+
+model MetaOverrideEvent {
+  id                  String           @id @default(cuid())
+  overrideId          String           @unique @default(cuid()) @map("override_id")
+  sessionId           String           @map("session_id")
+  workspaceId         String           @map("workspace_id")
+  overrideType        MetaOverrideType @map("override_type")
+  targetReferenceId   String?          @map("target_reference_id")
+  targetReferenceType String?          @map("target_reference_type")
+  directive           String
+  reason              String?
+  constitutionalRef   String?          @map("constitutional_ref")
+  actorId             String           @map("actor_id")
+  metadata            Json?
+  createdAt           DateTime         @default(now()) @map("created_at")
+
+  session   MetaOrchestrationSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace                @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, overrideType])
+  @@index([overrideId])
+  @@map("meta_override_events")
+}
+
+model MetaRoutingPolicy {
+  id          String           @id @default(cuid())
+  policyId    String           @unique @default(cuid()) @map("policy_id")
+  workspaceId String           @map("workspace_id")
+  name        String
+  description String?
+  target      MetaRouteTarget?
+  status      MetaPolicyStatus @default(ACTIVE)
+  rules       Json?
+  actorId     String           @map("actor_id")
+  metadata    Json?
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+  deletedAt   DateTime?        @map("deleted_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, deletedAt, status])
+  @@index([policyId])
+  @@map("meta_routing_policies")
+}
+
+model MetaArbitrationPolicy {
+  id          String               @id @default(cuid())
+  policyId    String               @unique @default(cuid()) @map("policy_id")
+  workspaceId String               @map("workspace_id")
+  name        String
+  description String?
+  type        MetaArbitrationType?
+  status      MetaPolicyStatus     @default(ACTIVE)
+  rules       Json?
+  actorId     String               @map("actor_id")
+  metadata    Json?
+  createdAt   DateTime             @default(now()) @map("created_at")
+  updatedAt   DateTime             @updatedAt @map("updated_at")
+  deletedAt   DateTime?            @map("deleted_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, deletedAt, status])
+  @@index([policyId])
+  @@map("meta_arbitration_policies")
+}
+
+model MetaMergePolicy {
+  id          String           @id @default(cuid())
+  policyId    String           @unique @default(cuid()) @map("policy_id")
+  workspaceId String           @map("workspace_id")
+  name        String
+  description String?
+  status      MetaPolicyStatus @default(ACTIVE)
+  rules       Json?
+  actorId     String           @map("actor_id")
+  metadata    Json?
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+  deletedAt   DateTime?        @map("deleted_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, deletedAt, status])
+  @@index([policyId])
+  @@map("meta_merge_policies")
+}
+
+model MetaExecutionPolicy {
+  id          String           @id @default(cuid())
+  policyId    String           @unique @default(cuid()) @map("policy_id")
+  workspaceId String           @map("workspace_id")
+  name        String
+  description String?
+  status      MetaPolicyStatus @default(ACTIVE)
+  rules       Json?
+  actorId     String           @map("actor_id")
+  metadata    Json?
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+  deletedAt   DateTime?        @map("deleted_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, deletedAt, status])
+  @@index([policyId])
+  @@map("meta_execution_policies")
 }

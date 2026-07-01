@@ -2407,6 +2407,150 @@ describe('ONX Intelligence (e2e)', () => {
     await request(server).get('/stress/dashboard').expect(401);
   });
 
+  it('IW-13: D14 meta-intelligence orchestration — orchestration, routing, arbitration, merge, override, governance, coordination, isolation, audit, OpenAPI', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).get('/meta/dashboard').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+
+    // --- Create an orchestration session (Part A) ---
+    const sessionRes = await auth(request(server).post('/meta/orchestrations'))
+      .send({
+        name: 'Capital reconciliation',
+        objective: 'reconcile capital',
+        targetDomain: 'CAPITAL',
+      })
+      .expect(201);
+    const sessionId = sessionRes.body.id;
+    expect(sessionId).toBeDefined();
+    expect(sessionRes.body.state).toBe('OPEN');
+
+    // --- Start orchestration — builds a routed plan (Part A/B) ---
+    const startRes = await auth(request(server).post(`/meta/orchestrations/${sessionId}/start`))
+      .send({
+        planName: 'Plan v1',
+        steps: [
+          { name: 'Load capital', intent: 'allocate capital' },
+          { name: 'Run session', target: 'RUNTIME' },
+        ],
+      })
+      .expect(201);
+    expect(startRes.body.plan.stepCount).toBe(2);
+
+    // --- Execution plan + state + history (Part A) ---
+    const planRes = await auth(
+      request(server).get(`/meta/orchestrations/${sessionId}/plan`),
+    ).expect(200);
+    expect(planRes.body.steps.length).toBe(2);
+    expect(planRes.body.steps[0].target).toBe('CAPITAL');
+
+    const stateRes = await auth(
+      request(server).get(`/meta/orchestrations/${sessionId}/state`),
+    ).expect(200);
+    expect(stateRes.body.status).toBe('RUNNING');
+
+    // --- Routing engine (Part B) ---
+    const routeRes = await auth(request(server).post(`/meta/orchestrations/${sessionId}/route`))
+      .send({ intent: 'measure benchmark score' })
+      .expect(201);
+    expect(routeRes.body.target).toBe('MEASUREMENT');
+    expect(routeRes.body.constitutionalRef).toContain('D17');
+
+    // --- Arbitration engine (Part C) ---
+    const arbRes = await auth(request(server).post(`/meta/orchestrations/${sessionId}/arbitrate`))
+      .send({
+        type: 'PRIORITY',
+        paths: [
+          { id: 'path-a', priority: 0.9 },
+          { id: 'path-b', priority: 0.2 },
+        ],
+      })
+      .expect(201);
+    expect(arbRes.body.winningPath).toBe('path-a');
+    expect(arbRes.body.outcome).toBe('RESOLVED');
+
+    // --- Merge engine (Part D) ---
+    const mergeRes = await auth(request(server).post(`/meta/orchestrations/${sessionId}/merge`))
+      .send({ sourcePaths: ['path-a', 'path-c'] })
+      .expect(201);
+    const mergeId = mergeRes.body.id;
+    expect(mergeRes.body.validated).toBe(true);
+
+    const commitRes = await auth(request(server).post(`/meta/merges/${mergeId}/commit`))
+      .send({})
+      .expect(201);
+    expect(commitRes.body.status).toBe('MERGED');
+
+    const rollbackRes = await auth(request(server).post(`/meta/merges/${mergeId}/rollback`))
+      .send({ reason: 'reverting' })
+      .expect(201);
+    expect(rollbackRes.body.status).toBe('ROLLED_BACK');
+
+    // --- Governance policy (Part G) ---
+    const policyRes = await auth(request(server).post('/meta/policies'))
+      .send({ name: 'Capital-first routing', policyType: 'ROUTING', target: 'CAPITAL' })
+      .expect(201);
+    expect(policyRes.body.policyType).toBe('ROUTING');
+    const policiesRes = await auth(request(server).get('/meta/policies')).expect(200);
+    expect(policiesRes.body.routing.length).toBeGreaterThanOrEqual(1);
+
+    // --- Founder override (Part E) — immutable, locks the session ---
+    const overrideRes = await auth(
+      request(server).post(`/meta/orchestrations/${sessionId}/override`),
+    )
+      .send({ overrideType: 'CONSTITUTIONAL', directive: 'Force path A under founder authority' })
+      .expect(201);
+    expect(overrideRes.body.overrideType).toBe('CONSTITUTIONAL');
+    // Session is now overridden — starting again is refused
+    await auth(request(server).post(`/meta/orchestrations/${sessionId}/start`))
+      .send({})
+      .expect(400);
+
+    // --- History trail (Part A) ---
+    const historyRes = await auth(
+      request(server).get(`/meta/orchestrations/${sessionId}/history`),
+    ).expect(200);
+    expect(historyRes.body.some((e: any) => e.eventType === 'FOUNDER_OVERRIDE')).toBe(true);
+    expect(historyRes.body.some((e: any) => e.eventType === 'ARBITRATED')).toBe(true);
+
+    // --- Dashboard + cross-runtime coordination (Part F) ---
+    const dashRes = await auth(request(server).get('/meta/dashboard')).expect(200);
+    expect(dashRes.body.routing.supportedTargets.length).toBe(9);
+    expect(dashRes.body.coordination.coordinatedRuntimes).toContain('IUC');
+    expect(dashRes.body.coordination.footprint).toHaveProperty('D18');
+
+    // --- Workspace isolation ---
+    const peerToken = await registerAndLogin(`e2e-iw13-peer-${Date.now()}@onx.test`);
+    await request(server)
+      .get(`/meta/orchestrations/${sessionId}`)
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(404);
+
+    // --- Audit trail ---
+    const metaAudit = await listAudit('META_');
+    expect(metaAudit.some((item) => item.action === 'META_CREATE_ORCHESTRATION')).toBe(true);
+    expect(metaAudit.some((item) => item.action === 'META_ROUTE')).toBe(true);
+    expect(metaAudit.some((item) => item.action === 'META_ARBITRATE')).toBe(true);
+    expect(metaAudit.some((item) => item.action === 'META_OVERRIDE')).toBe(true);
+    metaAudit.slice(0, 3).forEach(expectUnifiedAuditShape);
+
+    // --- OpenAPI exposure ---
+    const openApi = await request(server).get('/api/docs-json').expect(200);
+    expect(openApi.body.paths['/meta/orchestrations']).toBeDefined();
+    expect(openApi.body.paths['/meta/dashboard']).toBeDefined();
+    expect(openApi.body.paths['/meta/policies']).toBeDefined();
+    expect(openApi.body.paths['/meta/orchestrations/{id}/start']).toBeDefined();
+    expect(openApi.body.paths['/meta/orchestrations/{id}/route']).toBeDefined();
+    expect(openApi.body.paths['/meta/orchestrations/{id}/arbitrate']).toBeDefined();
+    expect(openApi.body.paths['/meta/orchestrations/{id}/merge']).toBeDefined();
+    expect(openApi.body.paths['/meta/orchestrations/{id}/override']).toBeDefined();
+
+    await request(server).get('/meta/dashboard').expect(401);
+  });
+
   it('reporting depth supports summaries, details, filtering, sorting, date range, and audit compatibility', async () => {
     if (!hasDatabase || !hasSchema) {
       await request(app.getHttpServer()).get('/reports').expect(401);
