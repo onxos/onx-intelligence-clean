@@ -224,6 +224,15 @@ model Workspace {
   decisionValidations DecisionValidation[]
   decisionHistory     DecisionHistory[]
 
+  implementationUnits        ImplementationUnit[]
+  implementationPackages     ImplementationPackage[]
+  implementationDependencies ImplementationDependency[]
+  implementationBoundaries   ImplementationBoundary[]
+  implementationEvidence     ImplementationEvidence[]
+  implementationHistory      ImplementationHistory[]
+  buildProfiles              BuildProfile[]
+  deploymentProfiles         DeploymentProfile[]
+
   @@map("workspaces")
 }
 
@@ -5135,7 +5144,7 @@ model DecisionSession {
   confidence           Float                 @default(0)
   verdict              DecisionVerdictKind?
   selectedCandidateId  String?               @map("selected_candidate_id")
-  riskLevel            DecisionRiskLevel?     @map("risk_level")
+  riskLevel            DecisionRiskLevel?    @map("risk_level")
   constraintsSatisfied Boolean               @default(true) @map("constraints_satisfied")
   candidateCount       Int                   @default(0) @map("candidate_count")
   constitutionalRef    String?               @map("constitutional_ref")
@@ -5226,22 +5235,22 @@ model DecisionCandidate {
 }
 
 model DecisionEvaluation {
-  id                String            @id @default(cuid())
-  evaluationId      String            @unique @default(cuid()) @map("evaluation_id")
-  candidateId       String            @map("candidate_id")
-  sessionId         String            @map("session_id")
-  workspaceId       String            @map("workspace_id")
-  mode              DecisionMode
-  score             Float             @default(0)
-  benefitScore      Float             @default(0) @map("benefit_score")
-  riskScore         Float             @default(0) @map("risk_score")
-  riskLevel         DecisionRiskLevel @default(MODERATE) @map("risk_level")
-  constitutionalPass Boolean          @default(true) @map("constitutional_pass")
-  constraintPass    Boolean           @default(true) @map("constraint_pass")
-  rationale         String?
-  actorId           String            @map("actor_id")
-  metadata          Json?
-  createdAt         DateTime          @default(now()) @map("created_at")
+  id                 String            @id @default(cuid())
+  evaluationId       String            @unique @default(cuid()) @map("evaluation_id")
+  candidateId        String            @map("candidate_id")
+  sessionId          String            @map("session_id")
+  workspaceId        String            @map("workspace_id")
+  mode               DecisionMode
+  score              Float             @default(0)
+  benefitScore       Float             @default(0) @map("benefit_score")
+  riskScore          Float             @default(0) @map("risk_score")
+  riskLevel          DecisionRiskLevel @default(MODERATE) @map("risk_level")
+  constitutionalPass Boolean           @default(true) @map("constitutional_pass")
+  constraintPass     Boolean           @default(true) @map("constraint_pass")
+  rationale          String?
+  actorId            String            @map("actor_id")
+  metadata           Json?
+  createdAt          DateTime          @default(now()) @map("created_at")
 
   candidate DecisionCandidate @relation(fields: [candidateId], references: [id])
   session   DecisionSession   @relation(fields: [sessionId], references: [id])
@@ -5276,22 +5285,22 @@ model DecisionConstraint {
 }
 
 model DecisionVerdict {
-  id                  String              @id @default(cuid())
-  verdictId           String              @unique @default(cuid()) @map("verdict_id")
-  sessionId           String              @map("session_id")
-  workspaceId         String              @map("workspace_id")
-  mode                DecisionMode
-  kind                DecisionVerdictKind
-  selectedCandidateId String?             @map("selected_candidate_id")
-  confidence          Float               @default(0)
-  riskLevel           DecisionRiskLevel   @default(MODERATE) @map("risk_level")
-  constraintsSatisfied Boolean            @default(true) @map("constraints_satisfied")
-  rationale           String?
-  constitutionalRef   String?             @map("constitutional_ref")
-  alternatives        Json?
-  trace               Json?
-  actorId             String              @map("actor_id")
-  createdAt           DateTime            @default(now()) @map("created_at")
+  id                   String              @id @default(cuid())
+  verdictId            String              @unique @default(cuid()) @map("verdict_id")
+  sessionId            String              @map("session_id")
+  workspaceId          String              @map("workspace_id")
+  mode                 DecisionMode
+  kind                 DecisionVerdictKind
+  selectedCandidateId  String?             @map("selected_candidate_id")
+  confidence           Float               @default(0)
+  riskLevel            DecisionRiskLevel   @default(MODERATE) @map("risk_level")
+  constraintsSatisfied Boolean             @default(true) @map("constraints_satisfied")
+  rationale            String?
+  constitutionalRef    String?             @map("constitutional_ref")
+  alternatives         Json?
+  trace                Json?
+  actorId              String              @map("actor_id")
+  createdAt            DateTime            @default(now()) @map("created_at")
 
   session   DecisionSession @relation(fields: [sessionId], references: [id])
   workspace Workspace       @relation(fields: [workspaceId], references: [id])
@@ -5366,4 +5375,284 @@ model DecisionHistory {
   @@index([sessionId, createdAt])
   @@index([workspaceId, eventType])
   @@map("decision_history")
+}
+
+// ===========================================================================
+// D20 — Implementation Boundary & Build Architecture (IW-20, Wave 16)
+// Governance/documentation layer: how ONX Intelligence is built, assembled,
+// validated and deployed. It introduces NO new intelligence capabilities.
+// ===========================================================================
+
+enum ImplementationUnitKind {
+  RUNTIME
+  ENGINE
+  PROTOCOL
+  GOVERNANCE
+  REGISTRY
+  INTERFACE
+  INFRASTRUCTURE
+}
+
+enum ImplementationUnitStatus {
+  DECLARED
+  VALIDATED
+  BUILT
+  DEPLOYED
+  DEPRECATED
+  OVERRIDDEN
+}
+
+enum ImplementationBoundaryKind {
+  EXECUTION
+  RUNTIME
+  BUILD
+  DEPLOYMENT
+  DEPENDENCY
+}
+
+enum ImplementationDependencyKind {
+  REQUIRED
+  OPTIONAL
+  PEER
+  BUILD
+  RUNTIME
+}
+
+enum BuildProfileStatus {
+  DRAFT
+  VALIDATED
+  FAILED
+  PUBLISHED
+}
+
+enum DeploymentProfileStatus {
+  DRAFT
+  VALIDATED
+  FAILED
+  DEPLOYED
+  ROLLED_BACK
+}
+
+enum DeploymentEnvironment {
+  DEVELOPMENT
+  STAGING
+  PRODUCTION
+}
+
+model ImplementationUnit {
+  id                 String                   @id @default(cuid())
+  unitId             String                   @unique @default(cuid()) @map("unit_id")
+  workspaceId        String                   @map("workspace_id")
+  ownerId            String                   @map("owner_id")
+  name               String
+  slug               String
+  kind               ImplementationUnitKind
+  status             ImplementationUnitStatus @default(DECLARED)
+  executionScope     String                   @map("execution_scope")
+  ownership          String
+  runtimeBoundary    String?                  @map("runtime_boundary")
+  buildBoundary      String?                  @map("build_boundary")
+  deploymentBoundary String?                  @map("deployment_boundary")
+  packageId          String?                  @map("package_id")
+  version            Int                      @default(1)
+  dependencyCount    Int                      @default(0) @map("dependency_count")
+  boundaryCount      Int                      @default(0) @map("boundary_count")
+  constitutionalRef  String?                  @map("constitutional_ref")
+  overridden         Boolean                  @default(false)
+  metadata           Json?
+  createdAt          DateTime                 @default(now()) @map("created_at")
+  updatedAt          DateTime                 @updatedAt @map("updated_at")
+  deletedAt          DateTime?                @map("deleted_at")
+
+  workspace       Workspace                  @relation(fields: [workspaceId], references: [id])
+  package         ImplementationPackage?     @relation(fields: [packageId], references: [id])
+  boundaries      ImplementationBoundary[]
+  dependenciesOut ImplementationDependency[] @relation("ImplementationDependencyFrom")
+  dependenciesIn  ImplementationDependency[] @relation("ImplementationDependencyTo")
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId, deletedAt, status])
+  @@index([workspaceId, kind])
+  @@index([workspaceId, createdAt])
+  @@index([packageId])
+  @@index([unitId])
+  @@map("implementation_units")
+}
+
+model ImplementationPackage {
+  id                String                   @id @default(cuid())
+  packageId         String                   @unique @default(cuid()) @map("package_id")
+  workspaceId       String                   @map("workspace_id")
+  ownerId           String                   @map("owner_id")
+  name              String
+  slug              String
+  description       String?
+  status            ImplementationUnitStatus @default(DECLARED)
+  version           Int                      @default(1)
+  unitCount         Int                      @default(0) @map("unit_count")
+  constitutionalRef String?                  @map("constitutional_ref")
+  overridden        Boolean                  @default(false)
+  metadata          Json?
+  createdAt         DateTime                 @default(now()) @map("created_at")
+  updatedAt         DateTime                 @updatedAt @map("updated_at")
+  deletedAt         DateTime?                @map("deleted_at")
+
+  workspace Workspace            @relation(fields: [workspaceId], references: [id])
+  units     ImplementationUnit[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId, deletedAt])
+  @@index([workspaceId, createdAt])
+  @@index([packageId])
+  @@map("implementation_packages")
+}
+
+model ImplementationDependency {
+  id           String                       @id @default(cuid())
+  dependencyId String                       @unique @default(cuid()) @map("dependency_id")
+  workspaceId  String                       @map("workspace_id")
+  fromUnitId   String                       @map("from_unit_id")
+  toUnitId     String                       @map("to_unit_id")
+  kind         ImplementationDependencyKind @default(REQUIRED)
+  required     Boolean                      @default(true)
+  satisfied    Boolean                      @default(true)
+  cyclic       Boolean                      @default(false)
+  notes        String?
+  actorId      String                       @map("actor_id")
+  metadata     Json?
+  createdAt    DateTime                     @default(now()) @map("created_at")
+
+  workspace Workspace          @relation(fields: [workspaceId], references: [id])
+  fromUnit  ImplementationUnit @relation("ImplementationDependencyFrom", fields: [fromUnitId], references: [id])
+  toUnit    ImplementationUnit @relation("ImplementationDependencyTo", fields: [toUnitId], references: [id])
+
+  @@unique([fromUnitId, toUnitId, kind])
+  @@index([workspaceId, createdAt])
+  @@index([fromUnitId])
+  @@index([toUnitId])
+  @@map("implementation_dependencies")
+}
+
+model ImplementationBoundary {
+  id                String                     @id @default(cuid())
+  boundaryId        String                     @unique @default(cuid()) @map("boundary_id")
+  workspaceId       String                     @map("workspace_id")
+  unitId            String                     @map("unit_id")
+  kind              ImplementationBoundaryKind
+  scope             String
+  allowed           Boolean                    @default(true)
+  description       String?
+  constitutionalRef String?                    @map("constitutional_ref")
+  actorId           String                     @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime                   @default(now()) @map("created_at")
+
+  workspace Workspace          @relation(fields: [workspaceId], references: [id])
+  unit      ImplementationUnit @relation(fields: [unitId], references: [id])
+
+  @@index([workspaceId, createdAt])
+  @@index([unitId, kind])
+  @@map("implementation_boundaries")
+}
+
+model ImplementationEvidence {
+  id           String   @id @default(cuid())
+  evidenceId   String   @unique @default(cuid()) @map("evidence_id")
+  workspaceId  String   @map("workspace_id")
+  subjectType  String   @map("subject_type")
+  subjectId    String   @map("subject_id")
+  evidenceType String   @map("evidence_type")
+  summary      String?
+  confidence   Float    @default(1)
+  payload      Json
+  actorId      String   @map("actor_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, createdAt])
+  @@index([subjectType, subjectId])
+  @@map("implementation_evidence")
+}
+
+model ImplementationHistory {
+  id                String   @id @default(cuid())
+  workspaceId       String   @map("workspace_id")
+  subjectType       String   @map("subject_type")
+  subjectId         String   @map("subject_id")
+  eventType         String   @map("event_type")
+  referenceId       String?  @map("reference_id")
+  referenceType     String?  @map("reference_type")
+  constitutionalRef String?  @map("constitutional_ref")
+  notes             String?
+  actorId           String   @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, createdAt])
+  @@index([subjectType, subjectId])
+  @@map("implementation_history")
+}
+
+model BuildProfile {
+  id                String             @id @default(cuid())
+  buildProfileId    String             @unique @default(cuid()) @map("build_profile_id")
+  workspaceId       String             @map("workspace_id")
+  ownerId           String             @map("owner_id")
+  name              String
+  profile           String
+  packageRef        String?            @map("package_ref")
+  status            BuildProfileStatus @default(DRAFT)
+  valid             Boolean            @default(false)
+  stages            Json
+  artifacts         Json?
+  compatibility     Json?
+  buildMetadata     Json?              @map("build_metadata")
+  issues            Json?
+  constitutionalRef String?            @map("constitutional_ref")
+  version           Int                @default(1)
+  overridden        Boolean            @default(false)
+  metadata          Json?
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  deletedAt         DateTime?          @map("deleted_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, deletedAt, status])
+  @@index([workspaceId, createdAt])
+  @@index([buildProfileId])
+  @@map("build_profiles")
+}
+
+model DeploymentProfile {
+  id                  String                  @id @default(cuid())
+  deploymentProfileId String                  @unique @default(cuid()) @map("deployment_profile_id")
+  workspaceId         String                  @map("workspace_id")
+  ownerId             String                  @map("owner_id")
+  name                String
+  environment         DeploymentEnvironment   @default(DEVELOPMENT)
+  buildProfileRef     String?                 @map("build_profile_ref")
+  status              DeploymentProfileStatus @default(DRAFT)
+  valid               Boolean                 @default(false)
+  rollbackReady       Boolean                 @default(false) @map("rollback_ready")
+  rollbackMetadata    Json?                   @map("rollback_metadata")
+  validationIssues    Json?                   @map("validation_issues")
+  constitutionalRef   String?                 @map("constitutional_ref")
+  version             Int                     @default(1)
+  overridden          Boolean                 @default(false)
+  metadata            Json?
+  createdAt           DateTime                @default(now()) @map("created_at")
+  updatedAt           DateTime                @updatedAt @map("updated_at")
+  deletedAt           DateTime?               @map("deleted_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, deletedAt, status])
+  @@index([workspaceId, environment])
+  @@index([workspaceId, createdAt])
+  @@index([deploymentProfileId])
+  @@map("deployment_profiles")
 }

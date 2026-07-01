@@ -3353,6 +3353,179 @@ describe('ONX Intelligence (e2e)', () => {
     await request(server).get('/decision/dashboard').expect(401);
   });
 
+  it('IW-20: D20 Implementation Boundary — register packages/units, boundaries, dependencies, graph, build, deployment, compatibility, validation, override, dashboard, isolation, audit, OpenAPI', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).get('/d20/dashboard').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+    const stamp = Date.now();
+
+    // --- Part A: register a package ---
+    const pkgRes = await auth(request(server).post('/d20/packages'))
+      .send({ name: 'Core Package', slug: `core-${stamp}`, description: 'core modules' })
+      .expect(201);
+    expect(pkgRes.body.status).toBe('DECLARED');
+
+    // --- Part A: register units (attached to the package) ---
+    const unitA = await auth(request(server).post('/d20/units'))
+      .send({
+        name: 'Reasoning Runtime',
+        slug: `reasoning-${stamp}`,
+        kind: 'RUNTIME',
+        executionScope: 'runtime',
+        ownership: 'core',
+        packageSlug: `core-${stamp}`,
+      })
+      .expect(201);
+    expect(unitA.body.status).toBe('DECLARED');
+    const unitAId = unitA.body.id;
+
+    const unitB = await auth(request(server).post('/d20/units'))
+      .send({
+        name: 'Decision Engine',
+        slug: `decision-${stamp}`,
+        kind: 'ENGINE',
+        executionScope: 'runtime',
+        ownership: 'core',
+        packageSlug: `core-${stamp}`,
+      })
+      .expect(201);
+    const unitBId = unitB.body.id;
+
+    // --- Part B: declare boundaries ---
+    await auth(request(server).post(`/d20/units/${unitAId}/boundaries`))
+      .send({ kind: 'EXECUTION', scope: 'runtime-only' })
+      .expect(201);
+    await auth(request(server).post(`/d20/units/${unitBId}/boundaries`))
+      .send({ kind: 'DEPLOYMENT', scope: 'staging+production' })
+      .expect(201);
+
+    // --- Part A/D: declare a dependency ---
+    const dep = await auth(request(server).post('/d20/dependencies'))
+      .send({ fromSlug: `decision-${stamp}`, toSlug: `reasoning-${stamp}`, kind: 'REQUIRED' })
+      .expect(201);
+    expect(dep.body.cyclic).toBe(false);
+
+    // self-dependency is rejected
+    await auth(request(server).post('/d20/dependencies'))
+      .send({ fromSlug: `decision-${stamp}`, toSlug: `decision-${stamp}` })
+      .expect(400);
+
+    // --- Part B/D: dependency graph ---
+    const graphRes = await auth(request(server).get('/d20/dependencies/graph')).expect(200);
+    expect(graphRes.body.units.length).toBeGreaterThanOrEqual(2);
+    expect(graphRes.body.graph.cyclic).toBe(false);
+    expect(graphRes.body.validation.valid).toBe(true);
+
+    // --- Part C: create + validate a build profile ---
+    const buildRes = await auth(request(server).post('/d20/builds'))
+      .send({
+        name: 'CI Build',
+        profile: 'ci',
+        packageSlug: `core-${stamp}`,
+        stages: ['RESOLVE_DEPENDENCIES', 'COMPILE', 'VALIDATE', 'PACKAGE', 'VERIFY', 'PUBLISH'],
+        artifacts: ['bundle.js'],
+        compatibility: [
+          { module: 'REASONING', level: 'COMPATIBLE' },
+          { module: 'DECISION', level: 'COMPATIBLE' },
+        ],
+      })
+      .expect(201);
+    expect(buildRes.body.valid).toBe(true);
+    const buildId = buildRes.body.id;
+
+    const buildValidate = await auth(
+      request(server).post(`/d20/builds/${buildId}/validate`),
+    ).expect(201);
+    expect(buildValidate.body.valid).toBe(true);
+
+    await auth(request(server).get('/d20/builds')).expect(200);
+
+    // --- Part E: create + validate a production deployment (with rollback) ---
+    const deployRes = await auth(request(server).post('/d20/deployments'))
+      .send({
+        name: 'Prod Deployment',
+        environment: 'PRODUCTION',
+        rollbackMetadata: { strategy: 'blue-green', previous: 'v1' },
+      })
+      .expect(201);
+    expect(deployRes.body.valid).toBe(true);
+    expect(deployRes.body.rollbackReady).toBe(true);
+    const deployId = deployRes.body.id;
+
+    await auth(request(server).post(`/d20/deployments/${deployId}/validate`)).expect(201);
+    await auth(request(server).get('/d20/deployments')).expect(200);
+
+    // production without rollback metadata fails validation (but persists)
+    const badDeploy = await auth(request(server).post('/d20/deployments'))
+      .send({ name: 'No Rollback', environment: 'PRODUCTION' })
+      .expect(201);
+    expect(badDeploy.body.valid).toBe(false);
+
+    // --- Compatibility report ---
+    const compat = await auth(request(server).get('/d20/compatibility')).expect(200);
+    expect(compat.body.report.overall).toBe('COMPATIBLE');
+    expect(compat.body.reusedModules).toContain('REASONING');
+    expect(compat.body.reusedModules).toContain('DECISION');
+
+    // --- Aggregate implementation validation ---
+    const validation = await auth(request(server).post('/d20/validate')).expect(201);
+    expect(validation.body.validation.checks.length).toBe(5);
+    expect(validation.body.validation.valid).toBe(true);
+
+    // --- Founder override (immutable) ---
+    const overrideRes = await auth(request(server).post(`/d20/units/${unitAId}/override`))
+      .send({ directive: 'Freeze reasoning runtime implementation' })
+      .expect(201);
+    expect(overrideRes.body.overridden).toBe(true);
+    expect(overrideRes.body.status).toBe('OVERRIDDEN');
+
+    // a dependency from an overridden unit is rejected
+    await auth(request(server).post('/d20/dependencies'))
+      .send({ fromSlug: `reasoning-${stamp}`, toSlug: `decision-${stamp}` })
+      .expect(400);
+
+    // --- Dashboard ---
+    const dash = await auth(request(server).get('/d20/dashboard')).expect(200);
+    expect(dash.body.registry.units).toBeGreaterThanOrEqual(2);
+    expect(dash.body.supportedKinds.length).toBe(7);
+    expect(dash.body.buildStages.length).toBe(6);
+    expect(dash.body.environments.length).toBe(3);
+    expect(dash.body.reusedModules).toContain('REASONING');
+    expect(dash.body.reusedModules).toContain('DECISION');
+
+    // --- Workspace isolation ---
+    const peerToken = await registerAndLogin(`e2e-iw20-peer-${stamp}@onx.test`);
+    await request(server)
+      .get(`/d20/units/${unitAId}`)
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(404);
+
+    // --- Audit trail ---
+    const d20Audit = await listAudit('D20_');
+    expect(d20Audit.some((item) => item.action === 'D20_REGISTER_UNIT')).toBe(true);
+    expect(d20Audit.some((item) => item.action === 'D20_DECLARE_DEPENDENCY')).toBe(true);
+    expect(d20Audit.some((item) => item.action === 'D20_CREATE_BUILD')).toBe(true);
+    expect(d20Audit.some((item) => item.action === 'D20_VALIDATE')).toBe(true);
+    expect(d20Audit.some((item) => item.action === 'D20_OVERRIDE')).toBe(true);
+    d20Audit.slice(0, 3).forEach(expectUnifiedAuditShape);
+
+    // --- OpenAPI exposure ---
+    const openApi = await request(server).get('/api/docs-json').expect(200);
+    expect(openApi.body.paths['/d20/units']).toBeDefined();
+    expect(openApi.body.paths['/d20/dashboard']).toBeDefined();
+    expect(openApi.body.paths['/d20/dependencies/graph']).toBeDefined();
+    expect(openApi.body.paths['/d20/builds']).toBeDefined();
+    expect(openApi.body.paths['/d20/deployments']).toBeDefined();
+    expect(openApi.body.paths['/d20/compatibility']).toBeDefined();
+    expect(openApi.body.paths['/d20/validate']).toBeDefined();
+
+    await request(server).get('/d20/dashboard').expect(401);
+  });
+
   it('reporting depth supports summaries, details, filtering, sorting, date range, and audit compatibility', async () => {
     if (!hasDatabase || !hasSchema) {
       await request(app.getHttpServer()).get('/reports').expect(401);

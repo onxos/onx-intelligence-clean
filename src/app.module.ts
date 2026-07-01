@@ -30,6 +30,7 @@ import { FiarModule } from './fiar/fiar.module';
 import { ReasoningModule } from './reasoning/reasoning.module';
 import { PlanningModule } from './planning/planning.module';
 import { DecisionModule } from './decision/decision.module';
+import { D20Module } from './d20/d20.module';
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { DecisionModule } from './decision/decision.module';
     ReasoningModule,
     PlanningModule,
     DecisionModule,
+    D20Module,
     CommitModule,
   ],
 })
