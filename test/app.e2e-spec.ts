@@ -2808,6 +2808,138 @@ describe('ONX Intelligence (e2e)', () => {
     await request(server).get('/ifc/dashboard').expect(401);
   });
 
+  it('IW-16: FIAR frontier intelligence asset registry — registration, classification, ownership, relationships, lineage, lifecycle, governance, override, history, isolation, audit, OpenAPI', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).get('/fiar/dashboard').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+
+    // --- Register a strategic intelligence asset (Part A/C) ---
+    const assetRes = await auth(request(server).post('/fiar/assets'))
+      .send({
+        name: 'Institutional flourishing profile',
+        assetClass: 'KNOWLEDGE',
+        referenceId: 'ifc-profile-1',
+        referenceType: 'IFCProfile',
+      })
+      .expect(201);
+    const assetId = assetRes.body.id;
+    expect(assetId).toBeDefined();
+    expect(assetRes.body.status).toBe('DRAFT');
+    expect(assetRes.body.sourceRuntime).toBe('D16');
+
+    // --- Asset detail exposes active classification + ownership (Part C) ---
+    const detailRes = await auth(request(server).get(`/fiar/assets/${assetId}`)).expect(200);
+    expect(detailRes.body.classification.assetClass).toBe('KNOWLEDGE');
+    expect(detailRes.body.ownership).toBeDefined();
+
+    // --- Reclassify the asset (Part B/C) ---
+    const classifyRes = await auth(request(server).post(`/fiar/assets/${assetId}/classify`))
+      .send({ assetClass: 'CAPITAL', rationale: 'Recognized as capital asset' })
+      .expect(201);
+    expect(classifyRes.body.assetClass).toBe('CAPITAL');
+
+    // --- Assign ownership (Part C) ---
+    await auth(request(server).post(`/fiar/assets/${assetId}/ownership`))
+      .send({ ownerId: 'founder-1', ownershipKind: 'INSTITUTIONAL' })
+      .expect(201);
+
+    // --- Register a second asset and relate them (Part C dependency graph) ---
+    const asset2Res = await auth(request(server).post('/fiar/assets'))
+      .send({ name: 'Measurement profile', assetClass: 'MEASUREMENT' })
+      .expect(201);
+    const asset2Id = asset2Res.body.id;
+    await auth(request(server).post(`/fiar/assets/${assetId}/relationships`))
+      .send({ targetAssetId: asset2Id, kind: 'DEPENDS_ON' })
+      .expect(201);
+
+    // --- Dependency graph + lineage (Part C) ---
+    const graphRes = await auth(
+      request(server).get(`/fiar/assets/${assetId}/relationships`),
+    ).expect(200);
+    expect(graphRes.body.nodes).toContain(asset2Id);
+
+    const lineageRes = await auth(request(server).get(`/fiar/assets/${assetId}/lineage`)).expect(
+      200,
+    );
+    expect(lineageRes.body).toHaveProperty('ancestors');
+
+    // --- Lifecycle: activate then deprecate (Part D) ---
+    const activateRes = await auth(request(server).post(`/fiar/assets/${assetId}/lifecycle`))
+      .send({ transition: 'ACTIVATE' })
+      .expect(201);
+    expect(activateRes.body.status).toBe('ACTIVE');
+    await auth(request(server).post(`/fiar/assets/${assetId}/lifecycle`))
+      .send({ transition: 'DEPRECATE' })
+      .expect(201);
+
+    // --- Category + governance policy + validation (Part B/F) ---
+    await auth(request(server).post('/fiar/categories'))
+      .send({ name: 'Capital assets', code: `cap-${Date.now()}` })
+      .expect(201);
+    await auth(request(server).post('/fiar/policies'))
+      .send({ name: 'Asset floor', requireOwnership: true, requireReference: false })
+      .expect(201);
+    const validateRes = await auth(request(server).get(`/fiar/assets/${assetId}/validate`)).expect(
+      200,
+    );
+    expect(validateRes.body.validation).toHaveProperty('valid');
+
+    // --- Immutable history (Part F) ---
+    const historyRes = await auth(request(server).get(`/fiar/assets/${assetId}/history`)).expect(
+      200,
+    );
+    expect(historyRes.body.some((e: any) => e.eventType === 'ASSET_REGISTERED')).toBe(true);
+    expect(historyRes.body.some((e: any) => e.eventType === 'ASSET_RECLASSIFIED')).toBe(true);
+
+    // --- Founder override (Part F) — immutable, locks the asset ---
+    const overrideRes = await auth(request(server).post(`/fiar/assets/${assetId}/override`))
+      .send({ directive: 'Freeze asset pending constitutional review' })
+      .expect(201);
+    expect(overrideRes.body.overridden).toBe(true);
+    expect(overrideRes.body.status).toBe('OVERRIDDEN');
+    // Lifecycle transitions are refused under an override
+    await auth(request(server).post(`/fiar/assets/${assetId}/lifecycle`))
+      .send({ transition: 'ARCHIVE' })
+      .expect(400);
+
+    // --- Dashboard + reused runtimes (compatibility) ---
+    const dashRes = await auth(request(server).get('/fiar/dashboard')).expect(200);
+    expect(dashRes.body.assets.overridden).toBeGreaterThanOrEqual(1);
+    expect(dashRes.body.supportedClasses.length).toBe(17);
+    expect(dashRes.body.reusedRuntimes).toContain('D16');
+    expect(dashRes.body.reusedRuntimes).toContain('IFC');
+
+    // --- Workspace isolation ---
+    const peerToken = await registerAndLogin(`e2e-iw16-peer-${Date.now()}@onx.test`);
+    await request(server)
+      .get(`/fiar/assets/${assetId}`)
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(404);
+
+    // --- Audit trail ---
+    const fiarAudit = await listAudit('FIAR_');
+    expect(fiarAudit.some((item) => item.action === 'FIAR_REGISTER_ASSET')).toBe(true);
+    expect(fiarAudit.some((item) => item.action === 'FIAR_CLASSIFY_ASSET')).toBe(true);
+    expect(fiarAudit.some((item) => item.action === 'FIAR_OVERRIDE')).toBe(true);
+    fiarAudit.slice(0, 3).forEach(expectUnifiedAuditShape);
+
+    // --- OpenAPI exposure ---
+    const openApi = await request(server).get('/api/docs-json').expect(200);
+    expect(openApi.body.paths['/fiar/assets']).toBeDefined();
+    expect(openApi.body.paths['/fiar/dashboard']).toBeDefined();
+    expect(openApi.body.paths['/fiar/assets/{assetId}/classify']).toBeDefined();
+    expect(openApi.body.paths['/fiar/assets/{assetId}/relationships']).toBeDefined();
+    expect(openApi.body.paths['/fiar/assets/{assetId}/lineage']).toBeDefined();
+    expect(openApi.body.paths['/fiar/assets/{assetId}/lifecycle']).toBeDefined();
+    expect(openApi.body.paths['/fiar/assets/{assetId}/override']).toBeDefined();
+
+    await request(server).get('/fiar/dashboard').expect(401);
+  });
+
   it('reporting depth supports summaries, details, filtering, sorting, date range, and audit compatibility', async () => {
     if (!hasDatabase || !hasSchema) {
       await request(app.getHttpServer()).get('/reports').expect(401);

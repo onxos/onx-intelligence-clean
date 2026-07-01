@@ -184,6 +184,15 @@ model Workspace {
   ifcEvidence   IFCEvidence[]
   ifcPolicies   IFCPolicy[]
 
+  fiarAssets          FIARAsset[]
+  fiarCategories      FIARCategory[]
+  fiarClassifications FIARClassification[]
+  fiarOwnerships      FIAROwnership[]
+  fiarRelationships   FIARRelationship[]
+  fiarHistory         FIARHistory[]
+  fiarEvidence        FIAREvidence[]
+  fiarPolicies        FIARPolicy[]
+
   @@map("workspaces")
 }
 
@@ -4154,4 +4163,268 @@ model IFCPolicy {
   @@index([workspaceId, status])
   @@index([policyId])
   @@map("ifc_policies")
+}
+
+// ===========================================================================
+// FIAR — Frontier Intelligence Asset Registry (Wave 12)
+// Canonical inventory of every strategic Intelligence asset. Additive only.
+// Reuses D16/FIC/USFIP/IFC/IUC/D17/D18/D19 by reference (no FK, no duplicated
+// storage). NOT reasoning, planning, decision, platform.
+// ===========================================================================
+
+enum FIARAssetStatus {
+  DRAFT
+  ACTIVE
+  DEPRECATED
+  ARCHIVED
+  REPLACED
+  OVERRIDDEN
+}
+
+enum FIARAssetClass {
+  KNOWLEDGE
+  LEARNING
+  MEMORY
+  EVIDENCE
+  INTENT
+  CAPITAL
+  MEASUREMENT
+  RUNTIME
+  EXCHANGE
+  GOVERNANCE
+  PROTOCOL
+  MODEL
+  TOOL
+  PROVIDER
+  REASONING
+  PLANNING
+  DECISION
+}
+
+enum FIARComponentStatus {
+  ACTIVE
+  INACTIVE
+  DEPRECATED
+}
+
+enum FIAROwnershipKind {
+  FOUNDER
+  INSTITUTIONAL
+  WORKSPACE
+  DELEGATED
+}
+
+enum FIARRelationshipKind {
+  DEPENDS_ON
+  DERIVES_FROM
+  REPLACES
+  RELATES_TO
+  COMPOSES
+  REFERENCES
+}
+
+model FIARAsset {
+  id                String          @id @default(cuid())
+  fiarAssetId       String          @unique @default(cuid()) @map("fiar_asset_id")
+  name              String
+  description       String?
+  workspaceId       String          @map("workspace_id")
+  ownerId           String          @map("owner_id")
+  assetClass        FIARAssetClass  @map("asset_class")
+  status            FIARAssetStatus @default(DRAFT)
+  version           Int             @default(1)
+  sourceRuntime     String?         @map("source_runtime")
+  referenceId       String?         @map("reference_id")
+  referenceType     String?         @map("reference_type")
+  constitutionalRef String?         @map("constitutional_ref")
+  overridden        Boolean         @default(false)
+  replacedById      String?         @map("replaced_by_id")
+  historySeq        Int             @default(0) @map("history_seq")
+  metadata          Json?
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  deletedAt         DateTime?       @map("deleted_at")
+
+  workspace             Workspace            @relation(fields: [workspaceId], references: [id])
+  classifications       FIARClassification[]
+  ownerships            FIAROwnership[]
+  relationships         FIARRelationship[]   @relation("FIARRelationshipSource")
+  incomingRelationships FIARRelationship[]   @relation("FIARRelationshipTarget")
+  history               FIARHistory[]
+  evidence              FIAREvidence[]
+
+  @@index([workspaceId, deletedAt, status])
+  @@index([workspaceId, assetClass])
+  @@index([workspaceId, createdAt])
+  @@index([fiarAssetId])
+  @@map("fiar_assets")
+}
+
+model FIARCategory {
+  id                String              @id @default(cuid())
+  categoryId        String              @unique @default(cuid()) @map("category_id")
+  workspaceId       String              @map("workspace_id")
+  name              String
+  code              String
+  description       String?
+  assetClass        FIARAssetClass?     @map("asset_class")
+  status            FIARComponentStatus @default(ACTIVE)
+  constitutionalRef String?             @map("constitutional_ref")
+  actorId           String              @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+  deletedAt         DateTime?           @map("deleted_at")
+
+  workspace       Workspace            @relation(fields: [workspaceId], references: [id])
+  classifications FIARClassification[]
+
+  @@unique([workspaceId, code])
+  @@index([workspaceId, status])
+  @@index([categoryId])
+  @@map("fiar_categories")
+}
+
+model FIARClassification {
+  id                String         @id @default(cuid())
+  classificationId  String         @unique @default(cuid()) @map("classification_id")
+  assetId           String         @map("asset_id")
+  workspaceId       String         @map("workspace_id")
+  assetClass        FIARAssetClass @map("asset_class")
+  categoryId        String?        @map("category_id")
+  confidence        Float          @default(1)
+  rationale         String?
+  active            Boolean        @default(true)
+  constitutionalRef String?        @map("constitutional_ref")
+  actorId           String         @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  asset     FIARAsset     @relation(fields: [assetId], references: [id])
+  workspace Workspace     @relation(fields: [workspaceId], references: [id])
+  category  FIARCategory? @relation(fields: [categoryId], references: [id])
+
+  @@index([assetId, active])
+  @@index([workspaceId, assetClass])
+  @@index([classificationId])
+  @@map("fiar_classifications")
+}
+
+model FIAROwnership {
+  id                String            @id @default(cuid())
+  ownershipId       String            @unique @default(cuid()) @map("ownership_id")
+  assetId           String            @map("asset_id")
+  workspaceId       String            @map("workspace_id")
+  ownerId           String            @map("owner_id")
+  ownershipKind     FIAROwnershipKind @default(WORKSPACE) @map("ownership_kind")
+  active            Boolean           @default(true)
+  constitutionalRef String?           @map("constitutional_ref")
+  actorId           String            @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  asset     FIARAsset @relation(fields: [assetId], references: [id])
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([assetId, active])
+  @@index([workspaceId, ownerId])
+  @@index([ownershipId])
+  @@map("fiar_ownerships")
+}
+
+model FIARRelationship {
+  id                String               @id @default(cuid())
+  relationshipId    String               @unique @default(cuid()) @map("relationship_id")
+  assetId           String               @map("asset_id")
+  targetAssetId     String               @map("target_asset_id")
+  workspaceId       String               @map("workspace_id")
+  kind              FIARRelationshipKind
+  active            Boolean              @default(true)
+  rationale         String?
+  constitutionalRef String?              @map("constitutional_ref")
+  actorId           String               @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
+
+  asset       FIARAsset @relation("FIARRelationshipSource", fields: [assetId], references: [id])
+  targetAsset FIARAsset @relation("FIARRelationshipTarget", fields: [targetAssetId], references: [id])
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@unique([assetId, targetAssetId, kind])
+  @@index([assetId, active])
+  @@index([targetAssetId, active])
+  @@index([workspaceId, kind])
+  @@index([relationshipId])
+  @@map("fiar_relationships")
+}
+
+model FIARHistory {
+  id                String   @id @default(cuid())
+  assetId           String   @map("asset_id")
+  workspaceId       String   @map("workspace_id")
+  eventType         String   @map("event_type")
+  referenceId       String?  @map("reference_id")
+  referenceType     String?  @map("reference_type")
+  constitutionalRef String?  @map("constitutional_ref")
+  notes             String?
+  actorId           String   @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  asset     FIARAsset @relation(fields: [assetId], references: [id])
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([assetId, createdAt])
+  @@index([workspaceId, eventType])
+  @@map("fiar_history")
+}
+
+model FIAREvidence {
+  id            String   @id @default(cuid())
+  evidenceId    String   @unique @default(cuid()) @map("evidence_id")
+  assetId       String   @map("asset_id")
+  workspaceId   String   @map("workspace_id")
+  evidenceType  String   @map("evidence_type")
+  referenceId   String?  @map("reference_id")
+  referenceType String?  @map("reference_type")
+  summary       String?
+  payload       Json?
+  actorId       String   @map("actor_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  asset     FIARAsset @relation(fields: [assetId], references: [id])
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([assetId, createdAt])
+  @@index([workspaceId, evidenceType])
+  @@index([evidenceId])
+  @@map("fiar_evidence")
+}
+
+model FIARPolicy {
+  id                String              @id @default(cuid())
+  policyId          String              @unique @default(cuid()) @map("policy_id")
+  workspaceId       String              @map("workspace_id")
+  name              String
+  description       String?
+  status            FIARComponentStatus @default(ACTIVE)
+  requireOwnership  Boolean             @default(true) @map("require_ownership")
+  requireReference  Boolean             @default(false) @map("require_reference")
+  allowedClasses    Json?               @map("allowed_classes")
+  constitutionalRef String?             @map("constitutional_ref")
+  rules             Json?
+  actorId           String              @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+  deletedAt         DateTime?           @map("deleted_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, status])
+  @@index([policyId])
+  @@map("fiar_policies")
 }
