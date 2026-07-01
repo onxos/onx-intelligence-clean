@@ -3062,6 +3062,146 @@ describe('ONX Intelligence (e2e)', () => {
     await request(server).get('/reasoning/dashboard').expect(401);
   });
 
+  it('IW-18: Planning Engine — start planning, generate plan, steps, milestones, evidence, validation, override, dashboard, isolation, audit, OpenAPI', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).get('/planning/dashboard').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+
+    // --- Start a planning session (intake goals, constraints, context) ---
+    const startRes = await auth(request(server).post('/planning/sessions'))
+      .send({
+        mode: 'STRATEGIC',
+        objective: 'Strengthen institutional flourishing next quarter',
+        goals: [
+          { title: 'Raise institutional trust', priority: 5, measurable: true, description: 'x' },
+          { title: 'Expand knowledge capital', priority: 3, measurable: true, description: 'y' },
+        ],
+        constraints: [{ name: 'budget', satisfied: true }],
+        contexts: [
+          { runtime: 'REASONING', role: 'REASONING', confidence: 1 },
+          { runtime: 'D16', role: 'KNOWLEDGE', confidence: 1 },
+        ],
+        resources: [{ name: 'delivery-team', available: true }],
+      })
+      .expect(201);
+    const sessionId = startRes.body.id;
+    expect(sessionId).toBeDefined();
+    expect(startRes.body.status).toBe('PLANNING');
+
+    // --- Generate the executable plan (Part C) ---
+    const genRes = await auth(
+      request(server).post(`/planning/sessions/${sessionId}/generate`),
+    ).expect(201);
+    expect(genRes.body.status).toBe('COMPLETED');
+    expect(genRes.body.readiness).toBe('EXECUTABLE');
+    expect(genRes.body.outcome.steps.length).toBe(4);
+    expect(genRes.body.outcome.milestones.length).toBe(2);
+    expect(genRes.body.outcome.alternatives.length).toBeGreaterThan(0);
+    expect(genRes.body.outcome.trace.stages).toHaveLength(10);
+
+    // --- Plan detail exposes steps, milestones and alternatives ---
+    const planRes = await auth(request(server).get(`/planning/sessions/${sessionId}/plan`)).expect(
+      200,
+    );
+    expect(planRes.body.plan.primary).toBe(true);
+    expect(planRes.body.steps).toHaveLength(4);
+    expect(planRes.body.milestones).toHaveLength(2);
+    expect(planRes.body.alternatives.length).toBeGreaterThan(0);
+
+    // --- Session detail exposes goals, constraints, contexts and plans ---
+    const detailRes = await auth(request(server).get(`/planning/sessions/${sessionId}`)).expect(
+      200,
+    );
+    expect(detailRes.body.goals.length).toBe(2);
+    expect(detailRes.body.constraints.length).toBe(1);
+    expect(detailRes.body.plans.length).toBeGreaterThan(0);
+
+    // --- Evidence (Part C/F) ---
+    const evidenceRes = await auth(
+      request(server).get(`/planning/sessions/${sessionId}/evidence`),
+    ).expect(200);
+    expect(evidenceRes.body.some((e: any) => e.evidenceType === 'PLANNING_OUTCOME')).toBe(true);
+
+    // --- Validation across six dimensions (Part D) ---
+    const validateRes = await auth(
+      request(server).post(`/planning/sessions/${sessionId}/validate`),
+    ).expect(201);
+    expect(validateRes.body.validation.checks).toHaveLength(6);
+    expect(validateRes.body.validation.valid).toBe(true);
+
+    // --- Blocked plan when a required constraint fails ---
+    const blockedStart = await auth(request(server).post('/planning/sessions'))
+      .send({
+        mode: 'OPERATIONAL',
+        objective: 'Recover degraded runtime',
+        goals: [{ title: 'Stabilize', priority: 1 }],
+        constraints: [{ name: 'safety', satisfied: false, required: true }],
+        contexts: [{ runtime: 'D16', role: 'KNOWLEDGE', confidence: 1 }],
+      })
+      .expect(201);
+    const blockedGen = await auth(
+      request(server).post(`/planning/sessions/${blockedStart.body.id}/generate`),
+    ).expect(201);
+    expect(blockedGen.body.readiness).toBe('BLOCKED');
+    expect(blockedGen.body.constraintsSatisfied).toBe(false);
+
+    // --- Immutable history (Part F) ---
+    const historyRes = await auth(
+      request(server).get(`/planning/sessions/${sessionId}/history`),
+    ).expect(200);
+    expect(historyRes.body.some((e: any) => e.eventType === 'PLANNING_STARTED')).toBe(true);
+    expect(historyRes.body.some((e: any) => e.eventType === 'PLAN_GENERATED')).toBe(true);
+
+    // --- Founder override (Part F) — immutable ---
+    const overrideRes = await auth(request(server).post(`/planning/sessions/${sessionId}/override`))
+      .send({ directive: 'Freeze planning session pending constitutional review' })
+      .expect(201);
+    expect(overrideRes.body.overridden).toBe(true);
+    expect(overrideRes.body.status).toBe('OVERRIDDEN');
+
+    // --- Overridden sessions cannot be regenerated ---
+    await auth(request(server).post(`/planning/sessions/${sessionId}/generate`)).expect(400);
+
+    // --- Dashboard (compatibility: reused runtimes + supported modes) ---
+    const dashRes = await auth(request(server).get('/planning/dashboard')).expect(200);
+    expect(dashRes.body.sessions.total).toBeGreaterThanOrEqual(2);
+    expect(dashRes.body.sessions.overridden).toBeGreaterThanOrEqual(1);
+    expect(dashRes.body.supportedModes.length).toBe(8);
+    expect(dashRes.body.reusedRuntimes).toContain('REASONING');
+    expect(dashRes.body.reusedRuntimes).toContain('D16');
+    expect(dashRes.body.reusedRuntimes).toContain('IFC');
+
+    // --- Workspace isolation ---
+    const peerToken = await registerAndLogin(`e2e-iw18-peer-${Date.now()}@onx.test`);
+    await request(server)
+      .get(`/planning/sessions/${sessionId}`)
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(404);
+
+    // --- Audit trail ---
+    const planningAudit = await listAudit('PLANNING_');
+    expect(planningAudit.some((item) => item.action === 'PLANNING_START')).toBe(true);
+    expect(planningAudit.some((item) => item.action === 'PLANNING_GENERATE')).toBe(true);
+    expect(planningAudit.some((item) => item.action === 'PLANNING_VALIDATE')).toBe(true);
+    expect(planningAudit.some((item) => item.action === 'PLANNING_OVERRIDE')).toBe(true);
+    planningAudit.slice(0, 3).forEach(expectUnifiedAuditShape);
+
+    // --- OpenAPI exposure ---
+    const openApi = await request(server).get('/api/docs-json').expect(200);
+    expect(openApi.body.paths['/planning/sessions']).toBeDefined();
+    expect(openApi.body.paths['/planning/dashboard']).toBeDefined();
+    expect(openApi.body.paths['/planning/sessions/{sessionId}/generate']).toBeDefined();
+    expect(openApi.body.paths['/planning/sessions/{sessionId}/plan']).toBeDefined();
+    expect(openApi.body.paths['/planning/sessions/{sessionId}/validate']).toBeDefined();
+    expect(openApi.body.paths['/planning/sessions/{sessionId}/override']).toBeDefined();
+
+    await request(server).get('/planning/dashboard').expect(401);
+  });
+
   it('reporting depth supports summaries, details, filtering, sorting, date range, and audit compatibility', async () => {
     if (!hasDatabase || !hasSchema) {
       await request(app.getHttpServer()).get('/reports').expect(401);

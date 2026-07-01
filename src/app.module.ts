@@ -28,6 +28,7 @@ import { UsfipModule } from './usfip/usfip.module';
 import { IfcModule } from './ifc/ifc.module';
 import { FiarModule } from './fiar/fiar.module';
 import { ReasoningModule } from './reasoning/reasoning.module';
+import { PlanningModule } from './planning/planning.module';
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { ReasoningModule } from './reasoning/reasoning.module';
     IfcModule,
     FiarModule,
     ReasoningModule,
+    PlanningModule,
     CommitModule,
   ],
 })

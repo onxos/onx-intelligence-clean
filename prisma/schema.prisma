@@ -202,6 +202,18 @@ model Workspace {
   reasoningValidations ReasoningValidation[]
   reasoningHistory     ReasoningHistory[]
 
+  planningSessions    PlanningSession[]
+  planningContexts    PlanningContext[]
+  planningGoals       PlanningGoal[]
+  planningConstraints PlanningConstraint[]
+  planningStrategies  PlanningStrategy[]
+  planningPlans       PlanningPlan[]
+  planningSteps       PlanningStep[]
+  planningMilestones  PlanningMilestone[]
+  planningEvidence    PlanningEvidence[]
+  planningValidations PlanningValidation[]
+  planningHistory     PlanningHistory[]
+
   @@map("workspaces")
 }
 
@@ -4698,4 +4710,349 @@ model ReasoningHistory {
   @@index([sessionId, createdAt])
   @@index([workspaceId, eventType])
   @@map("reasoning_history")
+}
+
+// ===========================================================================
+// Planning Engine (Wave 14)
+// Additive: consumes Reasoning/Knowledge/Measurement/Exchange/Runtime/Objects/
+// Capital/USFIP/IFC/FIAR/FIC by reference (no FK, no duplicated storage).
+// Planning prepares executable strategic plans only — it NEVER decides.
+// ===========================================================================
+
+enum PlanningMode {
+  OPERATIONAL
+  STRATEGIC
+  FOUNDER
+  ADAPTIVE
+  CONSTITUTIONAL
+  SCENARIO
+  RECOVERY
+  OPTIMIZATION
+}
+
+enum PlanningSessionStatus {
+  PENDING
+  PLANNING
+  COMPLETED
+  FAILED
+  OVERRIDDEN
+}
+
+enum PlanningPlanStatus {
+  PRIMARY
+  ALTERNATIVE
+  SELECTED
+  REJECTED
+}
+
+enum PlanningReadiness {
+  EXECUTABLE
+  CONDITIONAL
+  BLOCKED
+}
+
+enum PlanningRiskLevel {
+  LOW
+  MODERATE
+  ELEVATED
+  CRITICAL
+}
+
+enum PlanningValidationKind {
+  CONSTITUTIONAL
+  RESOURCE
+  DEPENDENCY
+  GOAL
+  RISK
+  CONSISTENCY
+}
+
+model PlanningSession {
+  id                   String                @id @default(cuid())
+  planningSessionId    String                @unique @default(cuid()) @map("planning_session_id")
+  workspaceId          String                @map("workspace_id")
+  ownerId              String                @map("owner_id")
+  mode                 PlanningMode
+  objective            String
+  focus                String?
+  status               PlanningSessionStatus @default(PENDING)
+  confidence           Float                 @default(0)
+  readiness            PlanningReadiness?
+  riskLevel            PlanningRiskLevel?    @map("risk_level")
+  constraintsSatisfied Boolean               @default(true) @map("constraints_satisfied")
+  planCount            Int                   @default(0) @map("plan_count")
+  goalCount            Int                   @default(0) @map("goal_count")
+  constitutionalRef    String?               @map("constitutional_ref")
+  overridden           Boolean               @default(false)
+  version              Int                   @default(1)
+  metadata             Json?
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @updatedAt @map("updated_at")
+  deletedAt            DateTime?             @map("deleted_at")
+
+  workspace   Workspace            @relation(fields: [workspaceId], references: [id])
+  contexts    PlanningContext[]
+  goals       PlanningGoal[]
+  constraints PlanningConstraint[]
+  strategies  PlanningStrategy[]
+  plans       PlanningPlan[]
+  steps       PlanningStep[]
+  milestones  PlanningMilestone[]
+  evidence    PlanningEvidence[]
+  validations PlanningValidation[]
+  history     PlanningHistory[]
+
+  @@index([workspaceId, deletedAt, status])
+  @@index([workspaceId, mode])
+  @@index([workspaceId, createdAt])
+  @@index([planningSessionId])
+  @@map("planning_sessions")
+}
+
+model PlanningContext {
+  id            String   @id @default(cuid())
+  contextId     String   @unique @default(cuid()) @map("context_id")
+  sessionId     String   @map("session_id")
+  workspaceId   String   @map("workspace_id")
+  runtime       String
+  referenceId   String?  @map("reference_id")
+  referenceType String?  @map("reference_type")
+  role          String
+  weight        Float    @default(1)
+  confidence    Float    @default(1)
+  summary       String?
+  payload       Json?
+  actorId       String   @map("actor_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  session   PlanningSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace       @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, runtime])
+  @@index([contextId])
+  @@map("planning_contexts")
+}
+
+model PlanningGoal {
+  id                String   @id @default(cuid())
+  goalId            String   @unique @default(cuid()) @map("goal_id")
+  sessionId         String   @map("session_id")
+  workspaceId       String   @map("workspace_id")
+  title             String
+  description       String?
+  priority          Int      @default(0)
+  weight            Float    @default(1)
+  measurable        Boolean  @default(false)
+  decomposed        Boolean  @default(false)
+  stepCount         Int      @default(0) @map("step_count")
+  confidence        Float    @default(0)
+  referenceId       String?  @map("reference_id")
+  referenceType     String?  @map("reference_type")
+  constitutionalRef String?  @map("constitutional_ref")
+  actorId           String   @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  session   PlanningSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace       @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, priority])
+  @@index([workspaceId, createdAt])
+  @@index([goalId])
+  @@map("planning_goals")
+}
+
+model PlanningConstraint {
+  id           String   @id @default(cuid())
+  constraintId String   @unique @default(cuid()) @map("constraint_id")
+  sessionId    String   @map("session_id")
+  workspaceId  String   @map("workspace_id")
+  name         String
+  satisfied    Boolean  @default(true)
+  required     Boolean  @default(true)
+  weight       Float    @default(1)
+  category     String?
+  actorId      String   @map("actor_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  session   PlanningSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace       @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, satisfied])
+  @@index([constraintId])
+  @@map("planning_constraints")
+}
+
+model PlanningStrategy {
+  id                String       @id @default(cuid())
+  strategyId        String       @unique @default(cuid()) @map("strategy_id")
+  sessionId         String       @map("session_id")
+  workspaceId       String       @map("workspace_id")
+  mode              PlanningMode
+  name              String
+  rationale         String?
+  confidence        Float        @default(0)
+  selected          Boolean      @default(false)
+  constitutionalRef String?      @map("constitutional_ref")
+  actorId           String       @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime     @default(now()) @map("created_at")
+
+  session   PlanningSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace       @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, selected])
+  @@index([strategyId])
+  @@map("planning_strategies")
+}
+
+model PlanningPlan {
+  id                String             @id @default(cuid())
+  planId            String             @unique @default(cuid()) @map("plan_id")
+  sessionId         String             @map("session_id")
+  workspaceId       String             @map("workspace_id")
+  mode              PlanningMode
+  status            PlanningPlanStatus @default(PRIMARY)
+  sequence          Int                @default(0)
+  primary           Boolean            @default(true)
+  readiness         PlanningReadiness  @default(CONDITIONAL)
+  riskLevel         PlanningRiskLevel  @default(MODERATE) @map("risk_level")
+  confidence        Float              @default(0)
+  timelineDuration  Int                @default(0) @map("timeline_duration")
+  rationale         String?
+  constitutionalRef String?            @map("constitutional_ref")
+  actorId           String             @map("actor_id")
+  metadata          Json?
+  payload           Json?
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+
+  session    PlanningSession     @relation(fields: [sessionId], references: [id])
+  workspace  Workspace           @relation(fields: [workspaceId], references: [id])
+  steps      PlanningStep[]
+  milestones PlanningMilestone[]
+
+  @@index([sessionId, sequence])
+  @@index([workspaceId, status])
+  @@index([planId])
+  @@map("planning_plans")
+}
+
+model PlanningStep {
+  id               String   @id @default(cuid())
+  stepId           String   @unique @default(cuid()) @map("step_id")
+  planId           String   @map("plan_id")
+  sessionId        String   @map("session_id")
+  workspaceId      String   @map("workspace_id")
+  sequence         Int      @default(0)
+  title            String
+  description      String?
+  goalReference    String?  @map("goal_reference")
+  dependsOn        Json?    @map("depends_on")
+  resourceEstimate Float    @default(0) @map("resource_estimate")
+  durationEstimate Int      @default(0) @map("duration_estimate")
+  confidence       Float    @default(0)
+  actorId          String   @map("actor_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  plan      PlanningPlan    @relation(fields: [planId], references: [id])
+  session   PlanningSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace       @relation(fields: [workspaceId], references: [id])
+
+  @@index([planId, sequence])
+  @@index([sessionId, createdAt])
+  @@index([stepId])
+  @@map("planning_steps")
+}
+
+model PlanningMilestone {
+  id           String   @id @default(cuid())
+  milestoneId  String   @unique @default(cuid()) @map("milestone_id")
+  planId       String   @map("plan_id")
+  sessionId    String   @map("session_id")
+  workspaceId  String   @map("workspace_id")
+  sequence     Int      @default(0)
+  title        String
+  criteria     String?
+  targetOffset Int      @default(0) @map("target_offset")
+  actorId      String   @map("actor_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  plan      PlanningPlan    @relation(fields: [planId], references: [id])
+  session   PlanningSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace       @relation(fields: [workspaceId], references: [id])
+
+  @@index([planId, sequence])
+  @@index([sessionId, createdAt])
+  @@index([milestoneId])
+  @@map("planning_milestones")
+}
+
+model PlanningEvidence {
+  id            String   @id @default(cuid())
+  evidenceId    String   @unique @default(cuid()) @map("evidence_id")
+  sessionId     String   @map("session_id")
+  workspaceId   String   @map("workspace_id")
+  evidenceType  String   @map("evidence_type")
+  runtime       String?
+  referenceId   String?  @map("reference_id")
+  referenceType String?  @map("reference_type")
+  summary       String?
+  confidence    Float    @default(1)
+  payload       Json?
+  actorId       String   @map("actor_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  session   PlanningSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace       @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, evidenceType])
+  @@index([evidenceId])
+  @@map("planning_evidence")
+}
+
+model PlanningValidation {
+  id                String   @id @default(cuid())
+  validationId      String   @unique @default(cuid()) @map("validation_id")
+  sessionId         String   @map("session_id")
+  workspaceId       String   @map("workspace_id")
+  valid             Boolean  @default(false)
+  kinds             Json?
+  issues            Json?
+  constitutionalRef String?  @map("constitutional_ref")
+  actorId           String   @map("actor_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  session   PlanningSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace       @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, valid])
+  @@index([validationId])
+  @@map("planning_validations")
+}
+
+model PlanningHistory {
+  id                String   @id @default(cuid())
+  sessionId         String   @map("session_id")
+  workspaceId       String   @map("workspace_id")
+  eventType         String   @map("event_type")
+  referenceId       String?  @map("reference_id")
+  referenceType     String?  @map("reference_type")
+  constitutionalRef String?  @map("constitutional_ref")
+  notes             String?
+  actorId           String   @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  session   PlanningSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace       @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, eventType])
+  @@map("planning_history")
 }
