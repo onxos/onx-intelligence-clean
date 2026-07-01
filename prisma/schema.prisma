@@ -193,6 +193,15 @@ model Workspace {
   fiarEvidence        FIAREvidence[]
   fiarPolicies        FIARPolicy[]
 
+  reasoningSessions    ReasoningSession[]
+  reasoningContexts    ReasoningContext[]
+  reasoningChains      ReasoningChain[]
+  reasoningSteps       ReasoningStep[]
+  reasoningResults     ReasoningResult[]
+  reasoningEvidence    ReasoningEvidence[]
+  reasoningValidations ReasoningValidation[]
+  reasoningHistory     ReasoningHistory[]
+
   @@map("workspaces")
 }
 
@@ -4427,4 +4436,266 @@ model FIARPolicy {
   @@index([workspaceId, status])
   @@index([policyId])
   @@map("fiar_policies")
+}
+
+// ===========================================================================
+// Reasoning Engine (Wave 13)
+// Consumes Objects/Knowledge/Learning/Measurement/Exchange/Meta/USFIP/IFC/FIAR/
+// FIC by reference (no FK, no duplicated storage). Additive only.
+// NOT planning, NOT decision.
+// ===========================================================================
+
+enum ReasoningMode {
+  DEDUCTIVE
+  INDUCTIVE
+  ABDUCTIVE
+  ANALOGICAL
+  CONSTRAINT
+  STRATEGIC
+  CONSTITUTIONAL
+  FOUNDER_GUIDED
+}
+
+enum ReasoningSessionStatus {
+  PENDING
+  REASONING
+  COMPLETED
+  FAILED
+  OVERRIDDEN
+}
+
+enum ReasoningChainStatus {
+  PRIMARY
+  ALTERNATIVE
+  SELECTED
+  REJECTED
+}
+
+enum ReasoningStepKind {
+  CONTEXT_LOADING
+  CHAIN_CONSTRUCTION
+  EVIDENCE_AGGREGATION
+  CONSTRAINT_EVALUATION
+  CONFIDENCE_SCORING
+  ALTERNATIVE_PATHS
+  REASONING_TRACE
+}
+
+enum ReasoningVerdict {
+  CONCLUSIVE
+  PLAUSIBLE
+  INCONCLUSIVE
+  CONTESTED
+}
+
+enum ReasoningValidationKind {
+  CONSTITUTIONAL
+  TRUST
+  EVIDENCE
+  KNOWLEDGE
+  CONSISTENCY
+}
+
+model ReasoningSession {
+  id                   String                 @id @default(cuid())
+  reasoningSessionId   String                 @unique @default(cuid()) @map("reasoning_session_id")
+  workspaceId          String                 @map("workspace_id")
+  ownerId              String                 @map("owner_id")
+  mode                 ReasoningMode
+  question             String
+  objective            String?
+  status               ReasoningSessionStatus @default(PENDING)
+  confidence           Float                  @default(0)
+  verdict              ReasoningVerdict?
+  constraintsSatisfied Boolean                @default(true) @map("constraints_satisfied")
+  alternativesCount    Int                    @default(0) @map("alternatives_count")
+  constitutionalRef    String?                @map("constitutional_ref")
+  overridden           Boolean                @default(false)
+  version              Int                    @default(1)
+  metadata             Json?
+  createdAt            DateTime               @default(now()) @map("created_at")
+  updatedAt            DateTime               @updatedAt @map("updated_at")
+  deletedAt            DateTime?              @map("deleted_at")
+
+  workspace   Workspace             @relation(fields: [workspaceId], references: [id])
+  contexts    ReasoningContext[]
+  chains      ReasoningChain[]
+  steps       ReasoningStep[]
+  results     ReasoningResult[]
+  evidence    ReasoningEvidence[]
+  validations ReasoningValidation[]
+  history     ReasoningHistory[]
+
+  @@index([workspaceId, deletedAt, status])
+  @@index([workspaceId, mode])
+  @@index([workspaceId, createdAt])
+  @@index([reasoningSessionId])
+  @@map("reasoning_sessions")
+}
+
+model ReasoningContext {
+  id            String   @id @default(cuid())
+  contextId     String   @unique @default(cuid()) @map("context_id")
+  sessionId     String   @map("session_id")
+  workspaceId   String   @map("workspace_id")
+  runtime       String
+  referenceId   String?  @map("reference_id")
+  referenceType String?  @map("reference_type")
+  role          String
+  weight        Float    @default(1)
+  confidence    Float    @default(1)
+  summary       String?
+  payload       Json?
+  actorId       String   @map("actor_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  session   ReasoningSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace        @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, runtime])
+  @@index([contextId])
+  @@map("reasoning_contexts")
+}
+
+model ReasoningChain {
+  id                String               @id @default(cuid())
+  chainId           String               @unique @default(cuid()) @map("chain_id")
+  sessionId         String               @map("session_id")
+  workspaceId       String               @map("workspace_id")
+  mode              ReasoningMode
+  status            ReasoningChainStatus @default(PRIMARY)
+  sequence          Int                  @default(0)
+  primary           Boolean              @default(true)
+  confidence        Float                @default(0)
+  rationale         String?
+  constitutionalRef String?              @map("constitutional_ref")
+  actorId           String               @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
+
+  session   ReasoningSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace        @relation(fields: [workspaceId], references: [id])
+  steps     ReasoningStep[]
+
+  @@index([sessionId, sequence])
+  @@index([workspaceId, status])
+  @@index([chainId])
+  @@map("reasoning_chains")
+}
+
+model ReasoningStep {
+  id          String            @id @default(cuid())
+  stepId      String            @unique @default(cuid()) @map("step_id")
+  chainId     String            @map("chain_id")
+  sessionId   String            @map("session_id")
+  workspaceId String            @map("workspace_id")
+  kind        ReasoningStepKind
+  sequence    Int               @default(0)
+  summary     String?
+  input       Json?
+  output      Json?
+  confidence  Float             @default(0)
+  actorId     String            @map("actor_id")
+  createdAt   DateTime          @default(now()) @map("created_at")
+
+  chain     ReasoningChain   @relation(fields: [chainId], references: [id])
+  session   ReasoningSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace        @relation(fields: [workspaceId], references: [id])
+
+  @@index([chainId, sequence])
+  @@index([sessionId, kind])
+  @@index([stepId])
+  @@map("reasoning_steps")
+}
+
+model ReasoningResult {
+  id                   String           @id @default(cuid())
+  resultId             String           @unique @default(cuid()) @map("result_id")
+  sessionId            String           @map("session_id")
+  workspaceId          String           @map("workspace_id")
+  verdict              ReasoningVerdict
+  confidence           Float            @default(0)
+  conclusion           String
+  constraintsSatisfied Boolean          @default(true) @map("constraints_satisfied")
+  alternativesCount    Int              @default(0) @map("alternatives_count")
+  constitutionalRef    String?          @map("constitutional_ref")
+  payload              Json?
+  actorId              String           @map("actor_id")
+  createdAt            DateTime         @default(now()) @map("created_at")
+
+  session   ReasoningSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace        @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, verdict])
+  @@index([resultId])
+  @@map("reasoning_results")
+}
+
+model ReasoningEvidence {
+  id            String   @id @default(cuid())
+  evidenceId    String   @unique @default(cuid()) @map("evidence_id")
+  sessionId     String   @map("session_id")
+  workspaceId   String   @map("workspace_id")
+  evidenceType  String   @map("evidence_type")
+  runtime       String?
+  referenceId   String?  @map("reference_id")
+  referenceType String?  @map("reference_type")
+  summary       String?
+  confidence    Float    @default(1)
+  payload       Json?
+  actorId       String   @map("actor_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  session   ReasoningSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace        @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, evidenceType])
+  @@index([evidenceId])
+  @@map("reasoning_evidence")
+}
+
+model ReasoningValidation {
+  id                String   @id @default(cuid())
+  validationId      String   @unique @default(cuid()) @map("validation_id")
+  sessionId         String   @map("session_id")
+  workspaceId       String   @map("workspace_id")
+  valid             Boolean  @default(false)
+  kinds             Json?
+  issues            Json?
+  constitutionalRef String?  @map("constitutional_ref")
+  actorId           String   @map("actor_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  session   ReasoningSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace        @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, valid])
+  @@index([validationId])
+  @@map("reasoning_validations")
+}
+
+model ReasoningHistory {
+  id                String   @id @default(cuid())
+  sessionId         String   @map("session_id")
+  workspaceId       String   @map("workspace_id")
+  eventType         String   @map("event_type")
+  referenceId       String?  @map("reference_id")
+  referenceType     String?  @map("reference_type")
+  constitutionalRef String?  @map("constitutional_ref")
+  notes             String?
+  actorId           String   @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  session   ReasoningSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace        @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, eventType])
+  @@map("reasoning_history")
 }

@@ -27,6 +27,7 @@ import { MetaModule } from './meta/meta.module';
 import { UsfipModule } from './usfip/usfip.module';
 import { IfcModule } from './ifc/ifc.module';
 import { FiarModule } from './fiar/fiar.module';
+import { ReasoningModule } from './reasoning/reasoning.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { FiarModule } from './fiar/fiar.module';
     UsfipModule,
     IfcModule,
     FiarModule,
+    ReasoningModule,
     CommitModule,
   ],
 })

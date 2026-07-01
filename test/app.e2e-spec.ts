@@ -2940,6 +2940,128 @@ describe('ONX Intelligence (e2e)', () => {
     await request(server).get('/fiar/dashboard').expect(401);
   });
 
+  it('IW-17: Reasoning Engine — start reasoning, chain, trace, evidence, validation, override, dashboard, isolation, audit, OpenAPI', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).get('/reasoning/dashboard').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+
+    // --- Start a reasoning session and run the full chain (Part C) ---
+    const startRes = await auth(request(server).post('/reasoning/sessions'))
+      .send({
+        mode: 'INDUCTIVE',
+        question: 'Is the institutional flourishing profile improving?',
+        contexts: [
+          { runtime: 'D16', role: 'KNOWLEDGE', confidence: 1 },
+          { runtime: 'D17', role: 'MEASUREMENT', confidence: 0.9 },
+        ],
+        evidence: [{ summary: 'positive trend', confidence: 0.9 }],
+        constraints: [{ name: 'trust', satisfied: true }],
+      })
+      .expect(201);
+    const sessionId = startRes.body.id;
+    expect(sessionId).toBeDefined();
+    expect(startRes.body.status).toBe('COMPLETED');
+    expect(startRes.body.verdict).toBe('CONCLUSIVE');
+    expect(startRes.body.outcome.steps).toHaveLength(7);
+    expect(startRes.body.outcome.alternatives.length).toBeGreaterThan(0);
+
+    // --- Session detail exposes result, contexts and chains ---
+    const detailRes = await auth(request(server).get(`/reasoning/sessions/${sessionId}`)).expect(
+      200,
+    );
+    expect(detailRes.body.result.verdict).toBe('CONCLUSIVE');
+    expect(detailRes.body.contexts.length).toBe(2);
+
+    // --- Reasoning trace exposes chains + steps (Part C) ---
+    const traceRes = await auth(
+      request(server).get(`/reasoning/sessions/${sessionId}/trace`),
+    ).expect(200);
+    const primaryChain = traceRes.body.chains.find((c: any) => c.primary === true);
+    expect(primaryChain).toBeDefined();
+    expect(primaryChain.steps).toHaveLength(7);
+    // alternative chains present
+    expect(traceRes.body.chains.some((c: any) => c.status === 'ALTERNATIVE')).toBe(true);
+
+    // --- Evidence (Part C/F) ---
+    const evidenceRes = await auth(
+      request(server).get(`/reasoning/sessions/${sessionId}/evidence`),
+    ).expect(200);
+    expect(evidenceRes.body.some((e: any) => e.evidenceType === 'REASONING_OUTCOME')).toBe(true);
+
+    // --- Validation across five dimensions (Part D) ---
+    const validateRes = await auth(
+      request(server).post(`/reasoning/sessions/${sessionId}/validate`),
+    ).expect(201);
+    expect(validateRes.body.validation.checks).toHaveLength(5);
+    expect(validateRes.body.validation.valid).toBe(true);
+
+    // --- Contested reasoning when a required constraint fails ---
+    const contestedRes = await auth(request(server).post('/reasoning/sessions'))
+      .send({
+        mode: 'CONSTRAINT',
+        question: 'Should we proceed without authority?',
+        contexts: [{ runtime: 'D16', role: 'KNOWLEDGE', confidence: 1 }],
+        evidence: [{ confidence: 1 }],
+        constraints: [{ name: 'founder-authority', satisfied: false, required: true }],
+      })
+      .expect(201);
+    expect(contestedRes.body.verdict).toBe('CONTESTED');
+    expect(contestedRes.body.constraintsSatisfied).toBe(false);
+
+    // --- Immutable history (Part F) ---
+    const historyRes = await auth(
+      request(server).get(`/reasoning/sessions/${sessionId}/history`),
+    ).expect(200);
+    expect(historyRes.body.some((e: any) => e.eventType === 'REASONING_STARTED')).toBe(true);
+    expect(historyRes.body.some((e: any) => e.eventType === 'REASONING_COMPLETED')).toBe(true);
+
+    // --- Founder override (Part F) — immutable ---
+    const overrideRes = await auth(
+      request(server).post(`/reasoning/sessions/${sessionId}/override`),
+    )
+      .send({ directive: 'Freeze reasoning session pending constitutional review' })
+      .expect(201);
+    expect(overrideRes.body.overridden).toBe(true);
+    expect(overrideRes.body.status).toBe('OVERRIDDEN');
+
+    // --- Dashboard (compatibility: reused runtimes + supported modes) ---
+    const dashRes = await auth(request(server).get('/reasoning/dashboard')).expect(200);
+    expect(dashRes.body.sessions.total).toBeGreaterThanOrEqual(2);
+    expect(dashRes.body.sessions.overridden).toBeGreaterThanOrEqual(1);
+    expect(dashRes.body.supportedModes.length).toBe(8);
+    expect(dashRes.body.reusedRuntimes).toContain('D16');
+    expect(dashRes.body.reusedRuntimes).toContain('FIAR');
+    expect(dashRes.body.reusedRuntimes).toContain('IFC');
+
+    // --- Workspace isolation ---
+    const peerToken = await registerAndLogin(`e2e-iw17-peer-${Date.now()}@onx.test`);
+    await request(server)
+      .get(`/reasoning/sessions/${sessionId}`)
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(404);
+
+    // --- Audit trail ---
+    const reasoningAudit = await listAudit('REASONING_');
+    expect(reasoningAudit.some((item) => item.action === 'REASONING_START')).toBe(true);
+    expect(reasoningAudit.some((item) => item.action === 'REASONING_VALIDATE')).toBe(true);
+    expect(reasoningAudit.some((item) => item.action === 'REASONING_OVERRIDE')).toBe(true);
+    reasoningAudit.slice(0, 3).forEach(expectUnifiedAuditShape);
+
+    // --- OpenAPI exposure ---
+    const openApi = await request(server).get('/api/docs-json').expect(200);
+    expect(openApi.body.paths['/reasoning/sessions']).toBeDefined();
+    expect(openApi.body.paths['/reasoning/dashboard']).toBeDefined();
+    expect(openApi.body.paths['/reasoning/sessions/{sessionId}/trace']).toBeDefined();
+    expect(openApi.body.paths['/reasoning/sessions/{sessionId}/validate']).toBeDefined();
+    expect(openApi.body.paths['/reasoning/sessions/{sessionId}/override']).toBeDefined();
+
+    await request(server).get('/reasoning/dashboard').expect(401);
+  });
+
   it('reporting depth supports summaries, details, filtering, sorting, date range, and audit compatibility', async () => {
     if (!hasDatabase || !hasSchema) {
       await request(app.getHttpServer()).get('/reports').expect(401);
