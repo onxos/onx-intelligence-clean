@@ -175,6 +175,15 @@ model Workspace {
   usfipHistory    USFIPHistory[]
   usfipEvidence   USFIPEvidence[]
 
+  ifcProfiles   IFCProfile[]
+  ifcDimensions IFCDimension[]
+  ifcIndicators IFCIndicator[]
+  ifcScores     IFCScore[]
+  ifcSignals    IFCSignal[]
+  ifcHistory    IFCHistory[]
+  ifcEvidence   IFCEvidence[]
+  ifcPolicies   IFCPolicy[]
+
   @@map("workspaces")
 }
 
@@ -3872,4 +3881,277 @@ model USFIPEvidence {
   @@index([workspaceId, evidenceType])
   @@index([evidenceId])
   @@map("usfip_evidence")
+}
+
+// ============================================================
+// IFC — Institutional Flourishing Capital (Wave 11).
+// Defines how institutional flourishing is represented,
+// measured, accumulated, protected and connected to
+// Intelligence. Additive only — reuses D13/D14/D16/D17/D18/
+// D19/FIC/IUC/USFIP by reference (no FK, no duplicated logic).
+// ============================================================
+
+enum IFCProfileStatus {
+  DRAFT
+  ACTIVE
+  DEGRADED
+  OVERRIDDEN
+  ARCHIVED
+}
+
+enum IFCDimensionKind {
+  KNOWLEDGE
+  EXECUTION
+  GOVERNANCE
+  LEARNING
+  CAPITAL
+  TRUST
+  CONTINUITY
+  FOUNDER_ALIGNMENT
+}
+
+enum IFCComponentStatus {
+  ACTIVE
+  INACTIVE
+  DEGRADED
+}
+
+enum IFCTrend {
+  RISING
+  STABLE
+  FALLING
+}
+
+enum IFCRiskLevel {
+  LOW
+  MODERATE
+  ELEVATED
+  CRITICAL
+}
+
+enum IFCSignalKind {
+  CONTRIBUTION
+  PRESERVATION
+  GROWTH
+  DECAY
+  ALLOCATION
+}
+
+model IFCProfile {
+  id                 String           @id @default(cuid())
+  ifcProfileId       String           @unique @default(cuid()) @map("ifc_profile_id")
+  name               String
+  description        String?
+  workspaceId        String           @map("workspace_id")
+  ownerId            String           @map("owner_id")
+  status             IFCProfileStatus @default(DRAFT)
+  flourishingIndex   Float            @default(0) @map("flourishing_index")
+  confidence         Float            @default(0)
+  trend              IFCTrend         @default(STABLE)
+  risk               IFCRiskLevel     @default(LOW)
+  degraded           Boolean          @default(false)
+  overridden         Boolean          @default(false)
+  intentReferenceId  String?          @map("intent_reference_id")
+  objectiveReference String?          @map("objective_reference")
+  constitutionalRef  String?          @map("constitutional_ref")
+  scoreSeq           Int              @default(0) @map("score_seq")
+  metadata           Json?
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+  deletedAt          DateTime?        @map("deleted_at")
+
+  workspace  Workspace      @relation(fields: [workspaceId], references: [id])
+  dimensions IFCDimension[]
+  indicators IFCIndicator[]
+  scores     IFCScore[]
+  signals    IFCSignal[]
+  history    IFCHistory[]
+  evidence   IFCEvidence[]
+
+  @@index([workspaceId, deletedAt, status])
+  @@index([workspaceId, createdAt])
+  @@index([ifcProfileId])
+  @@map("ifc_profiles")
+}
+
+model IFCDimension {
+  id                String             @id @default(cuid())
+  dimensionId       String             @unique @default(cuid()) @map("dimension_id")
+  profileId         String             @map("profile_id")
+  workspaceId       String             @map("workspace_id")
+  kind              IFCDimensionKind
+  name              String
+  description       String?
+  status            IFCComponentStatus @default(ACTIVE)
+  weight            Float              @default(0.125)
+  score             Float              @default(0)
+  confidence        Float              @default(0)
+  trend             IFCTrend           @default(STABLE)
+  constitutionalRef String?            @map("constitutional_ref")
+  actorId           String             @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  deletedAt         DateTime?          @map("deleted_at")
+
+  profile    IFCProfile     @relation(fields: [profileId], references: [id])
+  workspace  Workspace      @relation(fields: [workspaceId], references: [id])
+  indicators IFCIndicator[]
+
+  @@unique([profileId, kind])
+  @@index([profileId, status])
+  @@index([workspaceId, kind])
+  @@index([dimensionId])
+  @@map("ifc_dimensions")
+}
+
+model IFCIndicator {
+  id                String             @id @default(cuid())
+  indicatorId       String             @unique @default(cuid()) @map("indicator_id")
+  profileId         String             @map("profile_id")
+  dimensionId       String             @map("dimension_id")
+  workspaceId       String             @map("workspace_id")
+  name              String
+  description       String?
+  status            IFCComponentStatus @default(ACTIVE)
+  value             Float              @default(0)
+  weight            Float              @default(0.5)
+  confidence        Float              @default(0)
+  referenceId       String?            @map("reference_id")
+  referenceType     String?            @map("reference_type")
+  constitutionalRef String?            @map("constitutional_ref")
+  actorId           String             @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  deletedAt         DateTime?          @map("deleted_at")
+
+  profile   IFCProfile   @relation(fields: [profileId], references: [id])
+  dimension IFCDimension @relation(fields: [dimensionId], references: [id])
+  workspace Workspace    @relation(fields: [workspaceId], references: [id])
+
+  @@index([dimensionId, createdAt])
+  @@index([profileId, status])
+  @@index([workspaceId])
+  @@index([indicatorId])
+  @@map("ifc_indicators")
+}
+
+model IFCScore {
+  id                String       @id @default(cuid())
+  scoreId           String       @unique @default(cuid()) @map("score_id")
+  profileId         String       @map("profile_id")
+  workspaceId       String       @map("workspace_id")
+  flourishingIndex  Float        @default(0) @map("flourishing_index")
+  confidence        Float        @default(0)
+  trend             IFCTrend     @default(STABLE)
+  delta             Float        @default(0)
+  risk              IFCRiskLevel @default(LOW)
+  degraded          Boolean      @default(false)
+  dimensionScores   Json?        @map("dimension_scores")
+  reason            String?
+  constitutionalRef String?      @map("constitutional_ref")
+  actorId           String       @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime     @default(now()) @map("created_at")
+
+  profile   IFCProfile @relation(fields: [profileId], references: [id])
+  workspace Workspace  @relation(fields: [workspaceId], references: [id])
+
+  @@index([profileId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@index([scoreId])
+  @@map("ifc_scores")
+}
+
+model IFCSignal {
+  id                String        @id @default(cuid())
+  signalId          String        @unique @default(cuid()) @map("signal_id")
+  profileId         String        @map("profile_id")
+  workspaceId       String        @map("workspace_id")
+  kind              IFCSignalKind
+  magnitude         Float         @default(0)
+  confidence        Float         @default(0)
+  capitalReference  String?       @map("capital_reference")
+  reason            String?
+  constitutionalRef String?       @map("constitutional_ref")
+  actorId           String        @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime      @default(now()) @map("created_at")
+
+  profile   IFCProfile @relation(fields: [profileId], references: [id])
+  workspace Workspace  @relation(fields: [workspaceId], references: [id])
+
+  @@index([profileId, createdAt])
+  @@index([workspaceId, kind])
+  @@index([signalId])
+  @@map("ifc_signals")
+}
+
+model IFCHistory {
+  id                String   @id @default(cuid())
+  profileId         String   @map("profile_id")
+  workspaceId       String   @map("workspace_id")
+  eventType         String   @map("event_type")
+  referenceId       String?  @map("reference_id")
+  referenceType     String?  @map("reference_type")
+  constitutionalRef String?  @map("constitutional_ref")
+  notes             String?
+  actorId           String   @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  profile   IFCProfile @relation(fields: [profileId], references: [id])
+  workspace Workspace  @relation(fields: [workspaceId], references: [id])
+
+  @@index([profileId, createdAt])
+  @@index([workspaceId, eventType])
+  @@map("ifc_history")
+}
+
+model IFCEvidence {
+  id            String   @id @default(cuid())
+  evidenceId    String   @unique @default(cuid()) @map("evidence_id")
+  profileId     String   @map("profile_id")
+  workspaceId   String   @map("workspace_id")
+  evidenceType  String   @map("evidence_type")
+  referenceId   String?  @map("reference_id")
+  referenceType String?  @map("reference_type")
+  summary       String?
+  payload       Json?
+  actorId       String   @map("actor_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  profile   IFCProfile @relation(fields: [profileId], references: [id])
+  workspace Workspace  @relation(fields: [workspaceId], references: [id])
+
+  @@index([profileId, createdAt])
+  @@index([workspaceId, evidenceType])
+  @@index([evidenceId])
+  @@map("ifc_evidence")
+}
+
+model IFCPolicy {
+  id                String             @id @default(cuid())
+  policyId          String             @unique @default(cuid()) @map("policy_id")
+  workspaceId       String             @map("workspace_id")
+  name              String
+  description       String?
+  status            IFCComponentStatus @default(ACTIVE)
+  minIndex          Float              @default(0) @map("min_index")
+  minConfidence     Float              @default(0) @map("min_confidence")
+  degradationDelta  Float              @default(-0.1) @map("degradation_delta")
+  constitutionalRef String?            @map("constitutional_ref")
+  rules             Json?
+  actorId           String             @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  deletedAt         DateTime?          @map("deleted_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, status])
+  @@index([policyId])
+  @@map("ifc_policies")
 }

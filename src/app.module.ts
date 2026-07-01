@@ -25,6 +25,7 @@ import { ExchangeModule } from './exchange/exchange.module';
 import { ProofModule } from './proof/proof.module';
 import { MetaModule } from './meta/meta.module';
 import { UsfipModule } from './usfip/usfip.module';
+import { IfcModule } from './ifc/ifc.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { UsfipModule } from './usfip/usfip.module';
     ProofModule,
     MetaModule,
     UsfipModule,
+    IfcModule,
     CommitModule,
   ],
 })

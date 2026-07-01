@@ -2680,6 +2680,134 @@ describe('ONX Intelligence (e2e)', () => {
     await request(server).get('/usfip/dashboard').expect(401);
   });
 
+  it('IW-15: IFC institutional flourishing capital — profile, dimensions, indicators, scoring, capitalization, alignment, governance, override, history, isolation, audit, OpenAPI', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).get('/ifc/dashboard').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+
+    // --- Create an IFC profile — seeds the 8 flourishing dimensions (Part A/B) ---
+    const profileRes = await auth(request(server).post('/ifc/profiles'))
+      .send({
+        name: 'ONX institutional flourishing',
+        intentReferenceId: 'fic-intent-1',
+        objectiveReference: 'usfip-objective-1',
+      })
+      .expect(201);
+    const profileId = profileRes.body.id;
+    expect(profileId).toBeDefined();
+    expect(profileRes.body.status).toBe('ACTIVE');
+
+    // --- Profile detail exposes the seeded dimensions (Part B) ---
+    const detailRes = await auth(request(server).get(`/ifc/profiles/${profileId}`)).expect(200);
+    expect(detailRes.body.dimensions.length).toBe(8);
+
+    // --- Record indicators against dimensions (Part B) ---
+    await auth(request(server).post(`/ifc/profiles/${profileId}/indicators`))
+      .send({ kind: 'KNOWLEDGE', name: 'Object coverage', value: 0.9, weight: 1, confidence: 0.9 })
+      .expect(201);
+    await auth(request(server).post(`/ifc/profiles/${profileId}/indicators`))
+      .send({
+        kind: 'FOUNDER_ALIGNMENT',
+        name: 'Intent adherence',
+        value: 0.9,
+        weight: 1,
+        confidence: 0.9,
+      })
+      .expect(201);
+
+    // --- Calculate the flourishing index (Part C) ---
+    const scoreRes = await auth(request(server).post(`/ifc/profiles/${profileId}/score`))
+      .send({})
+      .expect(201);
+    expect(scoreRes.body.result.flourishingIndex).toBeGreaterThan(0);
+    expect(['LOW', 'MODERATE', 'ELEVATED', 'CRITICAL']).toContain(scoreRes.body.result.risk);
+    expect(scoreRes.body.result.dimensionScores.length).toBe(8);
+
+    // --- Score history (Part C) ---
+    const scoresRes = await auth(request(server).get(`/ifc/profiles/${profileId}/scores`)).expect(
+      200,
+    );
+    expect(scoresRes.body.length).toBeGreaterThanOrEqual(1);
+
+    // --- Capitalization signal — connects to D13 by value only (Part D) ---
+    const capRes = await auth(request(server).post(`/ifc/profiles/${profileId}/capitalization`))
+      .send({ capitalReference: 'd13-capital-1' })
+      .expect(201);
+    expect(['CONTRIBUTION', 'PRESERVATION', 'GROWTH', 'DECAY', 'ALLOCATION']).toContain(
+      capRes.body.signal.kind,
+    );
+
+    // --- Founder alignment check (Part E) ---
+    const alignRes = await auth(request(server).post(`/ifc/profiles/${profileId}/alignment`))
+      .send({})
+      .expect(201);
+    expect(alignRes.body.alignment.founderAuthorityValid).toBe(true);
+
+    // --- Governance policy + validation (Part F) ---
+    await auth(request(server).post('/ifc/policies'))
+      .send({ name: 'Flourishing floor', minIndex: 0.3, minConfidence: 0.2 })
+      .expect(201);
+    const validateRes = await auth(
+      request(server).get(`/ifc/profiles/${profileId}/validate`),
+    ).expect(200);
+    expect(validateRes.body.validation).toHaveProperty('valid');
+
+    // --- Immutable flourishing history (Part F) ---
+    const historyRes = await auth(request(server).get(`/ifc/profiles/${profileId}/history`)).expect(
+      200,
+    );
+    expect(historyRes.body.some((e: any) => e.eventType === 'SCORE_CALCULATED')).toBe(true);
+    expect(historyRes.body.some((e: any) => e.eventType === 'CAPITALIZATION_SIGNAL')).toBe(true);
+
+    // --- Founder override (Part F) — immutable, locks the profile ---
+    const overrideRes = await auth(request(server).post(`/ifc/profiles/${profileId}/override`))
+      .send({ directive: 'Freeze flourishing profile under founder review' })
+      .expect(201);
+    expect(overrideRes.body.overridden).toBe(true);
+    expect(overrideRes.body.status).toBe('OVERRIDDEN');
+    // Re-scoring is refused under an override
+    await auth(request(server).post(`/ifc/profiles/${profileId}/score`))
+      .send({})
+      .expect(400);
+
+    // --- Dashboard + reused runtimes (compatibility) ---
+    const dashRes = await auth(request(server).get('/ifc/dashboard')).expect(200);
+    expect(dashRes.body.profiles.overridden).toBeGreaterThanOrEqual(1);
+    expect(dashRes.body.dimensions.supportedKinds.length).toBe(8);
+    expect(dashRes.body.reusedRuntimes).toContain('D13');
+    expect(dashRes.body.reusedRuntimes).toContain('USFIP');
+
+    // --- Workspace isolation ---
+    const peerToken = await registerAndLogin(`e2e-iw15-peer-${Date.now()}@onx.test`);
+    await request(server)
+      .get(`/ifc/profiles/${profileId}`)
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(404);
+
+    // --- Audit trail ---
+    const ifcAudit = await listAudit('IFC_');
+    expect(ifcAudit.some((item) => item.action === 'IFC_CREATE_PROFILE')).toBe(true);
+    expect(ifcAudit.some((item) => item.action === 'IFC_CALCULATE_SCORE')).toBe(true);
+    expect(ifcAudit.some((item) => item.action === 'IFC_OVERRIDE')).toBe(true);
+    ifcAudit.slice(0, 3).forEach(expectUnifiedAuditShape);
+
+    // --- OpenAPI exposure ---
+    const openApi = await request(server).get('/api/docs-json').expect(200);
+    expect(openApi.body.paths['/ifc/profiles']).toBeDefined();
+    expect(openApi.body.paths['/ifc/dashboard']).toBeDefined();
+    expect(openApi.body.paths['/ifc/profiles/{profileId}/score']).toBeDefined();
+    expect(openApi.body.paths['/ifc/profiles/{profileId}/indicators']).toBeDefined();
+    expect(openApi.body.paths['/ifc/profiles/{profileId}/capitalization']).toBeDefined();
+    expect(openApi.body.paths['/ifc/profiles/{profileId}/alignment']).toBeDefined();
+    expect(openApi.body.paths['/ifc/profiles/{profileId}/override']).toBeDefined();
+
+    await request(server).get('/ifc/dashboard').expect(401);
+  });
+
   it('reporting depth supports summaries, details, filtering, sorting, date range, and audit compatibility', async () => {
     if (!hasDatabase || !hasSchema) {
       await request(app.getHttpServer()).get('/reports').expect(401);
