@@ -29,6 +29,7 @@ import { IfcModule } from './ifc/ifc.module';
 import { FiarModule } from './fiar/fiar.module';
 import { ReasoningModule } from './reasoning/reasoning.module';
 import { PlanningModule } from './planning/planning.module';
+import { DecisionModule } from './decision/decision.module';
 
 @Module({
   imports: [
@@ -64,6 +65,7 @@ import { PlanningModule } from './planning/planning.module';
     FiarModule,
     ReasoningModule,
     PlanningModule,
+    DecisionModule,
     CommitModule,
   ],
 })

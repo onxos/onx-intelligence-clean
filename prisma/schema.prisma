@@ -214,6 +214,16 @@ model Workspace {
   planningValidations PlanningValidation[]
   planningHistory     PlanningHistory[]
 
+  decisionSessions    DecisionSession[]
+  decisionContexts    DecisionContext[]
+  decisionCandidates  DecisionCandidate[]
+  decisionEvaluations DecisionEvaluation[]
+  decisionConstraints DecisionConstraint[]
+  decisionVerdicts    DecisionVerdict[]
+  decisionEvidence    DecisionEvidence[]
+  decisionValidations DecisionValidation[]
+  decisionHistory     DecisionHistory[]
+
   @@map("workspaces")
 }
 
@@ -5055,4 +5065,305 @@ model PlanningHistory {
   @@index([sessionId, createdAt])
   @@index([workspaceId, eventType])
   @@map("planning_history")
+}
+
+// ===========================================================================
+// Decision Engine (Wave 15) — determines the constitutionally valid decision.
+// Consumes Reasoning, Planning, Measurement, Capital, Runtime, Objects, USFIP,
+// IFC, FIAR and FIC by reference only. It NEVER executes actions.
+// ===========================================================================
+
+enum DecisionMode {
+  OPERATIONAL
+  STRATEGIC
+  FOUNDER
+  CONSTITUTIONAL
+  EMERGENCY
+  RECOVERY
+  OPTIMIZATION
+  CONSENSUS
+}
+
+enum DecisionSessionStatus {
+  PENDING
+  EVALUATING
+  DECIDED
+  FAILED
+  OVERRIDDEN
+}
+
+enum DecisionCandidateStatus {
+  PROPOSED
+  FILTERED
+  EVALUATED
+  SELECTED
+  REJECTED
+}
+
+enum DecisionVerdictKind {
+  SELECTED
+  CONTESTED
+  DEFERRED
+  BLOCKED
+}
+
+enum DecisionRiskLevel {
+  LOW
+  MODERATE
+  ELEVATED
+  CRITICAL
+}
+
+enum DecisionValidationKind {
+  CONSTITUTIONAL
+  FOUNDER
+  EVIDENCE
+  REASONING
+  PLANNING
+  CAPITAL
+}
+
+model DecisionSession {
+  id                   String                @id @default(cuid())
+  decisionSessionId    String                @unique @default(cuid()) @map("decision_session_id")
+  workspaceId          String                @map("workspace_id")
+  ownerId              String                @map("owner_id")
+  mode                 DecisionMode
+  objective            String
+  focus                String?
+  status               DecisionSessionStatus @default(PENDING)
+  confidence           Float                 @default(0)
+  verdict              DecisionVerdictKind?
+  selectedCandidateId  String?               @map("selected_candidate_id")
+  riskLevel            DecisionRiskLevel?     @map("risk_level")
+  constraintsSatisfied Boolean               @default(true) @map("constraints_satisfied")
+  candidateCount       Int                   @default(0) @map("candidate_count")
+  constitutionalRef    String?               @map("constitutional_ref")
+  overridden           Boolean               @default(false)
+  version              Int                   @default(1)
+  metadata             Json?
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @updatedAt @map("updated_at")
+  deletedAt            DateTime?             @map("deleted_at")
+
+  workspace   Workspace            @relation(fields: [workspaceId], references: [id])
+  contexts    DecisionContext[]
+  candidates  DecisionCandidate[]
+  evaluations DecisionEvaluation[]
+  constraints DecisionConstraint[]
+  verdicts    DecisionVerdict[]
+  evidence    DecisionEvidence[]
+  validations DecisionValidation[]
+  history     DecisionHistory[]
+
+  @@index([workspaceId, deletedAt, status])
+  @@index([workspaceId, mode])
+  @@index([workspaceId, createdAt])
+  @@index([decisionSessionId])
+  @@map("decision_sessions")
+}
+
+model DecisionContext {
+  id            String   @id @default(cuid())
+  contextId     String   @unique @default(cuid()) @map("context_id")
+  sessionId     String   @map("session_id")
+  workspaceId   String   @map("workspace_id")
+  runtime       String
+  referenceId   String?  @map("reference_id")
+  referenceType String?  @map("reference_type")
+  role          String
+  weight        Float    @default(1)
+  confidence    Float    @default(1)
+  summary       String?
+  payload       Json?
+  actorId       String   @map("actor_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  session   DecisionSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace       @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, runtime])
+  @@index([contextId])
+  @@map("decision_contexts")
+}
+
+model DecisionCandidate {
+  id                   String                  @id @default(cuid())
+  candidateId          String                  @unique @default(cuid()) @map("candidate_id")
+  sessionId            String                  @map("session_id")
+  workspaceId          String                  @map("workspace_id")
+  label                String
+  description          String?
+  status               DecisionCandidateStatus @default(PROPOSED)
+  weight               Float                   @default(1)
+  benefit              Float                   @default(0.5)
+  cost                 Float                   @default(0)
+  admissible           Boolean                 @default(true)
+  reasoningConfidence  Float?                  @map("reasoning_confidence")
+  planningReadiness    Float?                  @map("planning_readiness")
+  capitalSupport       Float?                  @map("capital_support")
+  constraintsSatisfied Boolean                 @default(true) @map("constraints_satisfied")
+  score                Float                   @default(0)
+  riskLevel            DecisionRiskLevel?      @map("risk_level")
+  selected             Boolean                 @default(false)
+  referenceId          String?                 @map("reference_id")
+  referenceType        String?                 @map("reference_type")
+  constitutionalRef    String?                 @map("constitutional_ref")
+  actorId              String                  @map("actor_id")
+  metadata             Json?
+  createdAt            DateTime                @default(now()) @map("created_at")
+  updatedAt            DateTime                @updatedAt @map("updated_at")
+
+  session     DecisionSession      @relation(fields: [sessionId], references: [id])
+  workspace   Workspace            @relation(fields: [workspaceId], references: [id])
+  evaluations DecisionEvaluation[]
+
+  @@index([sessionId, status])
+  @@index([workspaceId, selected])
+  @@index([candidateId])
+  @@map("decision_candidates")
+}
+
+model DecisionEvaluation {
+  id                String            @id @default(cuid())
+  evaluationId      String            @unique @default(cuid()) @map("evaluation_id")
+  candidateId       String            @map("candidate_id")
+  sessionId         String            @map("session_id")
+  workspaceId       String            @map("workspace_id")
+  mode              DecisionMode
+  score             Float             @default(0)
+  benefitScore      Float             @default(0) @map("benefit_score")
+  riskScore         Float             @default(0) @map("risk_score")
+  riskLevel         DecisionRiskLevel @default(MODERATE) @map("risk_level")
+  constitutionalPass Boolean          @default(true) @map("constitutional_pass")
+  constraintPass    Boolean           @default(true) @map("constraint_pass")
+  rationale         String?
+  actorId           String            @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime          @default(now()) @map("created_at")
+
+  candidate DecisionCandidate @relation(fields: [candidateId], references: [id])
+  session   DecisionSession   @relation(fields: [sessionId], references: [id])
+  workspace Workspace         @relation(fields: [workspaceId], references: [id])
+
+  @@index([candidateId, createdAt])
+  @@index([sessionId, score])
+  @@index([evaluationId])
+  @@map("decision_evaluations")
+}
+
+model DecisionConstraint {
+  id           String   @id @default(cuid())
+  constraintId String   @unique @default(cuid()) @map("constraint_id")
+  sessionId    String   @map("session_id")
+  workspaceId  String   @map("workspace_id")
+  name         String
+  satisfied    Boolean  @default(true)
+  required     Boolean  @default(true)
+  weight       Float    @default(1)
+  category     String?
+  actorId      String   @map("actor_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  session   DecisionSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace       @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, satisfied])
+  @@index([constraintId])
+  @@map("decision_constraints")
+}
+
+model DecisionVerdict {
+  id                  String              @id @default(cuid())
+  verdictId           String              @unique @default(cuid()) @map("verdict_id")
+  sessionId           String              @map("session_id")
+  workspaceId         String              @map("workspace_id")
+  mode                DecisionMode
+  kind                DecisionVerdictKind
+  selectedCandidateId String?             @map("selected_candidate_id")
+  confidence          Float               @default(0)
+  riskLevel           DecisionRiskLevel   @default(MODERATE) @map("risk_level")
+  constraintsSatisfied Boolean            @default(true) @map("constraints_satisfied")
+  rationale           String?
+  constitutionalRef   String?             @map("constitutional_ref")
+  alternatives        Json?
+  trace               Json?
+  actorId             String              @map("actor_id")
+  createdAt           DateTime            @default(now()) @map("created_at")
+
+  session   DecisionSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace       @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, kind])
+  @@index([verdictId])
+  @@map("decision_verdicts")
+}
+
+model DecisionEvidence {
+  id            String   @id @default(cuid())
+  evidenceId    String   @unique @default(cuid()) @map("evidence_id")
+  sessionId     String   @map("session_id")
+  workspaceId   String   @map("workspace_id")
+  evidenceType  String   @map("evidence_type")
+  runtime       String?
+  referenceId   String?  @map("reference_id")
+  referenceType String?  @map("reference_type")
+  summary       String?
+  confidence    Float    @default(1)
+  payload       Json?
+  actorId       String   @map("actor_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  session   DecisionSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace       @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, evidenceType])
+  @@index([evidenceId])
+  @@map("decision_evidence")
+}
+
+model DecisionValidation {
+  id                String   @id @default(cuid())
+  validationId      String   @unique @default(cuid()) @map("validation_id")
+  sessionId         String   @map("session_id")
+  workspaceId       String   @map("workspace_id")
+  valid             Boolean  @default(false)
+  kinds             Json?
+  issues            Json?
+  constitutionalRef String?  @map("constitutional_ref")
+  actorId           String   @map("actor_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  session   DecisionSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace       @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, valid])
+  @@index([validationId])
+  @@map("decision_validations")
+}
+
+model DecisionHistory {
+  id                String   @id @default(cuid())
+  sessionId         String   @map("session_id")
+  workspaceId       String   @map("workspace_id")
+  eventType         String   @map("event_type")
+  referenceId       String?  @map("reference_id")
+  referenceType     String?  @map("reference_type")
+  constitutionalRef String?  @map("constitutional_ref")
+  notes             String?
+  actorId           String   @map("actor_id")
+  metadata          Json?
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  session   DecisionSession @relation(fields: [sessionId], references: [id])
+  workspace Workspace       @relation(fields: [workspaceId], references: [id])
+
+  @@index([sessionId, createdAt])
+  @@index([workspaceId, eventType])
+  @@map("decision_history")
 }

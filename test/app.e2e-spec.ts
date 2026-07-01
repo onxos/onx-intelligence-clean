@@ -3202,6 +3202,157 @@ describe('ONX Intelligence (e2e)', () => {
     await request(server).get('/planning/dashboard').expect(401);
   });
 
+  it('IW-19: Decision Engine — start decision, evaluate candidates, trace, evidence, validation, blocked, override, dashboard, isolation, audit, OpenAPI', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).get('/decision/dashboard').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+
+    // --- Start a decision session (intake candidates, constraints, context) ---
+    const startRes = await auth(request(server).post('/decision/sessions'))
+      .send({
+        mode: 'STRATEGIC',
+        objective: 'Select the strongest institutional flourishing path',
+        candidates: [
+          {
+            label: 'expand-knowledge-capital',
+            benefit: 0.95,
+            cost: 0.05,
+            reasoningConfidence: 0.9,
+            planningReadiness: 0.9,
+            capitalSupport: 0.9,
+          },
+          { label: 'hold-position', benefit: 0.3, cost: 0.2 },
+          { label: 'aggressive-pivot', benefit: 0.6, cost: 0.7 },
+        ],
+        constraints: [{ name: 'budget', satisfied: true }],
+        contexts: [
+          { runtime: 'REASONING', role: 'REASONING', confidence: 1 },
+          { runtime: 'PLANNING', role: 'PLAN', confidence: 1 },
+          { runtime: 'CAPITAL', role: 'CAPITAL', confidence: 0.9 },
+        ],
+      })
+      .expect(201);
+    const sessionId = startRes.body.id;
+    expect(sessionId).toBeDefined();
+    expect(startRes.body.status).toBe('EVALUATING');
+
+    // --- Evaluate the candidates and produce the verdict (Part C) ---
+    const evalRes = await auth(
+      request(server).post(`/decision/sessions/${sessionId}/evaluate`),
+    ).expect(201);
+    expect(evalRes.body.status).toBe('DECIDED');
+    expect(evalRes.body.outcome.verdict).toBe('SELECTED');
+    expect(evalRes.body.outcome.winner.label).toBe('expand-knowledge-capital');
+    expect(evalRes.body.outcome.trace.stages).toHaveLength(9);
+    expect(evalRes.body.outcome.alternatives.length).toBeGreaterThan(0);
+
+    // --- Session detail exposes candidates, constraints, contexts and verdicts ---
+    const detailRes = await auth(request(server).get(`/decision/sessions/${sessionId}`)).expect(
+      200,
+    );
+    expect(detailRes.body.candidates.length).toBe(3);
+    expect(detailRes.body.constraints.length).toBe(1);
+    expect(detailRes.body.verdicts.length).toBeGreaterThan(0);
+
+    // --- Decision trace (verdict, winner, evaluations, alternatives) ---
+    const traceRes = await auth(
+      request(server).get(`/decision/sessions/${sessionId}/trace`),
+    ).expect(200);
+    expect(traceRes.body.verdict.kind).toBe('SELECTED');
+    expect(traceRes.body.winner.label).toBe('expand-knowledge-capital');
+    expect(traceRes.body.evaluations.length).toBe(3);
+    expect(traceRes.body.alternatives.length).toBeGreaterThan(0);
+
+    // --- Evidence (Part C/F) ---
+    const evidenceRes = await auth(
+      request(server).get(`/decision/sessions/${sessionId}/evidence`),
+    ).expect(200);
+    expect(evidenceRes.body.some((e: any) => e.evidenceType === 'DECISION_OUTCOME')).toBe(true);
+
+    // --- Validation across six dimensions (Part D) ---
+    const validateRes = await auth(
+      request(server).post(`/decision/sessions/${sessionId}/validate`),
+    ).expect(201);
+    expect(validateRes.body.validation.checks).toHaveLength(6);
+    expect(validateRes.body.validation.valid).toBe(true);
+
+    // --- Blocked decision when no candidate is admissible ---
+    const blockedStart = await auth(request(server).post('/decision/sessions'))
+      .send({
+        mode: 'CONSTITUTIONAL',
+        objective: 'No constitutionally admissible path',
+        candidates: [
+          { label: 'illegitimate-a', benefit: 0.9, admissible: false },
+          { label: 'illegitimate-b', benefit: 0.8, admissible: false },
+        ],
+        constraints: [],
+        contexts: [{ runtime: 'REASONING', role: 'REASONING', confidence: 1 }],
+        founderGuidance: 'Founder authority present',
+      })
+      .expect(201);
+    const blockedEval = await auth(
+      request(server).post(`/decision/sessions/${blockedStart.body.id}/evaluate`),
+    ).expect(201);
+    expect(blockedEval.body.outcome.verdict).toBe('BLOCKED');
+    expect(blockedEval.body.outcome.winner).toBeNull();
+
+    // --- Immutable history (Part F) ---
+    const historyRes = await auth(
+      request(server).get(`/decision/sessions/${sessionId}/history`),
+    ).expect(200);
+    expect(historyRes.body.some((e: any) => e.eventType === 'DECISION_STARTED')).toBe(true);
+    expect(historyRes.body.some((e: any) => e.eventType === 'DECISION_EVALUATED')).toBe(true);
+
+    // --- Founder override (Part F) — immutable ---
+    const overrideRes = await auth(request(server).post(`/decision/sessions/${sessionId}/override`))
+      .send({ directive: 'Freeze decision pending constitutional review' })
+      .expect(201);
+    expect(overrideRes.body.overridden).toBe(true);
+    expect(overrideRes.body.status).toBe('OVERRIDDEN');
+
+    // --- Overridden sessions cannot be re-evaluated ---
+    await auth(request(server).post(`/decision/sessions/${sessionId}/evaluate`)).expect(400);
+
+    // --- Dashboard (compatibility: reused runtimes + supported modes) ---
+    const dashRes = await auth(request(server).get('/decision/dashboard')).expect(200);
+    expect(dashRes.body.sessions.total).toBeGreaterThanOrEqual(2);
+    expect(dashRes.body.sessions.overridden).toBeGreaterThanOrEqual(1);
+    expect(dashRes.body.supportedModes.length).toBe(8);
+    expect(dashRes.body.reusedRuntimes).toContain('REASONING');
+    expect(dashRes.body.reusedRuntimes).toContain('PLANNING');
+    expect(dashRes.body.reusedRuntimes).toContain('IFC');
+
+    // --- Workspace isolation ---
+    const peerToken = await registerAndLogin(`e2e-iw19-peer-${Date.now()}@onx.test`);
+    await request(server)
+      .get(`/decision/sessions/${sessionId}`)
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(404);
+
+    // --- Audit trail ---
+    const decisionAudit = await listAudit('DECISION_');
+    expect(decisionAudit.some((item) => item.action === 'DECISION_START')).toBe(true);
+    expect(decisionAudit.some((item) => item.action === 'DECISION_EVALUATE')).toBe(true);
+    expect(decisionAudit.some((item) => item.action === 'DECISION_VALIDATE')).toBe(true);
+    expect(decisionAudit.some((item) => item.action === 'DECISION_OVERRIDE')).toBe(true);
+    decisionAudit.slice(0, 3).forEach(expectUnifiedAuditShape);
+
+    // --- OpenAPI exposure ---
+    const openApi = await request(server).get('/api/docs-json').expect(200);
+    expect(openApi.body.paths['/decision/sessions']).toBeDefined();
+    expect(openApi.body.paths['/decision/dashboard']).toBeDefined();
+    expect(openApi.body.paths['/decision/sessions/{sessionId}/evaluate']).toBeDefined();
+    expect(openApi.body.paths['/decision/sessions/{sessionId}/trace']).toBeDefined();
+    expect(openApi.body.paths['/decision/sessions/{sessionId}/validate']).toBeDefined();
+    expect(openApi.body.paths['/decision/sessions/{sessionId}/override']).toBeDefined();
+
+    await request(server).get('/decision/dashboard').expect(401);
+  });
+
   it('reporting depth supports summaries, details, filtering, sorting, date range, and audit compatibility', async () => {
     if (!hasDatabase || !hasSchema) {
       await request(app.getHttpServer()).get('/reports').expect(401);
