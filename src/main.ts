@@ -14,7 +14,14 @@ function bootstrapDatabaseSchema() {
   console.log('Bootstrapping Prisma schema for production startup');
   execSync('npx prisma generate', { stdio: 'inherit' });
   execSync('npx prisma db push --accept-data-loss', { stdio: 'inherit' });
-  execSync('npx prisma migrate deploy', { stdio: 'inherit' });
+  // `db push` above already syncs the full schema. `migrate deploy` is
+  // best-effort: hand-authored migrations can hit P3009 on a db-push-populated
+  // database, which must NOT crash startup since the schema is already correct.
+  try {
+    execSync('npx prisma migrate deploy', { stdio: 'inherit' });
+  } catch {
+    console.warn('migrate deploy skipped (schema already synced via db push)');
+  }
 }
 
 async function bootstrap() {

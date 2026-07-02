@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
+import { AppController } from './app.controller';
 import { CommonModule } from './common/common.module';
 import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health/health.module';
@@ -96,5 +97,6 @@ import { MonitoringModule } from './monitoring/monitoring.module';
     MonitoringModule,
     CommitModule,
   ],
+  controllers: [AppController],
 })
 export class AppModule {}
