@@ -68,7 +68,7 @@ runtime code paths.
 | # | Check | Expected | Status |
 |---|-------|----------|--------|
 | 1 | All endpoints require auth (except webhooks) | Yes | ✅ PASS — public by design: `/health*`, `/metrics`, `/monitoring/health`, `/monitoring/rate-test`, connector webhooks |
-| 2 | Webhook endpoints validate signatures | Twilio/Square/Stripe | ⚠️ GAP — `TODO(prod)`; webhooks gated by active-config + workspace resolution but HMAC signature verification not yet implemented |
+| 2 | Webhook endpoints validate signatures | Twilio/Square/Stripe | ✅ ADDRESSED — `WebhookSignatureService` verifies Twilio (HMAC-SHA1) and Stripe/Square (HMAC-SHA256), timing-safe; env-gated (skips when the secret is unset). 14 unit tests incl. tamper + wrong-secret. Wired into WhatsApp + POS webhook handlers; raw body captured via `NestFactory.create(AppModule, { rawBody: true })` |
 | 3 | Rate limiting active | Throttle decorators present | ✅ PASS — SECH/AI/FIC/webhooks + `/monitoring/rate-test` |
 | 4 | SQL injection impossible | Prisma only | ✅ PASS — Prisma everywhere; the only raw SQL is a static `SELECT 1` health probe and static DDL bootstrap (no user input interpolated) |
 | 5 | XSS prevented | Helmet CSP active | ✅ PASS — `securityHeadersMiddleware` sets CSP; API is JSON |
@@ -86,7 +86,7 @@ runtime code paths.
 |----------|---------|-------------|
 | CRITICAL | none | — |
 | HIGH | 9 dependency advisories (transitive/framework/build-tooling; no ONX code) | `npm audit fix`; bump `@nestjs/cli` |
-| MEDIUM | Webhook signature verification not implemented | Add Twilio/Square/Stripe HMAC verification before prod |
+| MEDIUM | ~~Webhook signature verification not implemented~~ **RESOLVED** — `WebhookSignatureService` (Twilio/Stripe/Square HMAC, timing-safe, env-gated) | Set provider secrets in prod env |
 | LOW | 2 `console.log` in `main.ts` bootstrap | Route through `StructuredLogger` |
 | LOW | Partial RBAC enforcement | Wire `Permission` checks into guards |
 
@@ -100,14 +100,15 @@ found — **none of the Phase 5 STOP conditions were triggered.**
 > ⚠️ **CONDITIONAL PASS**
 
 **Security posture is sound** — zero critical vulnerabilities, no secrets, strong
-auth/isolation/rate-limiting/validation. Two conditions remain before an
-unqualified production PASS:
+auth/isolation/rate-limiting/validation. Webhook HMAC signature verification
+(previously a MEDIUM gap) is now **implemented** (Twilio/Stripe/Square, timing-safe,
+env-gated). Two conditions remain before an unqualified production PASS:
 
 1. **Run the k6 load suite in a staging environment** and confirm
    `p95 < 500ms` / `error rate < 1%` at target concurrency.
-2. **Close the pre-prod gaps:** `npm audit fix` (9 high deps), implement webhook
-   signature verification, and (optionally) route bootstrap logs through the
-   structured logger + strengthen RBAC.
+2. **Patch dependency advisories:** `npm audit fix` (9 high deps) and set the
+   provider webhook secrets (`TWILIO_AUTH_TOKEN` / `STRIPE_WEBHOOK_SECRET` /
+   `SQUARE_SIGNATURE_KEY`) in the production environment.
 
 Upon completion, this report can be upgraded to **PASS** and appended to MO-039
 as the Phase 5 attachment.

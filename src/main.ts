@@ -3,6 +3,8 @@ import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { execSync } from 'node:child_process';
 import { AppModule } from './app.module';
+import { buildCorsOptions } from './security/cors.config';
+import { securityHeadersMiddleware } from './security/helmet.config';
 
 function bootstrapDatabaseSchema() {
   if (process.env.NODE_ENV !== 'production') {
@@ -18,17 +20,20 @@ function bootstrapDatabaseSchema() {
 async function bootstrap() {
   try {
     bootstrapDatabaseSchema();
-    const app = await NestFactory.create(AppModule);
+    const app = await NestFactory.create(AppModule, { rawBody: true });
     app.enableShutdownHooks();
+
+    app.use(securityHeadersMiddleware);
 
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: false,
         transform: true,
+        transformOptions: { enableImplicitConversion: true },
       }),
     );
-    app.enableCors();
+    app.enableCors(buildCorsOptions());
 
     const config = new DocumentBuilder()
       .setTitle('ONX Intelligence API')
