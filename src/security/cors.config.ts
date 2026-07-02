@@ -7,6 +7,10 @@ import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-option
 export const DEFAULT_ALLOWED_ORIGINS = [
   'https://onx.app',
   'https://app.onx.app',
+  // The workspace UI is served from the same host as the API (under /w), so the
+  // deploy's own origin must be allowed — browsers send it as the Origin header
+  // on every POST, and a disallowed origin would otherwise 500 the request.
+  'https://onx-intelligence-clean.onrender.com',
   'http://localhost:3000',
 ];
 
@@ -15,7 +19,13 @@ export function allowedOrigins(): string[] {
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean);
-  return [...new Set([...DEFAULT_ALLOWED_ORIGINS, ...extra])];
+  // Render provides RENDER_EXTERNAL_URL as this service's public URL; keep the
+  // whitelist correct even if the service is renamed.
+  const renderUrl = (process.env.RENDER_EXTERNAL_URL ?? '')
+    .trim()
+    .replace(/\/$/, '');
+  const dynamic = renderUrl ? [renderUrl] : [];
+  return [...new Set([...DEFAULT_ALLOWED_ORIGINS, ...dynamic, ...extra])];
 }
 
 export function isOriginAllowed(origin: string | undefined): boolean {
