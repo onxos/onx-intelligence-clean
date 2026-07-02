@@ -18,6 +18,13 @@ import { CommitModule } from './commit/commit.module';
 import { CapitalModule } from './capital/capital.module';
 import { FounderIntentModule } from './founder-intent/founder-intent.module';
 import { IntentCompilerModule } from './intent-compiler/intent-compiler.module';
+import { IurgModule } from './iurg/iurg.module';
+import { SechModule } from './sech/sech.module';
+import { PerceptionModule } from './perception/perception.module';
+import { SfisModule } from './sfis/sfis.module';
+import { UnderstandingModule } from './understanding/understanding.module';
+import { JudgmentModule } from './judgment/judgment.module';
+import { ContinuityModule } from './continuity/continuity.module';
 import { IUCModule } from './iuc/iuc.module';
 import { MeasurementModule } from './measurement/measurement.module';
 import { RuntimeModule } from './runtime/runtime.module';
@@ -31,6 +38,12 @@ import { ReasoningModule } from './reasoning/reasoning.module';
 import { PlanningModule } from './planning/planning.module';
 import { DecisionModule } from './decision/decision.module';
 import { D20Module } from './d20/d20.module';
+import { AssessmentModule } from './assessment/assessment.module';
+import { CrossModuleAuditModule } from './audit/cross-module-audit.module';
+import { ExceptionModule } from './exception/exception.module';
+import { AiCoreModule } from './ai-core/ai-core.module';
+import { ConnectorsModule } from './connectors/connectors.module';
+import { MonitoringModule } from './monitoring/monitoring.module';
 
 @Module({
   imports: [
@@ -55,6 +68,13 @@ import { D20Module } from './d20/d20.module';
     CapitalModule,
     FounderIntentModule,
     IntentCompilerModule,
+    IurgModule,
+    SechModule,
+    PerceptionModule,
+    SfisModule,
+    UnderstandingModule,
+    JudgmentModule,
+    ContinuityModule,
     IUCModule,
     MeasurementModule,
     RuntimeModule,
@@ -68,6 +88,12 @@ import { D20Module } from './d20/d20.module';
     PlanningModule,
     DecisionModule,
     D20Module,
+    AssessmentModule,
+    CrossModuleAuditModule,
+    ExceptionModule,
+    AiCoreModule,
+    ConnectorsModule,
+    MonitoringModule,
     CommitModule,
   ],
 })

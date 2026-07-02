@@ -233,6 +233,48 @@ model Workspace {
   buildProfiles              BuildProfile[]
   deploymentProfiles         DeploymentProfile[]
 
+  ficEnforcementChecks     FicEnforcementCheck[]
+  ficConstraintEvaluations FicConstraintEvaluation[]
+  ficEnforcementViolations FicEnforcementViolation[]
+
+  iurgIntentObjects      IurgIntentObject[]
+  iurgConstraintObjects  IurgConstraintObject[]
+  iurgConflictObjects    IurgConflictObject[]
+  iurgOverrideObjects    IurgOverrideObject[]
+  iurgReviewObjects      IurgReviewObject[]
+  iurgAmendmentObjects   IurgAmendmentObject[]
+  iurgEnforcementObjects IurgEnforcementObject[]
+  iurgViolationObjects   IurgViolationObject[]
+  iurgEdges              IurgEdge[]
+  intentEvolutionLedger  IntentEvolutionLedger[]
+
+  sechRoutes SechRoute[]
+
+  usfipPerceptionRecords UsfipPerceptionRecord[]
+
+  decisionRuns DecisionRun[]
+
+  sfisModelStatuses SfisModelStatus[]
+  sfisScanRecords   SfisScanRecord[]
+
+  detectedPatterns       DetectedPattern[]
+  contextualizedPatterns ContextualizedPattern[]
+  understandingObjects   UnderstandingObject[]
+
+  judgmentObjects JudgmentObject[]
+
+  continuityAudits ContinuityAudit[]
+
+  selfAssessments    SelfAssessment[]
+  crossModuleAudits  CrossModuleAudit[]
+  overrideExecutions OverrideExecution[]
+  systemHealthChecks SystemHealth[]
+
+  aiQueryLogs AIQueryLog[]
+
+  connectorConfigs ConnectorConfig[]
+  connectorLogs    ConnectorLog[]
+
   @@map("workspaces")
 }
 
@@ -3535,7 +3577,7 @@ model MetaMergeRequest {
   validated        Boolean         @default(false)
   validationDetail String?         @map("validation_detail")
   mergedResult     Json?           @map("merged_result")
-  rolledBack       Boolean         @default(false)
+  rolledBack       Boolean         @default(false) @map("rolled_back")
   reason           String?
   actorId          String          @map("actor_id")
   mergedAt         DateTime?       @map("merged_at")
@@ -5655,4 +5697,954 @@ model DeploymentProfile {
   @@index([workspaceId, createdAt])
   @@index([deploymentProfileId])
   @@map("deployment_profiles")
+}
+
+// ---------------------------------------------------------------------------
+// IW-23 — FIC Full Runtime Enforcement (SECH-FIC)
+// Persisted runtime enforcement events. The constitutional constraint registry
+// itself (68 constraints, 38 intents, 7 conflict classes, 10 playbook mappings,
+// 13-step sequence) is code-versioned in src/intent-compiler/fic-enforcement.constants.ts.
+// These tables record the IURG-bound Enforcement + Violation objects.
+// ---------------------------------------------------------------------------
+
+enum FicCheckDecision {
+  APPROVED
+  REJECTED
+  CONFLICT
+  OVERRIDE
+}
+
+enum FicConstraintKind {
+  HC
+  SC
+  AC
+  DG
+  EB
+  OVR
+  OR
+}
+
+enum FicEvaluationOutcome {
+  PASS
+  VIOLATED
+  FLAGGED
+  GATE_REQUIRED
+  BLOCKED
+  ADVISORY
+  NOT_APPLICABLE
+}
+
+enum FicViolationKind {
+  EXECUTION_BLOCK
+  HARD_CONSTRAINT
+  CONFLICT
+  OVERRIDE
+}
+
+model FicEnforcementCheck {
+  id                      String           @id @default(cuid())
+  checkId                 String           @unique @default(cuid()) @map("check_id")
+  workspaceId             String           @map("workspace_id")
+  requesterId             String           @map("requester_id")
+  checkType               String?          @map("check_type")
+  decisionContext         String?          @map("decision_context")
+  playbooks               String[]         @default([])
+  domains                 String[]         @default([])
+  signals                 Json?
+  decision                FicCheckDecision
+  reason                  String
+  applicableIntentIds     String[]         @default([]) @map("applicable_intent_ids")
+  applicableConstraintIds String[]         @default([]) @map("applicable_constraint_ids")
+  executionBlocks         String[]         @default([]) @map("execution_blocks")
+  hardViolations          String[]         @default([]) @map("hard_violations")
+  softFlags               String[]         @default([]) @map("soft_flags")
+  requiredGates           String[]         @default([]) @map("required_gates")
+  activeOverrides         String[]         @default([]) @map("active_overrides")
+  priorityLevel           Int?             @map("priority_level")
+  requiresHumanApproval   Boolean          @default(false) @map("requires_human_approval")
+  counterProposal         String?          @map("counter_proposal")
+  steps                   Json
+  conflicts               Json?
+  traceId                 String?          @map("trace_id")
+  metadata                Json?
+  createdAt               DateTime         @default(now()) @map("created_at")
+
+  workspace   Workspace                 @relation(fields: [workspaceId], references: [id])
+  evaluations FicConstraintEvaluation[]
+  violations  FicEnforcementViolation[]
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, decision])
+  @@index([checkId])
+  @@map("fic_enforcement_checks")
+}
+
+model FicConstraintEvaluation {
+  id           String               @id @default(cuid())
+  checkId      String               @map("check_id")
+  constraintId String               @map("constraint_id")
+  kind         FicConstraintKind
+  title        String
+  outcome      FicEvaluationOutcome
+  triggered    Boolean              @default(false)
+  reason       String
+  workspaceId  String               @map("workspace_id")
+  createdAt    DateTime             @default(now()) @map("created_at")
+
+  check     FicEnforcementCheck @relation(fields: [checkId], references: [id], onDelete: Cascade)
+  workspace Workspace           @relation(fields: [workspaceId], references: [id])
+
+  @@index([checkId])
+  @@index([workspaceId, constraintId])
+  @@map("fic_constraint_evaluations")
+}
+
+model FicEnforcementViolation {
+  id           String           @id @default(cuid())
+  violationId  String           @unique @default(cuid()) @map("violation_id")
+  checkId      String           @map("check_id")
+  constraintId String           @map("constraint_id")
+  kind         FicViolationKind
+  description  String
+  autoUnblock  String?          @map("auto_unblock")
+  workspaceId  String           @map("workspace_id")
+  createdAt    DateTime         @default(now()) @map("created_at")
+
+  check     FicEnforcementCheck @relation(fields: [checkId], references: [id], onDelete: Cascade)
+  workspace Workspace           @relation(fields: [workspaceId], references: [id])
+
+  @@index([checkId])
+  @@index([workspaceId, kind])
+  @@index([violationId])
+  @@map("fic_enforcement_violations")
+}
+
+// ---------------------------------------------------------------------------
+// IW-24 — IURG Full Binding (CCP v1.0 Section 12)
+// Intent-Understanding-Reasoning Graph binding for FIC runtime events.
+// 8 object-type node models + a generic typed edge model (10 edge types) +
+// the Intent Evolution Ledger. Nodes/edges reference FIC + intent-compiler by
+// value (plain String refs, no FK to those domains); workspace-scoped only.
+// Distinct from src/iuc (Understanding Capital) — no duplication.
+// ---------------------------------------------------------------------------
+
+enum IurgEdgeType {
+  DERIVED_FROM
+  CONSTRAINS
+  CONFLICTS_WITH
+  SUPERSEDES
+  ENFORCED_BY
+  VIOLATED_BY
+  REVIEWED_UNDER
+  AMENDED_BY
+  VALIDATED_BY
+  REALIZED_AS
+}
+
+model IurgIntentObject {
+  id              String   @id @default(cuid())
+  iurgId          String   @unique @map("iurg_id")
+  workspaceId     String   @map("workspace_id")
+  intentRef       String   @map("intent_ref")
+  title           String?
+  category        String?
+  affectedDomains String[] @default([]) @map("affected_domains")
+  version         Int      @default(1)
+  payload         Json?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@unique([workspaceId, intentRef])
+  @@index([workspaceId, createdAt])
+  @@index([iurgId])
+  @@map("iurg_intent_objects")
+}
+
+model IurgConstraintObject {
+  id               String   @id @default(cuid())
+  iurgId           String   @unique @map("iurg_id")
+  workspaceId      String   @map("workspace_id")
+  constraintRef    String   @map("constraint_ref")
+  kind             String?
+  title            String?
+  sourceIntentRefs String[] @default([]) @map("source_intent_refs")
+  payload          Json?
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@unique([workspaceId, constraintRef])
+  @@index([workspaceId, createdAt])
+  @@index([iurgId])
+  @@map("iurg_constraint_objects")
+}
+
+model IurgConflictObject {
+  id              String   @id @default(cuid())
+  iurgId          String   @unique @map("iurg_id")
+  workspaceId     String   @map("workspace_id")
+  actorId         String   @map("actor_id")
+  eventType       String   @default("conflict") @map("event_type")
+  intentId        String?  @map("intent_id")
+  constraintId    String?  @map("constraint_id")
+  conflictClasses String[] @default([]) @map("conflict_classes")
+  targetProposal  String?  @map("target_proposal")
+  result          String?
+  decision        String?
+  traceId         String?  @map("trace_id")
+  sourceCheckId   String?  @map("source_check_id")
+  playbooks       String[] @default([])
+  domains         String[] @default([])
+  payload         Json?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, eventType])
+  @@index([iurgId])
+  @@map("iurg_conflict_objects")
+}
+
+model IurgOverrideObject {
+  id             String   @id @default(cuid())
+  iurgId         String   @unique @map("iurg_id")
+  workspaceId    String   @map("workspace_id")
+  actorId        String   @map("actor_id")
+  eventType      String   @default("override") @map("event_type")
+  intentId       String?  @map("intent_id")
+  constraintId   String?  @map("constraint_id")
+  overrideRules  String[] @default([]) @map("override_rules")
+  targetProposal String?  @map("target_proposal")
+  result         String?
+  decision       String?
+  traceId        String?  @map("trace_id")
+  sourceCheckId  String?  @map("source_check_id")
+  playbooks      String[] @default([])
+  domains        String[] @default([])
+  payload        Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, eventType])
+  @@index([iurgId])
+  @@map("iurg_override_objects")
+}
+
+model IurgReviewObject {
+  id             String   @id @default(cuid())
+  iurgId         String   @unique @map("iurg_id")
+  workspaceId    String   @map("workspace_id")
+  actorId        String   @map("actor_id")
+  eventType      String   @default("review") @map("event_type")
+  intentId       String?  @map("intent_id")
+  decision       String?
+  result         String?
+  targetProposal String?  @map("target_proposal")
+  traceId        String?  @map("trace_id")
+  payload        Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, eventType])
+  @@index([iurgId])
+  @@map("iurg_review_objects")
+}
+
+model IurgAmendmentObject {
+  id             String   @id @default(cuid())
+  iurgId         String   @unique @map("iurg_id")
+  workspaceId    String   @map("workspace_id")
+  actorId        String   @map("actor_id")
+  eventType      String   @default("amendment") @map("event_type")
+  intentId       String?  @map("intent_id")
+  fromVersion    Int?     @map("from_version")
+  toVersion      Int?     @map("to_version")
+  result         String?
+  targetProposal String?  @map("target_proposal")
+  traceId        String?  @map("trace_id")
+  payload        Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, eventType])
+  @@index([iurgId])
+  @@map("iurg_amendment_objects")
+}
+
+model IurgEnforcementObject {
+  id             String   @id @default(cuid())
+  iurgId         String   @unique @map("iurg_id")
+  workspaceId    String   @map("workspace_id")
+  actorId        String   @map("actor_id")
+  eventType      String   @default("enforcement") @map("event_type")
+  intentId       String?  @map("intent_id")
+  constraintId   String?  @map("constraint_id")
+  targetProposal String?  @map("target_proposal")
+  result         String?
+  decision       String?
+  traceId        String?  @map("trace_id")
+  sourceCheckId  String?  @map("source_check_id")
+  playbooks      String[] @default([])
+  domains        String[] @default([])
+  payload        Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, eventType])
+  @@index([iurgId])
+  @@map("iurg_enforcement_objects")
+}
+
+model IurgViolationObject {
+  id             String   @id @default(cuid())
+  iurgId         String   @unique @map("iurg_id")
+  workspaceId    String   @map("workspace_id")
+  actorId        String   @map("actor_id")
+  eventType      String   @default("violation") @map("event_type")
+  intentId       String?  @map("intent_id")
+  constraintId   String?  @map("constraint_id")
+  blockedIds     String[] @default([]) @map("blocked_ids")
+  targetProposal String?  @map("target_proposal")
+  result         String?
+  decision       String?
+  traceId        String?  @map("trace_id")
+  sourceCheckId  String?  @map("source_check_id")
+  playbooks      String[] @default([])
+  domains        String[] @default([])
+  payload        Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, eventType])
+  @@index([iurgId])
+  @@map("iurg_violation_objects")
+}
+
+model IurgEdge {
+  id              String       @id @default(cuid())
+  edgeId          String       @unique @map("edge_id")
+  workspaceId     String       @map("workspace_id")
+  edgeType        IurgEdgeType @map("edge_type")
+  fromNodeType    String       @map("from_node_type")
+  fromNodeId      String       @map("from_node_id")
+  fromNodeRef     String?      @map("from_node_ref")
+  toNodeType      String       @map("to_node_type")
+  toNodeId        String       @map("to_node_id")
+  toNodeRef       String?      @map("to_node_ref")
+  sourceEventId   String?      @map("source_event_id")
+  sourceEventType String?      @map("source_event_type")
+  metadata        Json?
+  createdAt       DateTime     @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, fromNodeId])
+  @@index([workspaceId, toNodeId])
+  @@index([workspaceId, edgeType])
+  @@index([edgeId])
+  @@map("iurg_edges")
+}
+
+model IntentEvolutionLedger {
+  id           String   @id @default(cuid())
+  ledgerId     String   @unique @map("ledger_id")
+  workspaceId  String   @map("workspace_id")
+  sequence     Int
+  eventType    String   @map("event_type")
+  decision     String?
+  intentId     String?  @map("intent_id")
+  constraintId String?  @map("constraint_id")
+  nodeType     String   @map("node_type")
+  nodeId       String   @map("node_id")
+  traceId      String?  @map("trace_id")
+  summary      String
+  payload      Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@unique([workspaceId, sequence])
+  @@index([workspaceId, createdAt])
+  @@index([ledgerId])
+  @@map("intent_evolution_ledger")
+}
+
+// ---------------------------------------------------------------------------
+// IW-25 — SECH Integration (CCP v1.0 Section 11)
+// The SECH decision router runs FIC checks automatically at 4 gates
+// (pre_judgment, pre_decision, pre_execution, post_outcome). Each gate delegates
+// to FicEnforcementService.runCheck (which persists a FicEnforcementCheck and
+// binds the event into IURG). A SechRoute records the gate sequence + terminal
+// disposition; CONFLICT routes await human resolution (/sech/pending).
+// ---------------------------------------------------------------------------
+
+enum SechRouteStatus {
+  ROUTING
+  APPROVED
+  REJECTED
+  CONFLICT
+  OVERRIDE
+  COMPLETED
+  FAILED
+}
+
+model SechRoute {
+  id                    String          @id @default(cuid())
+  routeId               String          @unique @default(cuid()) @map("route_id")
+  workspaceId           String          @map("workspace_id")
+  requesterId           String          @map("requester_id")
+  checkType             String?         @map("check_type")
+  decisionContext       String?         @map("decision_context")
+  playbooks             String[]        @default([])
+  domains               String[]        @default([])
+  signals               Json?
+  status                SechRouteStatus @default(ROUTING)
+  currentGate           String?         @map("current_gate")
+  finalDecision         String?         @map("final_decision")
+  gateResults           Json            @map("gate_results")
+  conditions            String[]        @default([])
+  counterProposal       String?         @map("counter_proposal")
+  requiresHumanApproval Boolean         @default(false) @map("requires_human_approval")
+  overrideExpiresAt     DateTime?       @map("override_expires_at")
+  executed              Boolean         @default(false)
+  outcomeValidated      Boolean         @default(false) @map("outcome_validated")
+  escalated             Boolean         @default(false)
+  traceId               String?         @map("trace_id")
+  metadata              Json?
+  createdAt             DateTime        @default(now()) @map("created_at")
+  updatedAt             DateTime        @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, createdAt])
+  @@index([routeId])
+  @@map("sech_routes")
+}
+
+// ---------------------------------------------------------------------------
+// IW-26 — USFIP Unified Perception Bus (HC-12 single unified mind, AC-05
+// evidence hierarchy). NOTE: distinct from the IW-14 USFIP (Universal Strategic
+// Founder Intelligence Protocol, models USFIP*). This is the perception
+// ingestion bus in src/perception/; every source enters here, is validated /
+// classified / ranked (AC-05) / FIC-checked (via SECH pre_judgment) and routed
+// into IURG. Workspace-scoped; links to FIC/SECH/IURG by value (no FK).
+// ---------------------------------------------------------------------------
+
+model UsfipPerceptionRecord {
+  id               String   @id @default(cuid())
+  recordId         String   @unique @default(cuid()) @map("record_id")
+  workspaceId      String   @map("workspace_id")
+  requesterId      String   @map("requester_id")
+  sourceType       String   @map("source_type")
+  sourceId         String?  @map("source_id")
+  rawPayload       Json     @map("raw_payload")
+  classifiedDomain String   @map("classified_domain")
+  evidenceTier     Int      @map("evidence_tier")
+  evidenceScore    Float    @map("evidence_score")
+  status           String   @default("pending")
+  reason           String?
+  ficCheckId       String?  @map("fic_check_id")
+  sechRouteId      String?  @map("sech_route_id")
+  iurgNodeId       String?  @map("iurg_node_id")
+  iurgNodeType     String?  @map("iurg_node_type")
+  traceId          String?  @map("trace_id")
+  metadata         Json?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, sourceType])
+  @@index([workspaceId, evidenceTier])
+  @@index([workspaceId, status])
+  @@index([workspaceId, classifiedDomain])
+  @@index([recordId])
+  @@map("usfip_perception_records")
+}
+
+// ---------------------------------------------------------------------------
+// IW-27 — D14 Decision Ladder (HC-10: Knowledge!=Judgment, Perception!=
+// Understanding, Learning!=Growth). The 14-step process that transforms raw
+// perception (USFIP, IW-26) into an institutional rule across 5 stages. Extends
+// the existing Decision module (IW-19 Decision Engine) — additive, no overwrite.
+// Reuses SECH (IW-25) for the D8 pre_decision + D14 post_outcome FIC checks.
+// ---------------------------------------------------------------------------
+
+enum DecisionLadderStage {
+  PERCEPTION
+  UNDERSTANDING
+  JUDGMENT
+  LEARNING
+  GROWTH
+}
+
+enum DecisionRunStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ABANDONED
+  PROMOTED
+}
+
+model DecisionRun {
+  id                  String              @id @default(cuid())
+  runId               String              @unique @default(cuid()) @map("run_id")
+  workspaceId         String              @map("workspace_id")
+  requesterId         String              @map("requester_id")
+  perceptionId        String              @map("perception_id")
+  subject             String
+  currentStep         String              @map("current_step")
+  currentStage        DecisionLadderStage @map("current_stage")
+  status              DecisionRunStatus   @default(ACTIVE)
+  stepHistory         Json[]              @default([]) @map("step_history")
+  humanGateRequired   Boolean             @default(false) @map("human_gate_required")
+  humanGateType       String?             @map("human_gate_type")
+  humanGateApprover   String?             @map("human_gate_approver")
+  humanGateResolvedAt DateTime?           @map("human_gate_resolved_at")
+  iterationCount      Int                 @default(0) @map("iteration_count")
+  finalDecision       String?             @map("final_decision")
+  outcomeValidated    Boolean             @default(false) @map("outcome_validated")
+  promotedToRule      Boolean             @default(false) @map("promoted_to_rule")
+  ruleId              String?             @map("rule_id")
+  ficCheckIds         String[]            @default([]) @map("fic_check_ids")
+  sechRouteIds        String[]            @default([]) @map("sech_route_ids")
+  signals             Json?
+  traceId             String?             @map("trace_id")
+  createdAt           DateTime            @default(now()) @map("created_at")
+  updatedAt           DateTime            @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, currentStep])
+  @@index([workspaceId, perceptionId])
+  @@index([runId])
+  @@map("decision_runs")
+}
+
+// ---------------------------------------------------------------------------
+// IW-28 — SFIS Strategic Founder Intelligence Shield (HC-05, HC-06, HC-11)
+// Guard layer preventing scope convergence to commodity AI (HC-05) and enforcing
+// mandatory Frontier AI availability (HC-06). SfisModelStatus tracks the 6
+// frontier engines; SfisScanRecord records every output scan verdict. Workspace-
+// scoped; violations bind to IURG (HC-05/HC-06) by value.
+// ---------------------------------------------------------------------------
+
+model SfisModelStatus {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  modelName   String   @map("model_name")
+  status      String   @default("unknown")
+  lastChecked DateTime @default(now()) @map("last_checked")
+  latencyMs   Int?     @map("latency_ms")
+  configValid Boolean  @default(false) @map("config_valid")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@unique([workspaceId, modelName])
+  @@index([workspaceId, status])
+  @@map("sfis_model_status")
+}
+
+model SfisScanRecord {
+  id               String   @id @default(cuid())
+  scanId           String   @unique @default(cuid()) @map("scan_id")
+  workspaceId      String   @map("workspace_id")
+  requesterId      String   @map("requester_id")
+  layer            String
+  outputType       String   @map("output_type")
+  proposedCategory String?  @map("proposed_category")
+  verdict          String
+  detectedCategory String?  @map("detected_category")
+  reason           String
+  matchedPatterns  String[] @default([]) @map("matched_patterns")
+  driftScore       Float?   @map("drift_score")
+  outputSample     String?  @map("output_sample")
+  iurgNodeId       String?  @map("iurg_node_id")
+  iurgNodeType     String?  @map("iurg_node_type")
+  traceId          String?  @map("trace_id")
+  metadata         Json?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, verdict])
+  @@index([workspaceId, layer])
+  @@index([workspaceId, createdAt])
+  @@index([scanId])
+  @@map("sfis_scan_records")
+}
+
+// ---------------------------------------------------------------------------
+// IW-29 — Perception -> Understanding Integration (HC-10).
+// The 3-transformation bridge that makes "Perception != Understanding" explicit:
+// T1 Pattern Detection (SC-05 3+ occurrences) -> T2 Context Matching (SC-08 2+
+// sources) -> T3 Meaning Extraction (HC-10 explicit interpretation). Each stage
+// passes the SECH pre_judgment gate and links into IURG. Workspace-scoped;
+// cross-stage refs are plain String (no FK).
+// ---------------------------------------------------------------------------
+
+model DetectedPattern {
+  id              String   @id @default(cuid())
+  patternId       String   @unique @default(cuid()) @map("pattern_id")
+  workspaceId     String   @map("workspace_id")
+  requesterId     String   @map("requester_id")
+  perceptionIds   String[] @default([]) @map("perception_ids")
+  domain          String
+  patternType     String   @map("pattern_type")
+  occurrenceCount Int      @map("occurrence_count")
+  firstSeen       DateTime @map("first_seen")
+  lastSeen        DateTime @map("last_seen")
+  confidence      Float    @default(0.0)
+  status          String   @default("detected")
+  reason          String?
+  ficCheckId      String?  @map("fic_check_id")
+  sechRouteId     String?  @map("sech_route_id")
+  iurgNodeId      String?  @map("iurg_node_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, domain])
+  @@index([workspaceId, patternType])
+  @@index([workspaceId, status])
+  @@index([patternId])
+  @@map("detected_patterns")
+}
+
+model ContextualizedPattern {
+  id                 String   @id @default(cuid())
+  contextId          String   @unique @default(cuid()) @map("context_id")
+  workspaceId        String   @map("workspace_id")
+  requesterId        String   @map("requester_id")
+  patternId          String   @map("pattern_id")
+  domain             String
+  matchedContexts    String[] @default([]) @map("matched_contexts")
+  sourceCount        Int      @map("source_count")
+  interpretation     String?
+  enrichedConfidence Float    @default(0.0) @map("enriched_confidence")
+  status             String   @default("contextualized")
+  reason             String?
+  ficCheckId         String?  @map("fic_check_id")
+  sechRouteId        String?  @map("sech_route_id")
+  iurgNodeId         String?  @map("iurg_node_id")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, patternId])
+  @@index([workspaceId, status])
+  @@index([contextId])
+  @@map("contextualized_patterns")
+}
+
+model UnderstandingObject {
+  id              String   @id @default(cuid())
+  understandingId String   @unique @default(cuid()) @map("understanding_id")
+  workspaceId     String   @map("workspace_id")
+  requesterId     String   @map("requester_id")
+  contextId       String   @map("context_id")
+  domain          String
+  meaning         String
+  evidenceBasis   String[] @default([]) @map("evidence_basis")
+  confidence      Float
+  realityTier     String   @map("reality_tier")
+  relatedIntents  String[] @default([]) @map("related_intents")
+  status          String   @default("preliminary")
+  reason          String?
+  ficCheckId      String?  @map("fic_check_id")
+  sechRouteId     String?  @map("sech_route_id")
+  iurgNodeId      String?  @map("iurg_node_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, realityTier])
+  @@index([workspaceId, status])
+  @@index([understandingId])
+  @@map("understanding_objects")
+}
+
+// ---------------------------------------------------------------------------
+// IW-30 — Judgment (HC-10: Knowledge != Judgment). The Understanding -> Judgment
+// bridge: Understanding says "what it means", Judgment says "what to do". A
+// judgment starts speculative (outcome-unproven, distinct from an understanding's
+// temporal proof) and climbs preliminary -> validated (DG-09, 3+ correct SC-05)
+// -> institutional (DG-10, 2+ branch SC-06). Reuses SECH pre_decision + IURG.
+// Workspace-scoped; cross-stage refs plain String (no FK).
+// ---------------------------------------------------------------------------
+
+model JudgmentObject {
+  id                  String   @id @default(cuid())
+  judgmentId          String   @unique @default(cuid()) @map("judgment_id")
+  workspaceId         String   @map("workspace_id")
+  requesterId         String   @map("requester_id")
+  understandingId     String   @map("understanding_id")
+  domain              String
+  subject             String
+  decision            String
+  reasoning           String
+  founderAlignment    Float    @map("founder_alignment")
+  constraintCheck     String   @map("constraint_check")
+  violatedConstraints String[] @default([]) @map("violated_constraints")
+  confidence          Float
+  realityTier         String   @default("speculative") @map("reality_tier")
+  status              String   @default("preliminary")
+  validationCount     Int      @default(0) @map("validation_count")
+  incorrectCount      Int      @default(0) @map("incorrect_count")
+  validationBranches  String[] @default([]) @map("validation_branches")
+  promotedApprover    String?  @map("promoted_approver")
+  ruleId              String?  @map("rule_id")
+  relatedIntents      String[] @default([]) @map("related_intents")
+  ficCheckId          String?  @map("fic_check_id")
+  sechRouteId         String?  @map("sech_route_id")
+  iurgNodeId          String?  @map("iurg_node_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, realityTier])
+  @@index([workspaceId, understandingId])
+  @@index([judgmentId])
+  @@map("judgment_objects")
+}
+
+// ---------------------------------------------------------------------------
+// IW-31 — Continuity (HC-04 no destructive updates + HC-03 evidence tiers).
+// Append-only enforcement layer: every change to protected intelligence is a
+// CREATE / REVISE / SUPERSEDE / DEPRECATE — never an in-place UPDATE, DELETE or
+// OVERWRITE (those are logged as BLOCKED_*). ContinuityAudit is the immutable
+// trail. Workspace-scoped; target refs plain String (no FK).
+// ---------------------------------------------------------------------------
+
+enum ContinuityOperationType {
+  CREATE
+  REVISE
+  SUPERSEDE
+  DEPRECATE
+  BLOCKED_UPDATE
+  BLOCKED_DELETE
+}
+
+model ContinuityAudit {
+  id            String                  @id @default(cuid())
+  auditId       String                  @unique @default(cuid()) @map("audit_id")
+  workspaceId   String                  @map("workspace_id")
+  operation     ContinuityOperationType
+  targetType    String                  @map("target_type")
+  targetId      String                  @map("target_id")
+  actorId       String                  @map("requester_id")
+  previousValue Json?                   @map("previous_value")
+  newValue      Json?                   @map("new_value")
+  reason        String
+  blocked       Boolean                 @default(false)
+  blockReason   String?                 @map("block_reason")
+  relatedDg     String?                 @map("related_dg")
+  tierFrom      String?                 @map("tier_from")
+  tierTo        String?                 @map("tier_to")
+  version       Int                     @default(1)
+  iurgNodeId    String?                 @map("iurg_node_id")
+  traceId       String?                 @map("trace_id")
+  createdAt     DateTime                @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, targetType])
+  @@index([workspaceId, operation])
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, targetType, targetId])
+  @@index([auditId])
+  @@map("continuity_audits")
+}
+
+// ---------------------------------------------------------------------------
+// IW-32 — Final Directive Modules (Constitution Volume III / Civilization Engine).
+// D15 Self-Assessment (HC-08) | D17 Cross-Module Audit (HC-04) |
+// D18 Exception Handling (OR-01..OR-05) | D20 Systemic Health Monitor (HC-10).
+// Workspace-scoped; refs to other domains are plain String (no FK).
+// ---------------------------------------------------------------------------
+
+model SelfAssessment {
+  id              String   @id @default(cuid())
+  assessmentId    String   @unique @default(cuid()) @map("assessment_id")
+  workspaceId     String   @map("workspace_id")
+  requesterId     String   @map("requester_id")
+  scope           String
+  targetModule    String?  @map("target_module")
+  intentAlignment Float    @map("intent_alignment")
+  constraintScore Float    @map("constraint_score")
+  gapCount        Int      @map("gap_count")
+  gaps            Json[]   @default([])
+  verdict         String
+  ficCheckId      String?  @map("fic_check_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, verdict])
+  @@index([workspaceId, createdAt])
+  @@index([assessmentId])
+  @@map("self_assessments")
+}
+
+model CrossModuleAudit {
+  id              String   @id @default(cuid())
+  auditId         String   @unique @default(cuid()) @map("audit_id")
+  workspaceId     String   @map("workspace_id")
+  requesterId     String   @map("requester_id")
+  moduleCount     Int      @map("module_count")
+  modulesChecked  String[] @default([]) @map("modules_checked")
+  inconsistencies Json[]   @default([])
+  verdict         String
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, verdict])
+  @@index([workspaceId, createdAt])
+  @@index([auditId])
+  @@map("cross_module_audits")
+}
+
+model OverrideExecution {
+  id           String    @id @default(cuid())
+  executionId  String    @unique @default(cuid()) @map("execution_id")
+  workspaceId  String    @map("workspace_id")
+  overrideRule String    @map("override_rule")
+  handlerType  String    @map("handler_type")
+  triggeredBy  String    @map("triggered_by")
+  conditions   String[]  @default([])
+  reason       String?
+  expiresAt    DateTime? @map("expires_at")
+  status       String    @default("active")
+  revertedBy   String?   @map("reverted_by")
+  revertedAt   DateTime? @map("reverted_at")
+  iurgNodeId   String?   @map("iurg_node_id")
+  traceId      String?   @map("trace_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, overrideRule])
+  @@index([executionId])
+  @@map("override_executions")
+}
+
+model SystemHealth {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  system      String
+  status      String
+  lastCheck   DateTime @map("last_check")
+  responseMs  Int?     @map("response_ms")
+  errorRate   Float?   @map("error_rate")
+  details     Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, system])
+  @@index([workspaceId, createdAt])
+  @@map("system_health")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 1 — AI Integration Core
+// Constitutional AI reasoning engine. Every query is FIC/SECH-gated and the
+// resulting response is evidence-tiered (AC-05). AIQueryLog is the immutable
+// trail of every model invocation, bound to its FIC check / SECH route / IURG
+// node by value.
+// ---------------------------------------------------------------------------
+model AIQueryLog {
+  id           String   @id @default(cuid())
+  queryId      String   @unique @map("query_id")
+  workspaceId  String   @map("workspace_id")
+  requesterId  String   @map("requester_id")
+  query        String
+  domain       String
+  providerUsed String   @map("provider_used")
+  modelUsed    String   @map("model_used")
+  response     String?
+  tokensUsed   Int      @map("tokens_used")
+  latencyMs    Int      @map("latency_ms")
+  evidenceTier String   @map("evidence_tier")
+  ficStatus    String   @map("fic_status")
+  ficCheckId   String?  @map("fic_check_id")
+  sechRouteId  String?  @map("sech_route_id")
+  iurgNodeId   String?  @map("iurg_node_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, domain])
+  @@index([workspaceId, ficStatus])
+  @@map("ai_query_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3 — Connectors
+// Real-world data ingestion. Every connector routes external data through the
+// USFIP Perception Bus (HC-12) and is evidence-tiered (AC-05). ConnectorConfig
+// holds per-workspace connection settings; ConnectorLog is the immutable trail
+// of every ingestion event, bound by value to its UsfipPerceptionRecord.
+// ---------------------------------------------------------------------------
+model ConnectorConfig {
+  id          String    @id @default(cuid())
+  workspaceId String    @map("workspace_id")
+  connector   String
+  provider    String
+  isActive    Boolean   @default(false) @map("is_active")
+  credentials Json?
+  settings    Json?
+  lastSyncAt  DateTime? @map("last_sync_at")
+  lastError   String?   @map("last_error")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@unique([workspaceId, connector, provider])
+  @@index([workspaceId, isActive])
+  @@map("connector_configs")
+}
+
+model ConnectorLog {
+  id            String   @id @default(cuid())
+  workspaceId   String   @map("workspace_id")
+  connector     String
+  provider      String
+  eventType     String   @map("event_type")
+  externalId    String?  @map("external_id")
+  rawPayload    Json     @map("raw_payload")
+  status        String   @default("pending")
+  usfipRecordId String?  @map("usfip_record_id")
+  errorMessage  String?  @map("error_message")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId, connector, createdAt])
+  @@index([workspaceId, status])
+  @@map("connector_logs")
 }

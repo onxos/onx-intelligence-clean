@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import request from 'supertest';
 import { AppModule } from './../src/app.module';
@@ -32,6 +32,24 @@ describe('ONX Intelligence (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: false,
+        transform: true,
+      }),
+    );
+
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('ONX Intelligence API')
+      .setDescription('Sovereign Operational Intelligence System')
+      .setVersion('1.0.0')
+      .addBearerAuth()
+      .build();
+    const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('api/docs', app, swaggerDocument);
+
     await app.init();
 
     if (hasDatabase) {
@@ -79,24 +97,25 @@ describe('ONX Intelligence (e2e)', () => {
     expect(entry).toHaveProperty('metadata');
   };
 
-  const registerAndLogin = async (nextEmail: string) => {
+  const registerAndLogin = async (nextEmail: string, workspaceId?: string) => {
     const registerRes = await request(app.getHttpServer())
       .post('/auth/register')
       .send({
         name: 'E2E Memory User',
         email: nextEmail,
         password,
+        ...(workspaceId ? { workspaceId } : {}),
       })
       .expect(201);
 
-    expect(typeof registerRes.body).toBe('string');
+    expect(typeof registerRes.body.accessToken).toBe('string');
 
     const loginRes = await request(app.getHttpServer())
       .post('/auth/login')
       .send({ email: nextEmail, password })
       .expect(200);
 
-    return loginRes.body as string;
+    return loginRes.body.accessToken as string;
   };
 
   const getWorkspaceIdFromToken = (token: string) => {
@@ -146,9 +165,10 @@ describe('ONX Intelligence (e2e)', () => {
       })
       .expect(201);
 
-    expect(typeof res.body).toBe('string');
-    expect(res.body.length).toBeGreaterThan(20);
-    authToken = res.body;
+    expect(res.body).toHaveProperty('accessToken');
+    expect(typeof res.body.accessToken).toBe('string');
+    expect(res.body.accessToken.length).toBeGreaterThan(20);
+    authToken = res.body.accessToken;
   });
 
   it('/auth/login returns JWT token', async () => {
@@ -166,9 +186,10 @@ describe('ONX Intelligence (e2e)', () => {
       })
       .expect(200);
 
-    expect(typeof res.body).toBe('string');
-    expect(res.body.length).toBeGreaterThan(20);
-    authToken = res.body;
+    expect(res.body).toHaveProperty('accessToken');
+    expect(typeof res.body.accessToken).toBe('string');
+    expect(res.body.accessToken.length).toBeGreaterThan(20);
+    authToken = res.body.accessToken;
 
     const loginAudit = await listAudit('AUTH_LOGGED_IN');
     expect(loginAudit.length).toBeGreaterThan(0);
@@ -1293,6 +1314,14 @@ describe('ONX Intelligence (e2e)', () => {
       return;
     }
 
+    // Founder intent compilation requires workspace execution capacity
+    // (at least one project or agent) to realize an execution graph.
+    await request(app.getHttpServer())
+      .post('/projects')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ name: 'Founder Intent Execution Capacity' })
+      .expect(201);
+
     const compilePayload = {
       objective: 'Scale founder-directed execution orchestration for Atlas V6',
       constraints: ['must preserve workspace isolation', 'must not duplicate platform modules'],
@@ -1531,6 +1560,1103 @@ describe('ONX Intelligence (e2e)', () => {
     expect(openApi.body.paths['/founder-intent-compiler/graph']).toBeDefined();
 
     await request(server).get('/founder-intent-compiler/intents').expect(401);
+  });
+
+  it('IW-23: SECH-FIC runtime enforcement enforces jwt, the 13-step check, blocks/gates/overrides, registry, and OpenAPI', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).post('/sech/fic-check').expect(401);
+      await request(app.getHttpServer()).get('/sech/constraints').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+
+    // Constitutional registry is exposed read-only.
+    const registryRes = await auth(request(server).get('/sech/registry')).expect(200);
+    expect(registryRes.body.constraintCount).toBe(69);
+    expect(registryRes.body.intentCount).toBe(38);
+    expect(registryRes.body.conflictClassCount).toBe(7);
+    expect(registryRes.body.playbookCount).toBe(10);
+    expect(registryRes.body.checkSequenceSteps).toBe(13);
+
+    const constraintsRes = await auth(request(server).get('/sech/constraints?kind=EB')).expect(200);
+    expect(constraintsRes.body.total).toBe(12);
+
+    await auth(request(server).get('/sech/constraints/HC-08')).expect(200);
+    await auth(request(server).get('/sech/intents')).expect(200);
+    await auth(request(server).get('/sech/conflict-classes')).expect(200);
+    await auth(request(server).get('/sech/priority-hierarchy')).expect(200);
+    await auth(request(server).get('/sech/playbooks')).expect(200);
+    await auth(request(server).get('/sech/check-sequence')).expect(200);
+
+    // APPROVED path — clean decision, all 11 engine steps logged.
+    const approved = await auth(request(server).post('/sech/fic-check'))
+      .send({ domains: ['clinical'], playbooks: ['clinic_operations'], signals: {} })
+      .expect(201);
+    expect(approved.body.decision).toBe('APPROVED');
+    expect(approved.body.steps).toHaveLength(11);
+    expect(approved.body.id).toBeDefined();
+
+    // REJECTED path — staff reduction for revenue auto-blocks (EB-03).
+    const rejected = await auth(request(server).post('/sech/fic-check'))
+      .send({
+        checkType: 'revenue_cost_cut',
+        decisionContext: 'Reduce clinical staff by 2 to raise monthly margin.',
+        domains: ['people', 'commercial'],
+        playbooks: ['revenue_optimization'],
+        signals: { reducesClinicalStaffForRevenue: true },
+      })
+      .expect(201);
+    expect(rejected.body.decision).toBe('REJECTED');
+    expect(rejected.body.executionBlocks).toContain('EB-03');
+    expect(rejected.body.counterProposal).toBeTruthy();
+
+    // CONFLICT path — discount gate requires human approval (DG-04).
+    const conflict = await auth(request(server).post('/sech/fic-check'))
+      .send({
+        domains: ['commercial'],
+        playbooks: ['revenue_optimization'],
+        signals: { discountGate: true },
+      })
+      .expect(201);
+    expect(conflict.body.decision).toBe('CONFLICT');
+    expect(conflict.body.requiredGates).toContain('DG-04');
+
+    // OVERRIDE path — emergency medical override (OR-01, priority level 1).
+    const override = await auth(request(server).post('/sech/fic-check'))
+      .send({
+        domains: ['clinical'],
+        playbooks: ['crisis_response'],
+        signals: { emergencyMedical: true },
+      })
+      .expect(201);
+    expect(override.body.decision).toBe('OVERRIDE');
+    expect(override.body.activeOverrides).toContain('OR-01');
+    expect(override.body.priorityLevel).toBe(1);
+
+    // Persisted checks are listable + fetchable with evaluations/violations.
+    const listRes = await auth(request(server).get('/sech/checks?decision=REJECTED')).expect(200);
+    expect(listRes.body.total).toBeGreaterThanOrEqual(1);
+
+    const detailRes = await auth(request(server).get(`/sech/checks/${rejected.body.id}`)).expect(
+      200,
+    );
+    expect(detailRes.body.violations.some((v: any) => v.constraintId === 'EB-03')).toBe(true);
+    expect(detailRes.body.evaluations.length).toBeGreaterThan(0);
+
+    // Workspace scope isolation.
+    const peerToken = await registerAndLogin(`e2e-sech-peer-${Date.now()}@onx.test`);
+    await request(server)
+      .get(`/sech/checks/${rejected.body.id}`)
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(404);
+
+    // Audit trail.
+    const sechAudit = await listAudit('FIC_ENFORCEMENT_');
+    expect(sechAudit.some((item) => item.action === 'FIC_ENFORCEMENT_REJECTED')).toBe(true);
+    expect(sechAudit.some((item) => item.action === 'FIC_ENFORCEMENT_APPROVED')).toBe(true);
+
+    // OpenAPI exposure.
+    const openApiSech = await request(server).get('/api/docs-json').expect(200);
+    expect(openApiSech.body.paths['/sech/fic-check']).toBeDefined();
+    expect(openApiSech.body.paths['/sech/constraints']).toBeDefined();
+    expect(openApiSech.body.paths['/sech/checks']).toBeDefined();
+
+    await request(server).post('/sech/fic-check').expect(401);
+  });
+
+  it('IW-24: IURG full binding — fic-check events write nodes + edges + ledger, query endpoints, isolation, OpenAPI', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).get('/iurg/intents').expect(401);
+      await request(app.getHttpServer()).post('/iurg/query').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+
+    // Drive one of each of the 4 FIC decisions -> IURG binds 4 object types.
+    await auth(request(server).post('/sech/fic-check'))
+      .send({ domains: ['clinical'], playbooks: ['clinic_operations'], signals: {} })
+      .expect(201);
+    await auth(request(server).post('/sech/fic-check'))
+      .send({
+        domains: ['people', 'commercial'],
+        playbooks: ['revenue_optimization'],
+        signals: { reducesClinicalStaffForRevenue: true },
+      })
+      .expect(201);
+    await auth(request(server).post('/sech/fic-check'))
+      .send({
+        domains: ['commercial'],
+        playbooks: ['revenue_optimization'],
+        signals: { discountGate: true },
+      })
+      .expect(201);
+    await auth(request(server).post('/sech/fic-check'))
+      .send({
+        domains: ['clinical'],
+        playbooks: ['crisis_response'],
+        signals: { emergencyMedical: true },
+      })
+      .expect(201);
+
+    // Enforcement Object (APPROVED) is listable and carries a full edge set.
+    const enforcements = await auth(request(server).get('/iurg/enforcements')).expect(200);
+    expect(enforcements.body.total).toBeGreaterThanOrEqual(1);
+    const enforcementId = enforcements.body.items[0].id;
+
+    const enforcementEdges = await auth(request(server).get(`/iurg/edges/${enforcementId}`)).expect(
+      200,
+    );
+    const enfEdgeTypes = enforcementEdges.body.edges.map((e: any) => e.edgeType);
+    expect(enfEdgeTypes).toEqual(expect.arrayContaining(['CONSTRAINS']));
+
+    // Violation Object (REJECTED) is listable + has violated_by edges.
+    const violations = await auth(request(server).get('/iurg/violations')).expect(200);
+    expect(violations.body.total).toBeGreaterThanOrEqual(1);
+
+    // Conflict + Override objects were written.
+    const conflicts = await auth(request(server).get('/iurg/conflicts')).expect(200);
+    expect(conflicts.body.total).toBeGreaterThanOrEqual(1);
+    const overrides = await auth(request(server).get('/iurg/overrides')).expect(200);
+    expect(overrides.body.total).toBeGreaterThanOrEqual(1);
+
+    // Intent + Constraint registry nodes were materialized with edges.
+    const intents = await auth(request(server).get('/iurg/intents')).expect(200);
+    expect(intents.body.total).toBeGreaterThanOrEqual(1);
+    const intentNodeId = intents.body.items[0].id;
+    const intentWithEdges = await auth(request(server).get(`/iurg/intents/${intentNodeId}`)).expect(
+      200,
+    );
+    expect(Array.isArray(intentWithEdges.body.edges)).toBe(true);
+
+    const constraints = await auth(request(server).get('/iurg/constraints')).expect(200);
+    expect(constraints.body.total).toBeGreaterThanOrEqual(1);
+
+    // Query by event_type returns tagged nodes with edges.
+    const violationQuery = await auth(request(server).post('/iurg/query'))
+      .send({ eventType: 'violation' })
+      .expect(201);
+    expect(violationQuery.body.nodes.some((n: any) => n.nodeType === 'VIOLATION')).toBe(true);
+
+    // Query by constraint id.
+    const constraintQuery = await auth(request(server).post('/iurg/query'))
+      .send({ eventType: 'violation', constraintId: 'EB-03' })
+      .expect(201);
+    expect(constraintQuery.body.total).toBeGreaterThanOrEqual(1);
+
+    // Lifecycle binding: a versioned intent produces an amendment (amended_by + supersedes),
+    // a review produces a Review object (reviewed_under).
+    const intentRes = await auth(request(server).post('/founder-intent-compiler/intents'))
+      .send({
+        title: 'IURG lifecycle binding intent',
+        description: 'Exercises amendment + review IURG edges.',
+        constitutionalAuthority: 'FOUNDER',
+        affectedDomains: ['GOVERNANCE'],
+      })
+      .expect(201);
+    await auth(request(server).put(`/founder-intent-compiler/intents/${intentRes.body.id}`))
+      .send({ description: 'Refined for IURG amendment.', versionType: 'MINOR' })
+      .expect(200);
+    await auth(
+      request(server).post(`/founder-intent-compiler/intents/${intentRes.body.id}/transition`),
+    )
+      .send({ to: 'SUBMITTED' })
+      .expect(201);
+    await auth(
+      request(server).post(`/founder-intent-compiler/intents/${intentRes.body.id}/reviews`),
+    )
+      .send({ decision: 'APPROVED', notes: 'IURG review binding.' })
+      .expect(201);
+
+    const ledgerIntentRef = intentRes.body.intentId;
+    const amendmentQuery = await auth(request(server).post('/iurg/query'))
+      .send({ eventType: 'amendment', intentId: ledgerIntentRef })
+      .expect(201);
+    expect(amendmentQuery.body.total).toBeGreaterThanOrEqual(1);
+    const reviewQuery = await auth(request(server).post('/iurg/query'))
+      .send({ eventType: 'review', intentId: ledgerIntentRef })
+      .expect(201);
+    expect(reviewQuery.body.total).toBeGreaterThanOrEqual(1);
+
+    // Workspace scope isolation.
+    const peerToken = await registerAndLogin(`e2e-iurg-peer-${Date.now()}@onx.test`);
+    const peerEnforcements = await request(server)
+      .get('/iurg/enforcements')
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(200);
+    expect(peerEnforcements.body.total).toBe(0);
+
+    // Audit trail.
+    const iurgAudit = await listAudit('IURG_');
+    expect(iurgAudit.some((item) => item.action === 'IURG_ENFORCEMENT_BOUND')).toBe(true);
+
+    // OpenAPI exposure.
+    const openApiIurg = await request(server).get('/api/docs-json').expect(200);
+    expect(openApiIurg.body.paths['/iurg/intents']).toBeDefined();
+    expect(openApiIurg.body.paths['/iurg/edges/{nodeId}']).toBeDefined();
+    expect(openApiIurg.body.paths['/iurg/query']).toBeDefined();
+
+    await request(server).get('/iurg/enforcements').expect(401);
+  });
+
+  it('IW-25: SECH router runs 4 FIC gates — approved/rejected/conflict/override flows, pending, gates, isolation, OpenAPI', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).post('/sech/route').expect(401);
+      await request(app.getHttpServer()).get('/sech/gates').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+
+    // Gate catalog is exposed.
+    const gates = await auth(request(server).get('/sech/gates')).expect(200);
+    expect(gates.body.total).toBe(4);
+    expect(gates.body.gates.map((g: any) => g.checkType)).toEqual([
+      'pre_judgment',
+      'pre_decision',
+      'pre_execution',
+      'post_outcome',
+    ]);
+
+    // APPROVED flow: clean decision runs all 4 gates and completes.
+    const approved = await auth(request(server).post('/sech/route'))
+      .send({
+        checkType: 'routine_scheduling',
+        domains: ['clinical'],
+        playbooks: ['clinic_operations'],
+        signals: {},
+      })
+      .expect(201);
+    expect(approved.body.status).toBe('COMPLETED');
+    expect(approved.body.finalDecision).toBe('APPROVED');
+    expect(approved.body.executed).toBe(true);
+    expect(approved.body.gateResults).toHaveLength(4);
+
+    // REJECTED flow: staff-reduction-for-revenue is blocked at the first gate -> 403.
+    const rejected = await auth(request(server).post('/sech/route'))
+      .send({
+        checkType: 'cost_cut',
+        domains: ['people', 'commercial'],
+        playbooks: ['revenue_optimization'],
+        signals: { reducesClinicalStaffForRevenue: true },
+      })
+      .expect(403);
+    expect(rejected.body.status).toBe('REJECTED');
+    expect(rejected.body.counterProposal).toBeTruthy();
+    expect(rejected.body.executed).toBe(false);
+
+    // CONFLICT flow: a discount gate pauses routing -> 409, listed in /sech/pending.
+    const conflict = await auth(request(server).post('/sech/route'))
+      .send({
+        checkType: 'promo',
+        domains: ['commercial'],
+        playbooks: ['revenue_optimization'],
+        signals: { discountGate: true },
+      })
+      .expect(409);
+    expect(conflict.body.status).toBe('CONFLICT');
+    expect(conflict.body.requiresHumanApproval).toBe(true);
+
+    const pending = await auth(request(server).get('/sech/pending')).expect(200);
+    expect(pending.body.total).toBeGreaterThanOrEqual(1);
+
+    // OVERRIDE flow: emergency medical override executes with a time-bound expiry.
+    const override = await auth(request(server).post('/sech/route'))
+      .send({
+        checkType: 'emergency',
+        domains: ['clinical'],
+        playbooks: ['crisis_response'],
+        signals: { emergencyMedical: true },
+      })
+      .expect(201);
+    expect(override.body.status).toBe('OVERRIDE');
+    expect(override.body.overrideExpiresAt).toBeTruthy();
+    expect(override.body.executed).toBe(true);
+
+    // Route fetch by id.
+    await auth(request(server).get(`/sech/routes/${approved.body.id}`)).expect(200);
+
+    // Every gate wrote a FIC enforcement check (IURG bound automatically).
+    const checks = await auth(request(server).get('/sech/checks')).expect(200);
+    expect(checks.body.total).toBeGreaterThanOrEqual(4);
+
+    // Workspace scope isolation.
+    const peerToken = await registerAndLogin(`e2e-sechroute-peer-${Date.now()}@onx.test`);
+    const peerPending = await request(server)
+      .get('/sech/pending')
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(200);
+    expect(peerPending.body.total).toBe(0);
+
+    // Audit trail.
+    const routeAudit = await listAudit('SECH_ROUTE_');
+    expect(routeAudit.some((item) => item.action === 'SECH_ROUTE_COMPLETED')).toBe(true);
+    expect(routeAudit.some((item) => item.action === 'SECH_ROUTE_REJECTED')).toBe(true);
+
+    // OpenAPI exposure.
+    const openApiRoute = await request(server).get('/api/docs-json').expect(200);
+    expect(openApiRoute.body.paths['/sech/route']).toBeDefined();
+    expect(openApiRoute.body.paths['/sech/gates']).toBeDefined();
+    expect(openApiRoute.body.paths['/sech/pending']).toBeDefined();
+
+    await request(server).post('/sech/route').expect(401);
+  });
+
+  it('IW-26: USFIP perception bus — 5-step pipeline, AC-05 tiers (approve/reject/flag/conflict), stats, isolation, OpenAPI', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).post('/usfip/ingest').expect(401);
+      await request(app.getHttpServer()).get('/usfip/records').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+
+    // Pipeline definition is exposed.
+    const pipeline = await auth(request(server).get('/usfip/pipeline')).expect(200);
+    expect(pipeline.body.total).toBe(5);
+
+    // APPROVED: clean tier-1 EMR data flows through all 5 steps into IURG.
+    const approved = await auth(request(server).post('/usfip/ingest'))
+      .send({ sourceType: 'emr', rawPayload: { summary: 'vitals recorded', subject: 'patient-1' } })
+      .expect(201);
+    expect(approved.body.status).toBe('approved');
+    expect(approved.body.classifiedDomain).toBe('clinical');
+    expect(approved.body.evidenceTier).toBe(1);
+    expect(approved.body.evidenceScore).toBe(1);
+    expect(approved.body.pipeline.map((s: any) => s.name)).toEqual([
+      'VALIDATE',
+      'CLASSIFY',
+      'RANK',
+      'FIC_CHECK',
+      'ROUTE',
+    ]);
+
+    // Record carries routing history (SECH route + FIC check links).
+    const detail = await auth(request(server).get(`/usfip/records/${approved.body.id}`)).expect(
+      200,
+    );
+    expect(detail.body.ficCheckId).toBeTruthy();
+    expect(detail.body.sechRouteId).toBeTruthy();
+
+    // REJECTED: SECH pre_judgment blocks staff-reduction-for-revenue signal.
+    const rejected = await auth(request(server).post('/usfip/ingest'))
+      .send({
+        sourceType: 'pos',
+        rawPayload: { signals: { reducesClinicalStaffForRevenue: true } },
+      })
+      .expect(201);
+    expect(rejected.body.status).toBe('rejected');
+
+    // FLAGGED: tier-3 (consulting) is held for human review, never hits the FIC gate.
+    const flagged = await auth(request(server).post('/usfip/ingest'))
+      .send({ sourceType: 'manual', proposedTier: 3, rawPayload: { note: 'consulting advice' } })
+      .expect(201);
+    expect(flagged.body.status).toBe('flagged');
+    expect(flagged.body.evidenceTier).toBe(3);
+
+    // AC-05 CONFLICT: seed a tier-1 approved subject, then a tier-4 claim on the
+    // same subject is rejected.
+    await auth(request(server).post('/usfip/ingest'))
+      .send({
+        sourceType: 'emr',
+        proposedDomain: 'clinical',
+        rawPayload: { subject: 'protocol-rabies', value: 'v1' },
+      })
+      .expect(201);
+    const tierConflict = await auth(request(server).post('/usfip/ingest'))
+      .send({
+        sourceType: 'whatsapp',
+        proposedTier: 4,
+        proposedDomain: 'clinical',
+        rawPayload: { subject: 'protocol-rabies', claim: 'override protocol' },
+      })
+      .expect(201);
+    expect(tierConflict.body.status).toBe('rejected');
+    expect(tierConflict.body.reason).toContain('AC-05');
+
+    // Listing + filtering.
+    const records = await auth(request(server).get('/usfip/records?status=approved')).expect(200);
+    expect(records.body.total).toBeGreaterThanOrEqual(1);
+
+    // Tier stats + quality report.
+    const stats = await auth(request(server).get('/usfip/tier-stats')).expect(200);
+    expect(stats.body.tiers).toHaveLength(4);
+    const quality = await auth(request(server).get('/usfip/quality-report')).expect(200);
+    expect(quality.body.total).toBeGreaterThanOrEqual(4);
+
+    // The IW-14 strategic USFIP endpoints still work (no collision / regression).
+    await auth(request(server).get('/usfip/dashboard')).expect(200);
+
+    // Workspace scope isolation.
+    const peerToken = await registerAndLogin(`e2e-usfip-peer-${Date.now()}@onx.test`);
+    const peerRecords = await request(server)
+      .get('/usfip/records')
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(200);
+    expect(peerRecords.body.total).toBe(0);
+
+    // Audit trail.
+    const perceptionAudit = await listAudit('USFIP_PERCEPTION_');
+    expect(perceptionAudit.some((item) => item.action === 'USFIP_PERCEPTION_APPROVED')).toBe(true);
+    expect(perceptionAudit.some((item) => item.action === 'USFIP_PERCEPTION_REJECTED')).toBe(true);
+
+    // OpenAPI exposure.
+    const openApiUsfip = await request(server).get('/api/docs-json').expect(200);
+    expect(openApiUsfip.body.paths['/usfip/ingest']).toBeDefined();
+    expect(openApiUsfip.body.paths['/usfip/tier-stats']).toBeDefined();
+    expect(openApiUsfip.body.paths['/usfip/quality-report']).toBeDefined();
+
+    await request(server).post('/usfip/ingest').expect(401);
+  });
+
+  it('IW-27: D14 decision ladder — auto D1-D9, FIC gate at D8, D10/D14 human gates, promotion, isolation, OpenAPI', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).post('/decision/ladder/start').expect(401);
+      await request(app.getHttpServer()).get('/decision/runs').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+
+    // Ladder step catalog.
+    const steps = await auth(request(server).get('/decision/ladder/steps')).expect(200);
+    expect(steps.body.total).toBe(14);
+
+    // Seed a perception record to drive the ladder.
+    const perception = await auth(request(server).post('/usfip/ingest'))
+      .send({ sourceType: 'emr', rawPayload: { summary: 'repeated symptom pattern' } })
+      .expect(201);
+    const perceptionId = perception.body.recordId;
+
+    // Start: auto-runs D1-D9, FIC pre_decision APPROVES -> ACTIVE at D9.
+    const started = await auth(request(server).post('/decision/ladder/start'))
+      .send({ perceptionId, subject: 'Adopt refined triage protocol' })
+      .expect(201);
+    expect(started.body.currentStep).toBe('D9');
+    expect(started.body.status).toBe('ACTIVE');
+    expect(started.body.stepHistory.length).toBeGreaterThanOrEqual(9);
+    const runId = started.body.id;
+
+    // Advance D9 -> D10 -> ... -> D13.
+    await auth(request(server).post(`/decision/runs/${runId}/step`)).expect(201); // D10
+    await auth(request(server).post(`/decision/runs/${runId}/step`)).expect(201); // D11
+    await auth(request(server).post(`/decision/runs/${runId}/step`)).expect(201); // D12
+    const atD13 = await auth(request(server).post(`/decision/runs/${runId}/step`)).expect(201); // D13
+    expect(atD13.body.currentStep).toBe('D13');
+
+    // D13 -> D14: post_outcome validates -> DG-10 gate (202 ACCEPTED).
+    const atD14 = await auth(request(server).post(`/decision/runs/${runId}/step`)).expect(202);
+    expect(atD14.body.currentStep).toBe('D14');
+    expect(atD14.body.humanGateRequired).toBe(true);
+    expect(atD14.body.humanGateType).toBe('DG-10');
+
+    // Pending gates lists the run.
+    const pending = await auth(request(server).get('/decision/pending-gates')).expect(200);
+    expect(pending.body.total).toBeGreaterThanOrEqual(1);
+
+    // Founder approval promotes to an institutional rule.
+    const promoted = await auth(request(server).post(`/decision/runs/${runId}/approve`))
+      .send({ approver: 'founder' })
+      .expect(201);
+    expect(promoted.body.status).toBe('PROMOTED');
+    expect(promoted.body.promotedToRule).toBe(true);
+    expect(promoted.body.ruleId).toBeTruthy();
+
+    // REJECTED path: a staff-reduction signal abandons the ladder at D8.
+    const perception2 = await auth(request(server).post('/usfip/ingest'))
+      .send({ sourceType: 'pos', rawPayload: { summary: 'cost pressure' } })
+      .expect(201);
+    const abandoned = await auth(request(server).post('/decision/ladder/start'))
+      .send({
+        perceptionId: perception2.body.recordId,
+        subject: 'Cut clinical staff',
+        signals: { reducesClinicalStaffForRevenue: true },
+      })
+      .expect(201);
+    expect(abandoned.body.status).toBe('ABANDONED');
+    expect(abandoned.body.currentStep).toBe('D8');
+
+    // D10 human gate: a configured DG pauses at D10 (202).
+    const perception3 = await auth(request(server).post('/usfip/ingest'))
+      .send({ sourceType: 'crm', rawPayload: { summary: 'loyalty change' } })
+      .expect(201);
+    const gateRun = await auth(request(server).post('/decision/ladder/start'))
+      .send({
+        perceptionId: perception3.body.recordId,
+        subject: 'Change loyalty tier',
+        humanGateType: 'DG-04',
+      })
+      .expect(201);
+    const d10 = await auth(request(server).post(`/decision/runs/${gateRun.body.id}/step`)).expect(
+      202,
+    );
+    expect(d10.body.currentStep).toBe('D10');
+    expect(d10.body.humanGateRequired).toBe(true);
+    await auth(request(server).post(`/decision/runs/${gateRun.body.id}/approve`))
+      .send({ approver: 'ceo' })
+      .expect(201);
+
+    // Run fetch + stats.
+    await auth(request(server).get(`/decision/runs/${runId}`)).expect(200);
+    const stats = await auth(request(server).get('/decision/ladder/stats')).expect(200);
+    expect(stats.body.total).toBeGreaterThanOrEqual(3);
+
+    // The IW-19 Decision Engine endpoints still work (no regression).
+    await auth(request(server).get('/decision/dashboard')).expect(200);
+
+    // Workspace scope isolation.
+    const peerToken = await registerAndLogin(`e2e-ladder-peer-${Date.now()}@onx.test`);
+    const peerRuns = await request(server)
+      .get('/decision/runs')
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(200);
+    expect(peerRuns.body.total).toBe(0);
+
+    // Audit trail.
+    const ladderAudit = await listAudit('DECISION_LADDER_');
+    expect(ladderAudit.some((item) => item.action === 'DECISION_LADDER_STARTED')).toBe(true);
+    expect(ladderAudit.some((item) => item.action === 'DECISION_LADDER_PROMOTED')).toBe(true);
+
+    // OpenAPI exposure.
+    const openApiLadder = await request(server).get('/api/docs-json').expect(200);
+    expect(openApiLadder.body.paths['/decision/ladder/start']).toBeDefined();
+    expect(openApiLadder.body.paths['/decision/runs/{id}/approve']).toBeDefined();
+    expect(openApiLadder.body.paths['/decision/pending-gates']).toBeDefined();
+
+    await request(server).post('/decision/ladder/start').expect(401);
+  });
+
+  it('IW-28: SFIS shield — L1 reject/flag/pass, L2 drift, L3 frontier models + startup, violations, isolation, OpenAPI', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).post('/sfis/scan').expect(401);
+      await request(app.getHttpServer()).get('/sfis/models').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+
+    // L3: startup blocked before any model is configured (HC-06).
+    const startupBlocked = await auth(request(server).get('/sfis/startup')).expect(200);
+    expect(startupBlocked.body.blocked).toBe(true);
+    expect(startupBlocked.body.missing.length).toBe(6);
+
+    // Force-check all 6 frontier models -> compliant.
+    const check = await auth(request(server).post('/sfis/models/check')).send({}).expect(201);
+    expect(check.body.compliantCount).toBe(6);
+    expect(check.body.blocked).toBe(false);
+
+    const startupOk = await auth(request(server).get('/sfis/startup')).expect(200);
+    expect(startupOk.body.blocked).toBe(false);
+
+    const models = await auth(request(server).get('/sfis/models')).expect(200);
+    expect(models.body.total).toBe(6);
+    expect(models.body.compliantCount).toBe(6);
+
+    // A missing model re-blocks (HC-06).
+    const reblock = await auth(request(server).post('/sfis/models/check'))
+      .send({ models: [{ modelName: 'llama', status: 'unavailable', configValid: false }] })
+      .expect(201);
+    expect(reblock.body.blocked).toBe(true);
+    // Restore compliance.
+    await auth(request(server).post('/sfis/models/check')).send({}).expect(201);
+
+    // L1 PASS: an ONX-specific output.
+    const pass = await auth(request(server).post('/sfis/scan'))
+      .send({
+        outputText: 'ONX promoted a constitutional judgment through the decision ladder into IURG.',
+      })
+      .expect(201);
+    expect(pass.body.verdict).toBe('PASS');
+
+    // L1 FLAG: generic branding -> 202 human review.
+    const flag = await auth(request(server).post('/sfis/scan'))
+      .send({ outputText: 'A smart, AI-powered assistant.' })
+      .expect(202);
+    expect(flag.body.verdict).toBe('FLAG');
+
+    // L1 REJECT: commodity convergence -> 403 + IURG violation.
+    const reject = await auth(request(server).post('/sfis/scan'))
+      .send({ outputText: 'Just a chatbot', proposedCategory: 'chatbot' })
+      .expect(403);
+    expect(reject.body.verdict).toBe('REJECT');
+    expect(reject.body.iurgNodeId).toBeTruthy();
+
+    // L2 architecture drift -> 403.
+    await auth(request(server).post('/sfis/scan'))
+      .send({
+        outputText: 'Reduce ONX to a RAG platform, retrieval-only.',
+        outputType: 'architecture',
+      })
+      .expect(403);
+
+    // Status + violations + drift report.
+    const status = await auth(request(server).get('/sfis/status')).expect(200);
+    expect(status.body.hc06Compliant).toBe(true);
+    expect(status.body.totalViolations).toBeGreaterThanOrEqual(2);
+
+    const violations = await auth(request(server).get('/sfis/violations')).expect(200);
+    expect(violations.body.total).toBeGreaterThanOrEqual(2);
+
+    const drift = await auth(request(server).get('/sfis/drift-report')).expect(200);
+    expect(drift.body.byVerdict.REJECT).toBeGreaterThanOrEqual(1);
+
+    // The rejected outputs bound HC-05 violations to IURG.
+    const iurgViolations = await auth(request(server).get('/iurg/violations')).expect(200);
+    expect(iurgViolations.body.total).toBeGreaterThanOrEqual(1);
+
+    // Workspace scope isolation.
+    const peerToken = await registerAndLogin(`e2e-sfis-peer-${Date.now()}@onx.test`);
+    const peerViolations = await request(server)
+      .get('/sfis/violations')
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(200);
+    expect(peerViolations.body.total).toBe(0);
+
+    // Audit trail.
+    const sfisAudit = await listAudit('SFIS_');
+    expect(sfisAudit.some((item) => item.action === 'SFIS_SCAN_REJECT')).toBe(true);
+    expect(sfisAudit.some((item) => item.action === 'SFIS_MODELS_CHECKED')).toBe(true);
+
+    // OpenAPI exposure.
+    const openApiSfis = await request(server).get('/api/docs-json').expect(200);
+    expect(openApiSfis.body.paths['/sfis/scan']).toBeDefined();
+    expect(openApiSfis.body.paths['/sfis/models/check']).toBeDefined();
+    expect(openApiSfis.body.paths['/sfis/drift-report']).toBeDefined();
+
+    await request(server).post('/sfis/scan').expect(401);
+  });
+
+  it('IW-29: Perception→Understanding — T1 SC-05, T2 SC-08, T3 HC-10, full pipeline, IURG edges, isolation, OpenAPI', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).post('/understanding/pipeline').expect(401);
+      await request(app.getHttpServer()).get('/understanding/patterns').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+
+    // Seed 3 perception records (SC-05 needs 3+ occurrences).
+    const perceptionIds: string[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      const p = await auth(request(server).post('/usfip/ingest'))
+        .send({ sourceType: 'emr', rawPayload: { summary: `recurring symptom ${i}` } })
+        .expect(201);
+      perceptionIds.push(p.body.recordId);
+    }
+
+    // T1 with only 2 -> SC-05 rejects (400).
+    await auth(request(server).post('/understanding/transform/t1'))
+      .send({ perceptionIds: perceptionIds.slice(0, 2) })
+      .expect(400);
+
+    // Full pipeline T1 -> T2 -> T3.
+    const pipeline = await auth(request(server).post('/understanding/pipeline'))
+      .send({
+        perceptionIds,
+        patternType: 'behavioral',
+        meaning: '48h communication prevents no-show spikes.',
+      })
+      .expect(201);
+    expect(pipeline.body.stage).toBe('T3');
+    expect(pipeline.body.pattern.status).toBe('detected');
+    expect(pipeline.body.pattern.occurrenceCount).toBe(3);
+    expect(pipeline.body.context.status).toBe('contextualized');
+    expect(pipeline.body.context.sourceCount).toBe(3);
+    expect(pipeline.body.understanding.status).toBe('preliminary');
+    expect(pipeline.body.understanding.meaning).toBeTruthy(); // HC-10 explicit
+    expect(['proven', 'probable', 'speculative']).toContain(
+      pipeline.body.understanding.realityTier,
+    );
+
+    const patternId = pipeline.body.pattern.patternId;
+    const contextId = pipeline.body.context.contextId;
+    const understandingId = pipeline.body.understanding.understandingId;
+
+    // IURG edges: perception --realized_as--> pattern; pattern --validated_by--> context;
+    // context --realized_as--> understanding.
+    const patternEdges = await auth(request(server).get(`/iurg/edges/${patternId}`)).expect(200);
+    const patternEdgeTypes = patternEdges.body.edges.map((e: any) => e.edgeType);
+    expect(patternEdgeTypes).toEqual(expect.arrayContaining(['REALIZED_AS', 'VALIDATED_BY']));
+
+    const contextEdges = await auth(request(server).get(`/iurg/edges/${contextId}`)).expect(200);
+    expect(contextEdges.body.edges.map((e: any) => e.edgeType)).toEqual(
+      expect.arrayContaining(['VALIDATED_BY', 'REALIZED_AS']),
+    );
+
+    const understandingEdges = await auth(
+      request(server).get(`/iurg/edges/${understandingId}`),
+    ).expect(200);
+    expect(understandingEdges.body.edges.map((e: any) => e.edgeType)).toContain('REALIZED_AS');
+
+    // Listings.
+    const patterns = await auth(request(server).get('/understanding/patterns')).expect(200);
+    expect(patterns.body.total).toBeGreaterThanOrEqual(1);
+    const contexts = await auth(request(server).get('/understanding/contexts')).expect(200);
+    expect(contexts.body.total).toBeGreaterThanOrEqual(1);
+    const objects = await auth(request(server).get('/understanding/objects')).expect(200);
+    expect(objects.body.total).toBeGreaterThanOrEqual(1);
+
+    // Stats.
+    const stats = await auth(request(server).get('/understanding/stats')).expect(200);
+    expect(stats.body.transforms.T1_patterns).toBeGreaterThanOrEqual(1);
+    expect(stats.body.transforms.T3_understandings).toBeGreaterThanOrEqual(1);
+
+    // Workspace scope isolation.
+    const peerToken = await registerAndLogin(`e2e-understanding-peer-${Date.now()}@onx.test`);
+    const peerPatterns = await request(server)
+      .get('/understanding/patterns')
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(200);
+    expect(peerPatterns.body.total).toBe(0);
+
+    // Audit trail.
+    const uAudit = await listAudit('UNDERSTANDING_');
+    expect(uAudit.some((item) => item.action === 'UNDERSTANDING_T1_DETECTED')).toBe(true);
+    expect(uAudit.some((item) => item.action === 'UNDERSTANDING_T3_PRELIMINARY')).toBe(true);
+
+    // OpenAPI exposure.
+    const openApiU = await request(server).get('/api/docs-json').expect(200);
+    expect(openApiU.body.paths['/understanding/pipeline']).toBeDefined();
+    expect(openApiU.body.paths['/understanding/transform/t1']).toBeDefined();
+    expect(openApiU.body.paths['/understanding/objects']).toBeDefined();
+
+    await request(server).post('/understanding/pipeline').expect(401);
+  });
+
+  it('IW-30: Judgment — form from understanding, tier gate, DG-09/DG-10 ladder, IURG edges, isolation, OpenAPI', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).post('/judgment/form').expect(401);
+      await request(app.getHttpServer()).get('/judgment/objects').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+
+    // Build an understanding via the IW-29 pipeline (tier-1 EMR -> proven understanding).
+    const perceptionIds: string[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      const p = await auth(request(server).post('/usfip/ingest'))
+        .send({ sourceType: 'emr', rawPayload: { summary: `judgment-seed ${i}` } })
+        .expect(201);
+      perceptionIds.push(p.body.recordId);
+    }
+    const pipeline = await auth(request(server).post('/understanding/pipeline'))
+      .send({
+        perceptionIds,
+        patternType: 'behavioral',
+        meaning: 'Consistent institutional signal.',
+      })
+      .expect(201);
+    const understandingId = pipeline.body.understanding.understandingId;
+    expect(['probable', 'proven']).toContain(pipeline.body.understanding.realityTier);
+
+    // Form the judgment.
+    const judgment = await auth(request(server).post('/judgment/form'))
+      .send({ understandingId, subject: 'Adopt refined protocol', decision: 'Require 48h notice.' })
+      .expect(201);
+    expect(judgment.body.status).toBe('preliminary');
+    expect(judgment.body.realityTier).toBe('speculative');
+    expect(judgment.body.constraintCheck).toBe('PASS');
+    const judgmentId = judgment.body.judgmentId;
+
+    // understanding --realized_as--> judgment edge exists in IURG.
+    const jEdges = await auth(request(server).get(`/iurg/edges/${judgmentId}`)).expect(200);
+    expect(jEdges.body.edges.map((e: any) => e.edgeType)).toContain('REALIZED_AS');
+
+    // DG-09 blocked before 3 correct outcomes.
+    await auth(request(server).post(`/judgment/${judgment.body.id}/validate`))
+      .send({ correct: true, branch: 'branch-a' })
+      .expect(201);
+    await auth(request(server).post(`/judgment/${judgment.body.id}/promote`))
+      .send({})
+      .expect(400);
+
+    // Reach 3 correct at branch-a.
+    await auth(request(server).post(`/judgment/${judgment.body.id}/validate`))
+      .send({ correct: true, branch: 'branch-a' })
+      .expect(201);
+    await auth(request(server).post(`/judgment/${judgment.body.id}/validate`))
+      .send({ correct: true, branch: 'branch-a' })
+      .expect(201);
+
+    const pendingVal = await auth(request(server).get('/judgment/pending-validation')).expect(200);
+    expect(pendingVal.body.total).toBeGreaterThanOrEqual(1);
+
+    // DG-09 promote -> validated (probable).
+    const validated = await auth(request(server).post(`/judgment/${judgment.body.id}/promote`))
+      .send({ approver: 'ops-manager' })
+      .expect(201);
+    expect(validated.body.status).toBe('validated');
+    expect(validated.body.realityTier).toBe('probable');
+
+    // DG-10 blocked with a single branch.
+    await auth(request(server).post(`/judgment/${judgment.body.id}/promote`))
+      .send({})
+      .expect(400);
+
+    // Add a 2nd branch -> DG-10 institutionalizes (proven + ruleId).
+    await auth(request(server).post(`/judgment/${judgment.body.id}/validate`))
+      .send({ correct: true, branch: 'branch-b' })
+      .expect(201);
+    const pendingInst = await auth(request(server).get('/judgment/pending-institutional')).expect(
+      200,
+    );
+    expect(pendingInst.body.total).toBeGreaterThanOrEqual(1);
+
+    const institutional = await auth(request(server).post(`/judgment/${judgment.body.id}/promote`))
+      .send({ approver: 'founder' })
+      .expect(201);
+    expect(institutional.body.status).toBe('institutional');
+    expect(institutional.body.realityTier).toBe('proven');
+    expect(institutional.body.ruleId).toBeTruthy();
+
+    // Objects + stats.
+    const objects = await auth(
+      request(server).get('/judgment/objects?status=institutional'),
+    ).expect(200);
+    expect(objects.body.total).toBeGreaterThanOrEqual(1);
+    const stats = await auth(request(server).get('/judgment/stats')).expect(200);
+    expect(stats.body.total).toBeGreaterThanOrEqual(1);
+
+    // Workspace scope isolation.
+    const peerToken = await registerAndLogin(`e2e-judgment-peer-${Date.now()}@onx.test`);
+    const peerObjects = await request(server)
+      .get('/judgment/objects')
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(200);
+    expect(peerObjects.body.total).toBe(0);
+
+    // Audit trail.
+    const jAudit = await listAudit('JUDGMENT_');
+    expect(jAudit.some((item) => item.action === 'JUDGMENT_FORMED_PRELIMINARY')).toBe(true);
+    expect(jAudit.some((item) => item.action === 'JUDGMENT_INSTITUTIONALIZED')).toBe(true);
+
+    // OpenAPI exposure.
+    const openApiJ = await request(server).get('/api/docs-json').expect(200);
+    expect(openApiJ.body.paths['/judgment/form']).toBeDefined();
+    expect(openApiJ.body.paths['/judgment/{id}/promote']).toBeDefined();
+    expect(openApiJ.body.paths['/judgment/pending-institutional']).toBeDefined();
+
+    await request(server).post('/judgment/form').expect(401);
+  });
+
+  it('IW-31: Continuity — append-only guard (UPDATE/DELETE blocked), revise/supersede, tier authority, history, isolation, OpenAPI', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).post('/continuity/guard').expect(401);
+      await request(app.getHttpServer()).get('/continuity/audits').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+
+    // Protected object catalog.
+    const protectedObjs = await auth(request(server).get('/continuity/protected-objects')).expect(
+      200,
+    );
+    expect(protectedObjs.body.total).toBe(6);
+
+    // HC-04: UPDATE on a protected object is blocked (403).
+    const blockedUpdate = await auth(request(server).post('/continuity/guard'))
+      .send({
+        operation: 'UPDATE',
+        targetType: 'understanding',
+        targetId: 'UN-X',
+        reason: 'try mutate',
+      })
+      .expect(403);
+    expect(blockedUpdate.body.operation).toBe('BLOCKED_UPDATE');
+
+    // HC-04: DELETE is blocked (403).
+    await auth(request(server).post('/continuity/guard'))
+      .send({ operation: 'DELETE', targetType: 'judgment', targetId: 'JD-X' })
+      .expect(403);
+
+    // Append-only operations are allowed.
+    await auth(request(server).post('/continuity/revise'))
+      .send({
+        targetType: 'understanding',
+        targetId: 'UN-1',
+        reason: 'refined interpretation',
+        newValue: { v: 2 },
+      })
+      .expect(201);
+    const superseded = await auth(request(server).post('/continuity/supersede'))
+      .send({
+        targetType: 'intent',
+        targetId: 'FI-2',
+        previousRef: 'FI-1',
+        reason: 'new intent version',
+      })
+      .expect(201);
+    expect(superseded.body.operation).toBe('SUPERSEDE');
+    await auth(request(server).post('/continuity/deprecate'))
+      .send({ targetType: 'constraint', targetId: 'SC-99', reason: 'obsolete' })
+      .expect(201);
+
+    // HC-03: tier upgrade without authority is blocked; downgrade allowed.
+    await auth(request(server).post('/continuity/guard'))
+      .send({
+        operation: 'REVISE',
+        targetType: 'evidence',
+        targetId: 'EV-1',
+        tierFrom: 'speculative',
+        tierTo: 'proven',
+        approverAuthority: 'system',
+      })
+      .expect(403);
+    await auth(request(server).post('/continuity/guard'))
+      .send({
+        operation: 'REVISE',
+        targetType: 'evidence',
+        targetId: 'EV-1',
+        tierFrom: 'speculative',
+        tierTo: 'proven',
+        approverAuthority: 'DG-10',
+      })
+      .expect(201);
+    await auth(request(server).post('/continuity/guard'))
+      .send({
+        operation: 'REVISE',
+        targetType: 'evidence',
+        targetId: 'EV-1',
+        tierFrom: 'proven',
+        tierTo: 'probable',
+      })
+      .expect(201);
+
+    // Full append-only version history (never deleted).
+    const history = await auth(
+      request(server).get('/continuity/object/understanding/UN-1/history'),
+    ).expect(200);
+    expect(history.body.total).toBeGreaterThanOrEqual(1);
+    expect(history.body.currentVersion).toBeGreaterThanOrEqual(1);
+
+    // Audit trail listing (blocked + appended).
+    const blockedAudits = await auth(request(server).get('/continuity/audits?blocked=true')).expect(
+      200,
+    );
+    expect(blockedAudits.body.total).toBeGreaterThanOrEqual(2);
+    const auditId = blockedAudits.body.items[0].id;
+    await auth(request(server).get(`/continuity/audits/${auditId}`)).expect(200);
+
+    // Stats.
+    const stats = await auth(request(server).get('/continuity/stats')).expect(200);
+    expect(stats.body.blockedTotal).toBeGreaterThanOrEqual(3);
+    expect(stats.body.appendedTotal).toBeGreaterThanOrEqual(3);
+
+    // IURG bound the blocked destructive attempts as HC-04 violations.
+    const iurgViolations = await auth(request(server).get('/iurg/violations')).expect(200);
+    expect(iurgViolations.body.total).toBeGreaterThanOrEqual(1);
+
+    // Workspace scope isolation.
+    const peerToken = await registerAndLogin(`e2e-continuity-peer-${Date.now()}@onx.test`);
+    const peerAudits = await request(server)
+      .get('/continuity/audits')
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(200);
+    expect(peerAudits.body.total).toBe(0);
+
+    // Audit trail.
+    const cAudit = await listAudit('CONTINUITY_');
+    expect(cAudit.some((item) => item.action === 'CONTINUITY_BLOCKED_UPDATE')).toBe(true);
+    expect(cAudit.some((item) => item.action === 'CONTINUITY_REVISE')).toBe(true);
+
+    // OpenAPI exposure.
+    const openApiC = await request(server).get('/api/docs-json').expect(200);
+    expect(openApiC.body.paths['/continuity/guard']).toBeDefined();
+    expect(openApiC.body.paths['/continuity/revise']).toBeDefined();
+    expect(openApiC.body.paths['/continuity/object/{type}/{id}/history']).toBeDefined();
+
+    await request(server).post('/continuity/guard').expect(401);
+  });
+
+  it('IW-32: final directives — D15 self-assessment, D17 cross-module audit, D18 exceptions, D20 systemic health', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).post('/assessment/run').expect(401);
+      await request(app.getHttpServer()).post('/audit/run').expect(401);
+      await request(app.getHttpServer()).post('/exception/trigger').expect(401);
+      await request(app.getHttpServer()).get('/health/systems').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+
+    // ---- D15: Self-Assessment ------------------------------------------------
+    const assessment = await auth(request(server).post('/assessment/run'))
+      .send({ scope: 'full' })
+      .expect(201);
+    expect(assessment.body.verdict).toBeDefined();
+    expect(typeof assessment.body.intentAlignment).toBe('number');
+    expect(typeof assessment.body.gapCount).toBe('number');
+    await auth(request(server).get(`/assessment/${assessment.body.id}`)).expect(200);
+    const gaps = await auth(request(server).get('/assessment/gaps')).expect(200);
+    expect(gaps.body).toHaveProperty('total');
+
+    // ---- D17: Cross-Module Audit (report only, no repair) --------------------
+    const audit = await auth(request(server).post('/audit/run')).expect(201);
+    expect(audit.body.moduleCount).toBe(9);
+    expect(audit.body.verdict).toBeDefined();
+    await auth(request(server).get(`/audit/${audit.body.id}`)).expect(200);
+    const inconsistencies = await auth(request(server).get('/audit/inconsistencies')).expect(200);
+    expect(inconsistencies.body).toHaveProperty('total');
+
+    // ---- D18: Exception Handling (all 5 override rules) ----------------------
+    const handlers = await auth(request(server).get('/exception/handlers')).expect(200);
+    expect(handlers.body.total).toBe(5);
+    for (const rule of ['OR-01', 'OR-02', 'OR-03', 'OR-04', 'OR-05']) {
+      const trig = await auth(request(server).post('/exception/trigger'))
+        .send({ overrideRule: rule, triggeredBy: 'e2e', conditions: ['test'] })
+        .expect(201);
+      expect(trig.body.overrideRule).toBe(rule);
+      expect(trig.body.status).toBe('active');
+    }
+    const execs = await auth(request(server).get('/exception/executions')).expect(200);
+    expect(execs.body.total).toBeGreaterThanOrEqual(5);
+    const toRevert = execs.body.items[0].id;
+    const reverted = await auth(request(server).post(`/exception/${toRevert}/revert`)).expect(201);
+    expect(reverted.body.status).toBe('reverted');
+
+    // ---- D20: Systemic Health Monitor ---------------------------------------
+    const check = await auth(request(server).post('/health/check')).expect(201);
+    expect(check.body.checked).toBe(9);
+    expect(check.body.overall).toBeDefined();
+    const systems = await auth(request(server).get('/health/systems')).expect(200);
+    expect(systems.body.total).toBe(9);
+    const report = await auth(request(server).get('/health/report')).expect(200);
+    expect(report.body.total).toBe(9);
+    await auth(request(server).get('/health/systems/fic')).expect(200);
+
+    // ---- Workspace isolation -------------------------------------------------
+    const peerToken = await registerAndLogin(`e2e-directives-peer-${Date.now()}@onx.test`);
+    const peerExecs = await request(server)
+      .get('/exception/executions')
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(200);
+    expect(peerExecs.body.total).toBe(0);
+
+    // ---- OpenAPI exposure ----------------------------------------------------
+    const openApi = await request(server).get('/api/docs-json').expect(200);
+    expect(openApi.body.paths['/assessment/run']).toBeDefined();
+    expect(openApi.body.paths['/audit/run']).toBeDefined();
+    expect(openApi.body.paths['/exception/trigger']).toBeDefined();
+    expect(openApi.body.paths['/health/systems']).toBeDefined();
+
+    // ---- Guard enforcement ---------------------------------------------------
+    await request(server).post('/assessment/run').expect(401);
+    await request(server).post('/audit/run').expect(401);
+    await request(server).post('/exception/trigger').expect(401);
+    await request(server).get('/health/systems').expect(401);
   });
 
   it('IW-07: D13 intelligence capital, accumulation, allocation execution/rollback, and IUC enforce jwt, rules, and OpenAPI', async () => {
@@ -3526,6 +4652,246 @@ describe('ONX Intelligence (e2e)', () => {
     await request(server).get('/d20/dashboard').expect(401);
   });
 
+  it('Phase 1: AI Integration Core — providers, SECH-gated query/consensus/chat, clinical support, logs, isolation, OpenAPI', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).post('/ai/query').expect(401);
+      await request(app.getHttpServer()).get('/ai/providers').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+
+    // --- Provider registry (6 frontier providers, AC-05 tier 4) ---
+    const providersRes = await auth(request(server).get('/ai/providers')).expect(200);
+    expect(providersRes.body.length).toBe(6);
+    const names = providersRes.body.map((p: any) => p.name);
+    expect(names).toEqual(
+      expect.arrayContaining(['openai', 'anthropic', 'gemini', 'deepseek', 'qwen', 'llama']),
+    );
+    expect(providersRes.body.every((p: any) => p.evidenceTier === '4')).toBe(true);
+
+    // --- Provider status / health ---
+    const statusRes = await auth(request(server).get('/ai/providers/openai/status')).expect(200);
+    expect(statusRes.body).toMatchObject({ name: 'openai', available: true });
+    await auth(request(server).get('/ai/providers/nope/status')).expect(404);
+
+    // --- Single query (SECH pre_execution gated, evidence-tiered) ---
+    const queryRes = await auth(request(server).post('/ai/query'))
+      .send({ query: 'Summarize the constitutional FIC constraints.', domain: 'strategic' })
+      .expect(201);
+    expect(queryRes.body.status).toBe('approved');
+    expect(typeof queryRes.body.response).toBe('string');
+    expect(queryRes.body.evidenceTier).toBe('4');
+    expect(queryRes.body.sechRouteId).toBeDefined();
+    expect(queryRes.body.ficStatus).toBeDefined();
+
+    // --- Consensus (top-3 providers agree) ---
+    const consensusRes = await auth(request(server).post('/ai/consensus'))
+      .send({ query: 'Is workspace isolation preserved across modules?' })
+      .expect(201);
+    expect(consensusRes.body.status).toBe('approved');
+    expect(consensusRes.body.consensus.agreed).toBe(true);
+    expect(consensusRes.body.consensus.agreementCount).toBeGreaterThanOrEqual(2);
+
+    // --- Conversational chat ---
+    const chatRes = await auth(request(server).post('/ai/chat'))
+      .send({
+        messages: [{ role: 'user', content: 'List the SECH gates.' }],
+        domain: 'operational',
+      })
+      .expect(201);
+    expect(chatRes.body.status).toBe('approved');
+    expect(typeof chatRes.body.response).toBe('string');
+
+    // --- Clinical differential support (HC-02: not a final diagnosis) ---
+    const dxRes = await auth(request(server).post('/ai/clinical/diagnosis'))
+      .send({ symptoms: ['lethargy', 'anorexia', 'polydipsia'], history: '8yo indoor cat' })
+      .expect(201);
+    expect(dxRes.body.status).toBe('approved');
+    expect(typeof dxRes.body.response).toBe('string');
+
+    // --- Clinical protocol recommendation ---
+    const protoRes = await auth(request(server).post('/ai/clinical/protocol'))
+      .send({ condition: 'canine parvovirus enteritis' })
+      .expect(201);
+    expect(protoRes.body.status).toBe('approved');
+
+    // --- Immutable AI query log trail ---
+    const logsRes = await auth(request(server).get('/ai/logs')).expect(200);
+    expect(logsRes.body.total).toBeGreaterThanOrEqual(5);
+    expect(Array.isArray(logsRes.body.items)).toBe(true);
+
+    // --- Workspace scope isolation ---
+    const peerToken = await registerAndLogin(`e2e-aicore-peer-${Date.now()}@onx.test`);
+    const peerLogs = await request(server)
+      .get('/ai/logs')
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(200);
+    expect(peerLogs.body.total).toBe(0);
+
+    // --- Audit trail ---
+    const aiAudit = await listAudit('AI_QUERY_');
+    expect(aiAudit.some((item) => item.action === 'AI_QUERY_APPROVED')).toBe(true);
+
+    // --- OpenAPI exposure ---
+    const openApiAi = await request(server).get('/api/docs-json').expect(200);
+    expect(openApiAi.body.paths['/ai/query']).toBeDefined();
+    expect(openApiAi.body.paths['/ai/consensus']).toBeDefined();
+    expect(openApiAi.body.paths['/ai/providers']).toBeDefined();
+    expect(openApiAi.body.paths['/ai/clinical/diagnosis']).toBeDefined();
+
+    await request(server).post('/ai/query').expect(401);
+    await request(server).get('/ai/providers').expect(401);
+  });
+
+  it('Phase 3: Connectors — WhatsApp/EMR/POS/Calendar into USFIP, DG-04 gate, SC-09 flag, logs, isolation, OpenAPI', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).get('/connectors').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+    const ws = currentWorkspaceId;
+
+    // --- Configure all four connectors (active) ---
+    const whatsappCfg = await auth(request(server).post('/connectors/whatsapp/config'))
+      .send({ provider: 'twilio', isActive: true, settings: { account: 'whatsapp:+15559999' }, credentials: { authToken: 'secret' } })
+      .expect(201);
+    expect(whatsappCfg.body.credentials).toEqual({ configured: true }); // redacted
+    await auth(request(server).post('/connectors/emr/config'))
+      .send({ provider: 'vettriage', isActive: true })
+      .expect(201);
+    await auth(request(server).post('/connectors/pos/config'))
+      .send({ provider: 'square', isActive: true, settings: { account: 'M-e2e' } })
+      .expect(201);
+    await auth(request(server).post('/connectors/calendar/config'))
+      .send({ provider: 'google', isActive: true })
+      .expect(201);
+
+    // Invalid provider rejected.
+    await auth(request(server).post('/connectors/whatsapp/config'))
+      .send({ provider: 'square' })
+      .expect(400);
+
+    const list = await auth(request(server).get('/connectors')).expect(200);
+    expect(list.body.length).toBeGreaterThanOrEqual(4);
+
+    // --- 1. WhatsApp webhook (public) — clinical message → tier 2 ---
+    const waRes = await request(server)
+      .post(`/connectors/whatsapp/webhook?workspaceId=${ws}`)
+      .send({ MessageSid: 'SM-e2e', From: 'whatsapp:+15550001', To: 'whatsapp:+15559999', Body: 'my dog is limping and in pain' })
+      .expect(201);
+    expect(waRes.body.received).toBe(true);
+    expect(waRes.body.status).toBe('processed');
+
+    // --- 2. EMR sync (authenticated) — tier 1 clinical ---
+    const emrRes = await auth(request(server).post('/connectors/emr/sync')).send({}).expect(201);
+    expect(emrRes.body.ingested).toBeGreaterThanOrEqual(2);
+
+    // --- 3. POS webhook (public) — 45% discount trips DG-04 ---
+    const posRes = await request(server)
+      .post(`/connectors/pos/webhook?workspaceId=${ws}`)
+      .send({
+        merchant_id: 'M-e2e',
+        type: 'payment.created',
+        data: { object: { payment: { id: 'sq-e2e', amount_money: { amount: 5000, currency: 'USD' }, discount_percent: 45 } } },
+      })
+      .expect(201);
+    expect(posRes.body.received).toBe(true);
+    expect(posRes.body.dg04).not.toBeNull();
+    expect(posRes.body.dg04.sechRouteId).toBeDefined();
+
+    // --- 4. Calendar sync (authenticated) — tier 2 operational + SC-09 ---
+    const calRes = await auth(request(server).post('/connectors/calendar/sync')).send({}).expect(201);
+    expect(calRes.body.ingested).toBeGreaterThanOrEqual(2);
+    expect(calRes.body.results.some((r: any) => r.sc09ShortNotice === true)).toBe(true);
+
+    // --- Logs + stats + status ---
+    const waLogs = await auth(request(server).get('/connectors/whatsapp/logs')).expect(200);
+    expect(waLogs.body.total).toBeGreaterThanOrEqual(1);
+    const emrStats = await auth(request(server).get('/connectors/emr/stats')).expect(200);
+    expect(emrStats.body.total).toBeGreaterThanOrEqual(2);
+    expect(emrStats.body.tier).toBe(1);
+    const posStatus = await auth(request(server).get('/connectors/pos/status')).expect(200);
+    expect(posStatus.body.active).toBe(true);
+
+    // --- Workspace scope isolation ---
+    const peerToken = await registerAndLogin(`e2e-connectors-peer-${Date.now()}@onx.test`);
+    const peerList = await request(server)
+      .get('/connectors')
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(200);
+    expect(peerList.body.length).toBe(0);
+    const peerLogs = await request(server)
+      .get('/connectors/whatsapp/logs')
+      .set('Authorization', `Bearer ${peerToken}`)
+      .expect(200);
+    expect(peerLogs.body.total).toBe(0);
+
+    // --- Audit trail ---
+    const connAudit = await listAudit('CONNECTOR_');
+    expect(connAudit.some((item) => item.action === 'CONNECTOR_INGESTED')).toBe(true);
+
+    // --- OpenAPI exposure ---
+    const openApiConn = await request(server).get('/api/docs-json').expect(200);
+    expect(openApiConn.body.paths['/connectors']).toBeDefined();
+    expect(openApiConn.body.paths['/connectors/whatsapp/webhook']).toBeDefined();
+    expect(openApiConn.body.paths['/connectors/emr/sync']).toBeDefined();
+    expect(openApiConn.body.paths['/connectors/pos/webhook']).toBeDefined();
+    expect(openApiConn.body.paths['/connectors/calendar/sync']).toBeDefined();
+
+    await request(server).get('/connectors').expect(401);
+  });
+
+  it('Phase 4: Production Hardening — metrics, deep health, queues, IURG export, rate limiting', async () => {
+    if (!hasDatabase || !hasSchema) {
+      await request(app.getHttpServer()).get('/monitoring/queues').expect(401);
+      return;
+    }
+
+    const server = app.getHttpServer();
+    const auth = (req: request.Test) => req.set('Authorization', `Bearer ${authToken}`);
+
+    // --- Prometheus metrics (public) ---
+    const metricsRes = await request(server).get('/metrics').expect(200);
+    expect(metricsRes.text).toContain('http_requests_total');
+    expect(metricsRes.text).toContain('# TYPE');
+
+    // --- Deep health checks (public) ---
+    const healthRes = await request(server).get('/monitoring/health').expect(200);
+    expect(['ok', 'degraded', 'down']).toContain(healthRes.body.status);
+    const checkNames = healthRes.body.checks.map((c: any) => c.name);
+    expect(checkNames).toEqual(expect.arrayContaining(['database', 'ai_providers', 'constitution', 'redis']));
+    expect(healthRes.body.checks.find((c: any) => c.name === 'database').status).toBe('up');
+    expect(healthRes.body.checks.find((c: any) => c.name === 'constitution').status).toBe('up');
+
+    // --- Background queues (authenticated) ---
+    const queuesRes = await auth(request(server).get('/monitoring/queues')).expect(200);
+    expect(queuesRes.body.length).toBe(5);
+    const enqueueRes = await auth(request(server).post('/monitoring/queues/fic-enforcement/enqueue'))
+      .send({ demo: true })
+      .expect(201);
+    expect(enqueueRes.body.queued).toBe(true);
+
+    // --- IURG disaster-recovery export (authenticated) ---
+    const exportRes = await auth(request(server).post('/monitoring/iurg-export')).expect(201);
+    expect(exportRes.body).toHaveProperty('counts');
+    expect(exportRes.body.storageClass).toBe('GLACIER');
+
+    // --- Rate limiting: /monitoring/rate-test is capped at 5/min ---
+    for (let i = 0; i < 5; i += 1) {
+      await request(server).get('/monitoring/rate-test').expect(200);
+    }
+    const limited = await request(server).get('/monitoring/rate-test');
+    expect(limited.status).toBe(429);
+    expect(limited.headers['x-ratelimit-limit']).toBe('5');
+
+    // --- Guard: queues require auth ---
+    await request(server).get('/monitoring/queues').expect(401);
+  });
+
   it('reporting depth supports summaries, details, filtering, sorting, date range, and audit compatibility', async () => {
     if (!hasDatabase || !hasSchema) {
       await request(app.getHttpServer()).get('/reports').expect(401);
@@ -3668,7 +5034,10 @@ describe('ONX Intelligence (e2e)', () => {
       .send({ description: 'updated completeness project' })
       .expect(200);
 
-    const peerToken = await registerAndLogin(`e2e-workspace-peer-${Date.now()}@onx.test`);
+    const peerToken = await registerAndLogin(
+      `e2e-workspace-peer-${Date.now()}@onx.test`,
+      currentWorkspaceId,
+    );
     await request(app.getHttpServer())
       .put(`/projects/${createdProjectId}`)
       .set('Authorization', `Bearer ${peerToken}`)

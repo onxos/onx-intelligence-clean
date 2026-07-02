@@ -71,6 +71,40 @@ export const api = {
   },
   health: {
     check: () => workspaceFetch("/health"),
+    report: () => workspaceFetch("/health/report"),
+    systems: () => workspaceFetch("/health/systems"),
+  },
+  ai: {
+    providers: () => workspaceFetch("/ai/providers"),
+    providerStatus: (id: string) => workspaceFetch(`/ai/providers/${id}/status`),
+    query: (body: { query: string; domain?: string; providerId?: string; signals?: Record<string, unknown> }) =>
+      workspaceFetch("/ai/query", { method: "POST", body }),
+    consensus: (body: { query: string; domain?: string; signals?: Record<string, unknown> }) =>
+      workspaceFetch("/ai/consensus", { method: "POST", body }),
+    chat: (body: { messages: Array<{ role: string; content: string }>; domain?: string }) =>
+      workspaceFetch("/ai/chat", { method: "POST", body }),
+    logs: (query?: Record<string, QueryValue>) => workspaceFetch("/ai/logs", { query }),
+    clinicalDiagnosis: (body: { symptoms: string[]; history?: string }) =>
+      workspaceFetch("/ai/clinical/diagnosis", { method: "POST", body }),
+    clinicalProtocol: (body: { condition: string; context?: string }) =>
+      workspaceFetch("/ai/clinical/protocol", { method: "POST", body }),
+  },
+  sech: {
+    gates: () => workspaceFetch("/sech/gates"),
+    pending: (query?: Record<string, QueryValue>) => workspaceFetch("/sech/pending", { query }),
+    constraints: () => workspaceFetch("/sech/constraints"),
+  },
+  iurg: {
+    violations: (query?: Record<string, QueryValue>) => workspaceFetch("/iurg/violations", { query }),
+    enforcements: (query?: Record<string, QueryValue>) => workspaceFetch("/iurg/enforcements", { query }),
+    edges: (query?: Record<string, QueryValue>) => workspaceFetch("/iurg/edges", { query }),
+  },
+  governance: {
+    runAssessment: (body: Record<string, unknown>) =>
+      workspaceFetch("/assessment/run", { method: "POST", body }),
+    gaps: () => workspaceFetch("/assessment/gaps"),
+    runAudit: (body: Record<string, unknown>) => workspaceFetch("/audit/run", { method: "POST", body }),
+    inconsistencies: () => workspaceFetch("/audit/inconsistencies"),
   },
   intelligence: {
     list: (query?: Record<string, QueryValue>) =>

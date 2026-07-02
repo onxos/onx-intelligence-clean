@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import {
   FounderIntentConflictSeverity,
   FounderIntentConflictStatus,
@@ -15,6 +15,7 @@ import * as crypto from 'crypto';
 import { AuditService } from '../common/audit.service';
 import { PrismaService } from '../common/prisma.service';
 import { EvidenceService } from '../evidence/evidence.service';
+import { IurgService } from '../iurg/iurg.service';
 import {
   authorityRank,
   FIC_CONFLICT_SEVERITY_ORDER,
@@ -70,6 +71,7 @@ export class IntentCompilerService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly evidence: EvidenceService,
+    @Optional() private readonly iurg?: IurgService,
   ) {}
 
   // ----------------------------------------------------------------------
@@ -580,6 +582,21 @@ export class IntentCompilerService {
       true,
     );
 
+    // IW-24: bind the amendment into the IURG (Amendment object + amended_by + supersedes).
+    if (this.iurg) {
+      try {
+        await this.iurg.bindAmendmentEvent({
+          workspaceId,
+          actorId: userId,
+          intentRef: updated.intentId,
+          fromVersion: existing.version,
+          toVersion: updated.version,
+        });
+      } catch {
+        // IURG binding is governance-supporting; never block the version mutation.
+      }
+    }
+
     return updated;
   }
 
@@ -937,6 +954,21 @@ export class IntentCompilerService {
       { decision: dto.decision, lifecycle: result.updatedIntent.lifecycle },
       true,
     );
+
+    // IW-24: bind the review into the IURG (Review object + reviewed_under edge).
+    if (this.iurg) {
+      try {
+        await this.iurg.bindReviewEvent({
+          workspaceId,
+          actorId: userId,
+          intentRef: existing.intentId,
+          decision: dto.decision,
+          result: result.updatedIntent.lifecycle,
+        });
+      } catch {
+        // IURG binding is governance-supporting; never block the review mutation.
+      }
+    }
 
     return result.review;
   }

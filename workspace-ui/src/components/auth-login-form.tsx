@@ -36,8 +36,8 @@ export function AuthLoginForm() {
   const onSubmit = async (values: FormData) => {
     setError(null);
     try {
-      const token = await api.auth.login(values as LoginDto);
-      setToken(token);
+      const { accessToken } = await api.auth.login(values as LoginDto);
+      setToken(accessToken);
       router.replace("/workspace");
     } catch (e) {
       setError((e as Error).message || t("auth.loginFailed"));

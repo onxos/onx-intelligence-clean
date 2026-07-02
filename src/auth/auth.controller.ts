@@ -66,7 +66,8 @@ export class AuthController {
   @ApiOperation({ summary: 'Register new user' })
   async register(@Body() body: RegisterDto, @Req() req: any) {
     try {
-      return await this.svc.register(body, getRequestAuditContext(req));
+      const accessToken = await this.svc.register(body, getRequestAuditContext(req));
+      return { accessToken };
     } catch (err: any) {
       if (err instanceof HttpException) throw err;
       throw new HttpException(
@@ -80,7 +81,8 @@ export class AuthController {
   @HttpCode(200)
   @ApiOperation({ summary: 'Login and get JWT' })
   async login(@Body() body: LoginDto, @Req() req: any) {
-    return this.svc.login(body.email, body.password, getRequestAuditContext(req));
+    const accessToken = await this.svc.login(body.email, body.password, getRequestAuditContext(req));
+    return { accessToken };
   }
 
   @Get('me')

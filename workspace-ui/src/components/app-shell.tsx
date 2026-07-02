@@ -12,7 +12,11 @@ import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 const navItems = [
+  { labelKey: "nav.dashboard", href: "/dashboard" },
   { labelKey: "nav.home", href: "/workspace" },
+  { labelKey: "nav.ai", href: "/ai" },
+  { labelKey: "nav.clinical", href: "/clinical" },
+  { labelKey: "nav.constitutional", href: "/constitutional" },
   { labelKey: "nav.projects", href: "/projects" },
   { labelKey: "nav.intelligence", href: "/intelligence" },
   { labelKey: "nav.knowledge", href: "/knowledge" },

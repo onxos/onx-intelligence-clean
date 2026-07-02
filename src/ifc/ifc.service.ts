@@ -556,7 +556,7 @@ export class IfcService {
       await this.writeHistory(
         tx,
         { profileId: profile.id, workspaceId },
-        result.degraded ? 'DEGRADATION_DETECTED' : 'SCORE_CALCULATED',
+        'SCORE_CALCULATED',
         userId,
         {
           referenceId: created.id,
@@ -565,6 +565,20 @@ export class IfcService {
           notes: result.reason,
         },
       );
+      if (result.degraded) {
+        await this.writeHistory(
+          tx,
+          { profileId: profile.id, workspaceId },
+          'DEGRADATION_DETECTED',
+          userId,
+          {
+            referenceId: created.id,
+            referenceType: 'IFCScore',
+            constitutionalRef: result.constitutionalRef,
+            notes: result.reason,
+          },
+        );
+      }
       return created;
     });
 

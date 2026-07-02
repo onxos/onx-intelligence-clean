@@ -282,17 +282,12 @@ export class AuthService {
 
       const workspace = input.workspaceId
         ? { id: input.workspaceId }
-        : await this.prisma.workspace.findFirst({ select: { id: true } }).then((found) => {
-            if (found) {
-              return found;
-            }
-            return this.prisma.workspace.create({
-              data: {
-                name: 'ONX Intelligence Workspace',
-                description: 'Default production workspace',
-              },
-              select: { id: true },
-            });
+        : await this.prisma.workspace.create({
+            data: {
+              name: 'Personal Workspace',
+              description: 'Dedicated workspace provisioned at registration',
+            },
+            select: { id: true },
           });
 
       const tenant = input.tenantId

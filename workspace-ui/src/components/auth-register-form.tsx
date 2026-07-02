@@ -37,8 +37,8 @@ export function AuthRegisterForm() {
   const onSubmit = async (values: FormData) => {
     setError(null);
     try {
-      const token = await api.auth.register(values as RegisterDto);
-      setToken(token);
+      const { accessToken } = await api.auth.register(values as RegisterDto);
+      setToken(accessToken);
       router.replace("/workspace");
     } catch (e) {
       setError((e as Error).message || t("auth.registerFailed"));

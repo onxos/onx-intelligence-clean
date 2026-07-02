@@ -19,6 +19,13 @@ const ibmPlexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: "ONX Intelligence Workspace",
   description: "Production workspace for ONX Intelligence",
+  manifest: "/manifest.json",
+  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "ONX" },
+  icons: { icon: "/icon.svg", apple: "/icon.svg" },
+};
+
+export const viewport = {
+  themeColor: "#14b8a6",
 };
 
 export default function RootLayout({

@@ -37,7 +37,7 @@ request_json() {
 extract_token() {
   local body="$1"
   if printf '%s' "$body" | jq -e . >/dev/null 2>&1; then
-    printf '%s' "$body" | jq -r 'if type == "object" and has("token") then .token elif type == "string" then . else empty end'
+    printf '%s' "$body" | jq -r 'if type == "object" and has("accessToken") then .accessToken elif type == "object" and has("token") then .token elif type == "string" then . else empty end'
   else
     printf '%s' "$body" | tr -d '"\r\n'
   fi

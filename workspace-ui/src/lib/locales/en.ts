@@ -6,7 +6,11 @@ export const en: LocaleDictionary = {
     workspace: "Intelligence Workspace",
   },
   nav: {
+    dashboard: "Dashboard",
     home: "Home",
+    ai: "AI Intelligence",
+    clinical: "Clinical",
+    constitutional: "Constitutional",
     projects: "Projects",
     intelligence: "Intelligence",
     knowledge: "Knowledge",

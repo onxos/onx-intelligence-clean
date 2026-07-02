@@ -98,8 +98,26 @@ export function resolveVerificationState(
 
 /** Deterministic integrity checksum over an envelope payload (Part A). */
 export function computeChecksum(payload: unknown): string {
-  const canonical = JSON.stringify(payload ?? {});
+  const canonical = canonicalStringify(payload ?? {});
   return createHash('sha256').update(canonical).digest('hex');
+}
+
+/**
+ * Stable JSON serialization with recursively sorted object keys. This keeps the
+ * checksum invariant across storage round-trips (e.g. PostgreSQL JSONB, which
+ * does not preserve object key insertion order).
+ */
+function canonicalStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value ?? null);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalStringify(item)).join(',')}]`;
+  }
+  const entries = Object.keys(value as Record<string, unknown>)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalStringify((value as Record<string, unknown>)[key])}`);
+  return `{${entries.join(',')}}`;
 }
 
 /** Verify a payload against a previously computed checksum. */

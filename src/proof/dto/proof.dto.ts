@@ -7,6 +7,7 @@ import {
 } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
+  Allow,
   IsArray,
   IsBoolean,
   IsEnum,
@@ -205,6 +206,7 @@ export class ContradictionCandidateDto {
   leftReferenceType?: string;
 
   @ApiProperty({ description: 'Value asserted by the left source.' })
+  @Allow()
   leftValue: unknown;
 
   @ApiPropertyOptional()
@@ -218,6 +220,7 @@ export class ContradictionCandidateDto {
   rightReferenceType?: string;
 
   @ApiProperty({ description: 'Value asserted by the right source.' })
+  @Allow()
   rightValue: unknown;
 }
 

@@ -6,7 +6,11 @@ export const ar: LocaleDictionary = {
     workspace: "مساحة عمل الذكاء",
   },
   nav: {
+    dashboard: "لوحة القيادة",
     home: "الرئيسية",
+    ai: "الذكاء الاصطناعي",
+    clinical: "العيادة",
+    constitutional: "الدستوري",
     projects: "المشاريع",
     intelligence: "الذكاء",
     knowledge: "المعرفة",
