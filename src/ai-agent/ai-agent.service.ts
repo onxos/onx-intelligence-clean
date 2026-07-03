@@ -5,7 +5,7 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
-import { AiRouterService } from '../ai-core/ai-router.service';
+import { AiRouterService, AICompletionContext } from '../ai-core/ai-router.service';
 import { CommandParser, ParsedCommand } from './command.parser';
 import { ReportCommandHandler } from './handlers/report.handler';
 import { ReminderCommandHandler } from './handlers/reminder.handler';
@@ -35,9 +35,6 @@ export class AiAgentService {
     private readonly analyticsHandler: AnalyticsCommandHandler,
   ) {}
 
-  /**
-   * Main entry: user says something, agent does something
-   */
   async executeCommand(
     naturalLanguage: string,
     userId: string,
@@ -46,39 +43,31 @@ export class AiAgentService {
     this.logger.log(`Agent command from ${userId}: "${naturalLanguage}"`);
 
     try {
-      // Step 1: Parse intent
       const parsed = await this.commandParser.parse(naturalLanguage, workspaceId);
 
-      // Step 2: Route to handler
       switch (parsed.intent) {
         case 'REPORT_CREATE':
           return this.reportHandler.handle(parsed, userId, workspaceId);
-
         case 'REMINDER_SEND':
           return this.reminderHandler.handle(parsed, userId, workspaceId);
-
         case 'RBAC_CHECK':
         case 'RBAC_ASSIGN':
           return this.rbacHandler.handle(parsed, userId, workspaceId);
-
         case 'ANALYTICS_QUERY':
           return this.analyticsHandler.handle(parsed, userId, workspaceId);
-
         case 'UNKNOWN':
-        default:
-          // Fall back to AI chat
-          const aiResponse = await this.aiRouter.route({
-            message: naturalLanguage,
-            workspaceId,
-            context: { type: 'agent_fallback', userId },
-          });
+        default: {
+          // Fall back to AI chat — uses CORRECT signature
+          const ctx: AICompletionContext = { domain: 'general' };
+          const aiResponse = await this.aiRouter.route(naturalLanguage, ctx);
           return {
             success: true,
             action: 'AI_CHAT',
             message: aiResponse.content,
           };
+        }
       }
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Agent execution failed: ${error.message}`);
       return {
         success: false,
@@ -89,9 +78,6 @@ export class AiAgentService {
     }
   }
 
-  /**
-   * Get command history for a user
-   */
   async getCommandHistory(userId: string, workspaceId: string, limit = 20) {
     return this.prisma.agentLog.findMany({
       where: { userId, workspaceId },
