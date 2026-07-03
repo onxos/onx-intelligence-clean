@@ -55,6 +55,10 @@ import { BillingEngineModule } from './financial/billing-engine/billing-engine.m
 import { ClaimsManagerModule } from './financial/claims-manager/claims-manager.module';
 import { PaymentProcessorModule } from './financial/payment-processor/payment-processor.module';
 import { RevenueCycleModule } from './financial/revenue-cycle/revenue-cycle.module';
+import { DiagnosticAssistantModule } from './intelligence-overlay/diagnostic-assistant/diagnostic-assistant.module';
+import { TreatmentRecommenderModule } from './intelligence-overlay/treatment-recommender/treatment-recommender.module';
+import { VoiceToSoapModule } from './intelligence-overlay/voice-to-soap/voice-to-soap.module';
+import { SmartSchedulingModule } from './intelligence-overlay/smart-scheduling/smart-scheduling.module';
 
 @Module({
   imports: [
@@ -115,6 +119,10 @@ import { RevenueCycleModule } from './financial/revenue-cycle/revenue-cycle.modu
     ClaimsManagerModule,
     PaymentProcessorModule,
     RevenueCycleModule,
+    DiagnosticAssistantModule,
+    TreatmentRecommenderModule,
+    VoiceToSoapModule,
+    SmartSchedulingModule,
     CommitModule,
   ],
   controllers: [AppController],
