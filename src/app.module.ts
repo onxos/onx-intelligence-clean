@@ -40,6 +40,7 @@ import { ReasoningModule } from './reasoning/reasoning.module';
 import { PlanningModule } from './planning/planning.module';
 import { DecisionModule } from './decision/decision.module';
 import { D20Module } from './d20/d20.module';
+import { ClinicalModule } from './clinical/clinical.module';
 import { AssessmentModule } from './assessment/assessment.module';
 import { CrossModuleAuditModule } from './audit/cross-module-audit.module';
 import { ExceptionModule } from './exception/exception.module';
@@ -95,6 +96,7 @@ import { QueueModule } from './queue/queue.module';
     PlanningModule,
     DecisionModule,
     D20Module,
+    ClinicalModule,
     AssessmentModule,
     CrossModuleAuditModule,
     ExceptionModule,

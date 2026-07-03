@@ -27,6 +27,8 @@ model User {
   projects            Project[]
   agents              Agent[]
   memoryItems         MemoryEntry[]
+  clinicalPatients         ClinicalPatient[]
+  clinicalLifecycleEvents   ClinicalLifecycleEvent[]
 
   role      Role      @relation(fields: [roleId], references: [id])
   workspace Workspace @relation(fields: [workspaceId], references: [id])
@@ -94,6 +96,8 @@ model Workspace {
   projects                   Project[]
   agents                     Agent[]
   memoryItems                MemoryEntry[]
+  clinicalPatients           ClinicalPatient[]
+  clinicalLifecycleEvents     ClinicalLifecycleEvent[]
   founderIntents             FounderIntent[]
   founderIntentVersions      FounderIntentVersion[]
   founderIntentRelationships FounderIntentRelationship[]
@@ -276,6 +280,54 @@ model Workspace {
   connectorLogs    ConnectorLog[]
 
   @@map("workspaces")
+}
+
+model ClinicalPatient {
+  id              String   @id @default(cuid())
+  patientId       String   @unique @default(cuid()) @map("patient_id")
+  name            String
+  species         String
+  breed           String
+  ageYears        Int      @map("age_years")
+  weightKg        Float    @map("weight_kg")
+  status          String   @default("stable")
+  presentingSigns String[] @default([]) @map("presenting_signs")
+  metadata        Json?    @default("{}")
+  workspaceId     String   @map("workspace_id")
+  ownerId         String   @map("owner_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  workspace       Workspace                  @relation(fields: [workspaceId], references: [id])
+  owner           User                       @relation(fields: [ownerId], references: [id])
+  lifecycleEvents  ClinicalLifecycleEvent[]
+
+  @@index([workspaceId, deletedAt, status])
+  @@index([workspaceId, createdAt])
+  @@map("clinical_patients")
+}
+
+model ClinicalLifecycleEvent {
+  id            String   @id @default(cuid())
+  eventId       String   @unique @default(cuid()) @map("event_id")
+  patientId     String   @map("patient_id")
+  workspaceId   String   @map("workspace_id")
+  actorId       String   @map("actor_id")
+  eventType     String   @map("event_type")
+  previousStatus String?  @map("previous_status")
+  nextStatus    String?   @map("next_status")
+  note          String?
+  metadata      Json?    @default("{}")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  patient   ClinicalPatient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  workspace Workspace       @relation(fields: [workspaceId], references: [id])
+  actor     User            @relation(fields: [actorId], references: [id])
+
+  @@index([patientId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@map("clinical_lifecycle_events")
 }
 
 model Tenant {
