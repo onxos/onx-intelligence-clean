@@ -114,7 +114,7 @@ export class AiCoreService {
       return this.persistBlocked(workspaceId, userId, gateText, domain, gate);
     }
 
-    const messages: AIMessage[] = dto.messages.map((m) => ({ role: m.role, content: m.content }));
+    const messages: AIMessage[] = dto.messages.map((m) => ({ role: m.role as "user" | "system" | "assistant", content: m.content }));
     const aiResponse = await this.router.chat(messages, buildContext(undefined, domain));
     return this.persistApproved(workspaceId, userId, gateText, domain, gate, aiResponse);
   }

@@ -11,7 +11,6 @@ describe('AiCoreService', () => {
     tokensUsed: 42,
     latencyMs: 7,
     evidenceTier: '4',
-    mock: true,
     timestamp: new Date(),
     ...overrides,
   });
@@ -37,7 +36,7 @@ describe('AiCoreService', () => {
         responses: [
           aiResponse(),
           aiResponse({ provider: 'anthropic' }),
-          aiResponse({ provider: 'gemini' }),
+          aiResponse({ provider: 'google' }),
         ],
       }),
       listProviderInfo: jest.fn().mockReturnValue([{ name: 'openai', mode: 'mock' }]),
