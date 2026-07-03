@@ -1,3 +1,13 @@
+/**
+ * ONX AI Agent — Personal Assistant Module
+ * Executes natural language commands within ONX Intelligence
+ *
+ * Examples:
+ *   "Create a report for clinic this week" → generates report
+ *   "Send reminders for tomorrow's appointments" → sends WhatsApp/SMS
+ *   "Check Dr. Ahmed's permissions" → returns RBAC info
+ */
+
 import { Module } from '@nestjs/common';
 import { AiAgentService } from './ai-agent.service';
 import { AiAgentController } from './ai-agent.controller';
@@ -6,11 +16,6 @@ import { ReportCommandHandler } from './handlers/report.handler';
 import { ReminderCommandHandler } from './handlers/reminder.handler';
 import { RbacCommandHandler } from './handlers/rbac.handler';
 import { AnalyticsCommandHandler } from './handlers/analytics.handler';
-import { DiagnosisCommandHandler } from './handlers/diagnosis.handler';
-import { TreatmentCommandHandler } from './handlers/treatment.handler';
-import { ImageCommandHandler } from './handlers/image.handler';
-import { SchedulingCommandHandler } from './handlers/scheduling.handler';
-import { CommunicationCommandHandler } from './handlers/communication.handler';
 
 @Module({
   controllers: [AiAgentController],
@@ -21,11 +26,6 @@ import { CommunicationCommandHandler } from './handlers/communication.handler';
     ReminderCommandHandler,
     RbacCommandHandler,
     AnalyticsCommandHandler,
-    DiagnosisCommandHandler,
-    TreatmentCommandHandler,
-    ImageCommandHandler,
-    SchedulingCommandHandler,
-    CommunicationCommandHandler,
   ],
   exports: [AiAgentService],
 })

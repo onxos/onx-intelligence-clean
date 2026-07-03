@@ -1,64 +1,81 @@
+/**
+ * ONX RBAC — Permission Enum
+ * Resource-level permissions for all system resources
+ */
+
 export enum Permission {
-  WORKSPACE_READ = 'workspace.read',
-  WORKSPACE_UPDATE = 'workspace.update',
-  WORKSPACE_DELETE = 'workspace.delete',
-  WORKSPACE_SETTINGS = 'workspace.settings',
+  // Dashboard
+  DASHBOARD_VIEW = 'dashboard:view',
+  DASHBOARD_EXPORT = 'dashboard:export',
 
-  USER_READ = 'user.read',
-  USER_INVITE = 'user.invite',
-  USER_UPDATE = 'user.update',
-  USER_REMOVE = 'user.remove',
-  USER_MANAGE_ROLES = 'user.manage_roles',
+  // Patients
+  PATIENT_READ = 'patient:read',
+  PATIENT_CREATE = 'patient:create',
+  PATIENT_UPDATE = 'patient:update',
+  PATIENT_DELETE = 'patient:delete',
+  PATIENT_EXPORT = 'patient:export',
 
-  PROJECT_READ = 'project.read',
-  PROJECT_CREATE = 'project.create',
-  PROJECT_UPDATE = 'project.update',
-  PROJECT_DELETE = 'project.delete',
+  // Appointments
+  APPOINTMENT_READ = 'appointment:read',
+  APPOINTMENT_CREATE = 'appointment:create',
+  APPOINTMENT_UPDATE = 'appointment:update',
+  APPOINTMENT_DELETE = 'appointment:delete',
+  APPOINTMENT_BULK = 'appointment:bulk',
 
-  KNOWLEDGE_READ = 'knowledge.read',
-  KNOWLEDGE_CREATE = 'knowledge.create',
-  KNOWLEDGE_UPDATE = 'knowledge.update',
-  KNOWLEDGE_DELETE = 'knowledge.delete',
+  // Prescriptions
+  PRESCRIPTION_READ = 'prescription:read',
+  PRESCRIPTION_CREATE = 'prescription:create',
+  PRESCRIPTION_UPDATE = 'prescription:update',
+  PRESCRIPTION_DELETE = 'prescription:delete',
 
-  EVIDENCE_READ = 'evidence.read',
-  EVIDENCE_CREATE = 'evidence.create',
-  EVIDENCE_UPDATE = 'evidence.update',
-  EVIDENCE_DELETE = 'evidence.delete',
+  // Lab Results
+  LAB_RESULT_READ = 'lab_result:read',
+  LAB_RESULT_CREATE = 'lab_result:create',
+  LAB_RESULT_UPDATE = 'lab_result:update',
+  LAB_RESULT_DELETE = 'lab_result:delete',
 
-  AI_QUERY = 'ai.query',
-  AI_PROVIDER_MANAGE = 'ai.provider.manage',
-  AGENT_READ = 'agent.read',
-  AGENT_CREATE = 'agent.create',
-  AGENT_UPDATE = 'agent.update',
-  AGENT_DELETE = 'agent.delete',
+  // Billing
+  BILLING_READ = 'billing:read',
+  BILLING_CREATE = 'billing:create',
+  BILLING_UPDATE = 'billing:update',
+  BILLING_REFUND = 'billing:refund',
+  BILLING_EXPORT = 'billing:export',
 
-  CAPITAL_READ = 'capital.read',
-  CAPITAL_ALLOCATE = 'capital.allocate',
-  CAPITAL_APPROVE = 'capital.approve',
+  // AI
+  AI_CHAT = 'ai:chat',
+  AI_CLINICAL = 'ai:clinical',
+  AI_ADMIN = 'ai:admin',
+  AI_PROVIDER_MANAGE = 'ai:provider:manage',
 
-  BILLING_READ = 'billing.read',
-  BILLING_CREATE = 'billing.create',
-  BILLING_UPDATE = 'billing.update',
-  BILLING_DELETE = 'billing.delete',
-  BILLING_REFUND = 'billing.refund',
+  // Constitution
+  CONSTITUTION_READ = 'constitution:read',
+  CONSTITUTION_ADMIN = 'constitution:admin',
 
-  SECURITY_READ = 'security.read',
-  SECURITY_AUDIT = 'security.audit',
-  SECURITY_POLICY_WRITE = 'security.policy.write',
+  // Connectors
+  CONNECTOR_WHATSAPP = 'connector:whatsapp',
+  CONNECTOR_EMR = 'connector:emr',
+  CONNECTOR_POS = 'connector:pos',
+  CONNECTOR_CALENDAR = 'connector:calendar',
 
-  AUDIT_READ = 'audit.read',
-  COMMIT_READ = 'commit.read',
-  COMMIT_CREATE = 'commit.create',
+  // Reports
+  REPORT_READ = 'report:read',
+  REPORT_CREATE = 'report:create',
+  REPORT_SCHEDULE = 'report:schedule',
+  REPORT_DELETE = 'report:delete',
 
-  INTEGRATION_READ = 'integration.read',
-  INTEGRATION_WRITE = 'integration.write',
+  // Users
+  USER_READ = 'user:read',
+  USER_CREATE = 'user:create',
+  USER_UPDATE = 'user:update',
+  USER_DELETE = 'user:delete',
+  USER_MANAGE_ROLES = 'user:manage_roles',
 
-  RUNTIME_READ = 'runtime.read',
-  RUNTIME_EXECUTE = 'runtime.execute',
+  // Workspace
+  WORKSPACE_READ = 'workspace:read',
+  WORKSPACE_UPDATE = 'workspace:update',
+  WORKSPACE_DELETE = 'workspace:delete',
 
-  MEASUREMENT_READ = 'measurement.read',
-  MEASUREMENT_WRITE = 'measurement.write',
-
-  ADMIN_PANEL = 'admin.panel',
-  SYSTEM_CONFIG_WRITE = 'system.config.write',
+  // Settings
+  SETTINGS_READ = 'settings:read',
+  SETTINGS_UPDATE = 'settings:update',
 }

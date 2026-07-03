@@ -1,84 +1,74 @@
+/**
+ * ONX RBAC — Controller
+ * API endpoints for role and permission management
+ */
+
 import {
-  Body,
   Controller,
   Get,
   Post,
-  Req,
+  Delete,
+  Body,
+  Param,
+  Query,
   UseGuards,
-  BadRequestException,
 } from '@nestjs/common';
-import { JwtAuthGuard } from '../auth/jwt.guard';
-import { Permission } from './permissions.enum';
-import { RbacGuard, RequirePermissions } from './rbac.guard';
 import { RbacService } from './rbac.service';
-import { WorkspaceRole, isWorkspaceRole } from './roles.config';
+import { RbacGuard, RequirePermissions } from './rbac.guard';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { Permission } from './permissions.enum';
+import { Role } from './roles.config';
+
+class AssignRoleDto {
+  userId: string;
+  workspaceId: string;
+  role: Role;
+}
+
+class SuggestRoleDto {
+  jobFunction: string;
+}
 
 @Controller('rbac')
 @UseGuards(JwtAuthGuard)
 export class RbacController {
-  constructor(private readonly rbac: RbacService) {}
-
-  @Get('permissions')
-  listPermissions() {
-    return { permissions: this.rbac.listPermissions() };
-  }
+  constructor(private readonly rbacService: RbacService) {}
 
   @Get('roles')
-  listRoles() {
-    return { roles: this.rbac.listRoles() };
+  @RequirePermissions(Permission.USER_READ)
+  @UseGuards(RbacGuard)
+  getAllRoles() {
+    return this.rbacService.getAllRoles();
   }
 
-  @Post('check')
-  async check(
-    @Req() req: { user: { userId: string; workspaceId: string } },
-    @Body() body: { permissions?: Permission[] },
-  ) {
-    const permissions = Array.isArray(body?.permissions) ? body.permissions : [];
-
-    const allowed = await this.rbac.checkPermissions(
-      { userId: req.user.userId, workspaceId: req.user.workspaceId },
-      permissions,
-    );
-
-    return { allowed, permissions };
+  @Get('roles/suggest')
+  @RequirePermissions(Permission.USER_READ)
+  @UseGuards(RbacGuard)
+  suggestRole(@Query('job') jobFunction: string) {
+    return this.rbacService.suggestRole(jobFunction);
   }
 
-  @Post('suggest-role')
-  suggestRole(@Body() body: { permission?: Permission }) {
-    if (!body?.permission || !Object.values(Permission).includes(body.permission)) {
-      throw new BadRequestException('A valid permission is required');
-    }
-
-    return {
-      permission: body.permission,
-      suggestedRoles: this.rbac.suggestRolesForPermission(body.permission),
-    };
-  }
-
-  @Post('assign-role')
-  @UseGuards(JwtAuthGuard, RbacGuard)
+  @Post('roles/assign')
   @RequirePermissions(Permission.USER_MANAGE_ROLES)
-  async assignRole(
-    @Req() req: { user: { userId: string; workspaceId: string } },
-    @Body() body: { targetUserId?: string; role?: string },
+  @UseGuards(RbacGuard)
+  assignRole(@Body() dto: AssignRoleDto, @Body('assignedBy') assignedBy: string) {
+    return this.rbacService.assignRole(dto.userId, dto.workspaceId, dto.role, assignedBy);
+  }
+
+  @Get('workspaces/:workspaceId/members')
+  @RequirePermissions(Permission.USER_READ)
+  @UseGuards(RbacGuard)
+  getWorkspaceMembers(@Param('workspaceId') workspaceId: string) {
+    return this.rbacService.getWorkspaceMembers(workspaceId);
+  }
+
+  @Delete('workspaces/:workspaceId/members/:userId')
+  @RequirePermissions(Permission.USER_DELETE)
+  @UseGuards(RbacGuard)
+  removeMember(
+    @Param('workspaceId') workspaceId: string,
+    @Param('userId') userId: string,
   ) {
-    if (!body?.targetUserId) {
-      throw new BadRequestException('targetUserId is required');
-    }
-    if (!body?.role || !isWorkspaceRole(body.role)) {
-      throw new BadRequestException('role must be one of OWNER, ADMIN, MANAGER, ANALYST, CONTRIBUTOR, VIEWER');
-    }
-
-    const member = await this.rbac.assignRole({
-      workspaceId: req.user.workspaceId,
-      targetUserId: body.targetUserId,
-      role: body.role as WorkspaceRole,
-      assignedBy: req.user.userId,
-    });
-
-    return {
-      member,
-      message: 'Role assigned successfully',
-    };
+    return this.rbacService.removeMember(userId, workspaceId);
   }
 }

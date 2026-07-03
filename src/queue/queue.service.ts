@@ -1,3 +1,8 @@
+/**
+ * ONX Queue Service
+ * Unified interface for adding jobs to all queues
+ */
+
 import { Injectable } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -6,40 +11,72 @@ import { QueueNames } from './redis.config';
 @Injectable()
 export class QueueService {
   constructor(
-    @InjectQueue(QueueNames.FIC_ENFORCEMENT) private readonly q1: Queue,
-    @InjectQueue(QueueNames.CONNECTOR_SYNC) private readonly q2: Queue,
-    @InjectQueue(QueueNames.AI_CONSENSUS) private readonly q3: Queue,
-    @InjectQueue(QueueNames.AUDIT_LOG) private readonly q4: Queue,
-    @InjectQueue(QueueNames.NOTIFICATION) private readonly q5: Queue,
-    @InjectQueue(QueueNames.REPORT) private readonly q6: Queue,
-    @InjectQueue(QueueNames.REMINDER) private readonly q7: Queue,
+    @InjectQueue(QueueNames.FIC_ENFORCEMENT) private ficQueue: Queue,
+    @InjectQueue(QueueNames.CONNECTOR_SYNC) private connectorQueue: Queue,
+    @InjectQueue(QueueNames.AI_CONSENSUS) private aiQueue: Queue,
+    @InjectQueue(QueueNames.AUDIT_LOG) private auditQueue: Queue,
+    @InjectQueue(QueueNames.NOTIFICATION) private notificationQueue: Queue,
+    @InjectQueue(QueueNames.REPORT_GENERATION) private reportQueue: Queue,
+    @InjectQueue(QueueNames.REMINDER_SEND) private reminderQueue: Queue,
   ) {}
 
-  addFic(d: unknown) {
-    return this.q1.add('job', d);
+  async addFicEnforcement(data: any, opts?: any) {
+    return this.ficQueue.add('enforce', data, opts);
   }
 
-  addConnector(c: string, d: unknown) {
-    return this.q2.add(c, d);
+  async addConnectorSync(connector: string, data: any, opts?: any) {
+    return this.connectorQueue.add(`sync-${connector}`, data, opts);
   }
 
-  addAi(d: unknown) {
-    return this.q3.add('job', d);
+  async addAiConsensus(data: any, opts?: any) {
+    return this.aiQueue.add('consensus', data, opts);
   }
 
-  addAudit(d: unknown) {
-    return this.q4.add('job', d);
+  async addAuditLog(data: any, opts?: any) {
+    return this.auditQueue.add('log', data, opts);
   }
 
-  addNotify(t: string, d: unknown) {
-    return this.q5.add(t, d);
+  async addNotification(type: string, data: any, opts?: any) {
+    return this.notificationQueue.add(`notify-${type}`, data, opts);
   }
 
-  addReport(id: string, d: unknown) {
-    return this.q6.add(id, d);
+  async addReportGeneration(reportId: string, data: any, opts?: any) {
+    return this.reportQueue.add(`report-${reportId}`, data, opts);
   }
 
-  addReminder(id: string, d: unknown) {
-    return this.q7.add(id, d);
+  async addReminderSend(reminderId: string, data: any, opts?: any) {
+    return this.reminderQueue.add(`reminder-${reminderId}`, data, {
+      ...opts,
+      delay: data.scheduledDate ? new Date(data.scheduledDate).getTime() - Date.now() : 0,
+    });
+  }
+
+  /**
+   * Get queue health status
+   */
+  async getHealth() {
+    const queues = [
+      { name: 'fic-enforcement', queue: this.ficQueue },
+      { name: 'connector-sync', queue: this.connectorQueue },
+      { name: 'ai-consensus', queue: this.aiQueue },
+      { name: 'audit-log', queue: this.auditQueue },
+      { name: 'notification', queue: this.notificationQueue },
+      { name: 'report-generation', queue: this.reportQueue },
+      { name: 'reminder-send', queue: this.reminderQueue },
+    ];
+
+    const results = await Promise.all(
+      queues.map(async ({ name, queue }) => {
+        const [waiting, active, completed, failed] = await Promise.all([
+          queue.getWaitingCount(),
+          queue.getActiveCount(),
+          queue.getCompletedCount(),
+          queue.getFailedCount(),
+        ]);
+        return { name, waiting, active, completed, failed, healthy: failed < 100 };
+      }),
+    );
+
+    return results;
   }
 }

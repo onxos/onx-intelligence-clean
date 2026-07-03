@@ -1,21 +1,24 @@
+/**
+ * ONX AI Agent — Service
+ * Receives natural language → parses intent → executes command → returns result
+ */
+
 import { Injectable, Logger } from '@nestjs/common';
-import { CommandParser } from './command.parser';
+import { PrismaService } from '../prisma/prisma.service';
+import { AiRouterService } from '../ai-core/ai-router.service';
+import { CommandParser, ParsedCommand } from './command.parser';
 import { ReportCommandHandler } from './handlers/report.handler';
 import { ReminderCommandHandler } from './handlers/reminder.handler';
 import { RbacCommandHandler } from './handlers/rbac.handler';
 import { AnalyticsCommandHandler } from './handlers/analytics.handler';
-import { DiagnosisCommandHandler } from './handlers/diagnosis.handler';
-import { TreatmentCommandHandler } from './handlers/treatment.handler';
-import { ImageCommandHandler } from './handlers/image.handler';
-import { SchedulingCommandHandler } from './handlers/scheduling.handler';
-import { CommunicationCommandHandler } from './handlers/communication.handler';
 
 export interface AgentResult {
   success: boolean;
   action: string;
   message: string;
-  data?: unknown;
+  data?: any;
   error?: string;
+  evidence?: string[];
 }
 
 @Injectable()
@@ -23,60 +26,77 @@ export class AiAgentService {
   private readonly logger = new Logger(AiAgentService.name);
 
   constructor(
-    private readonly parser: CommandParser,
-    private readonly report: ReportCommandHandler,
-    private readonly reminder: ReminderCommandHandler,
-    private readonly rbac: RbacCommandHandler,
-    private readonly analytics: AnalyticsCommandHandler,
-    private readonly diagnosis: DiagnosisCommandHandler,
-    private readonly treatment: TreatmentCommandHandler,
-    private readonly image: ImageCommandHandler,
-    private readonly scheduling: SchedulingCommandHandler,
-    private readonly communication: CommunicationCommandHandler,
+    private readonly prisma: PrismaService,
+    private readonly aiRouter: AiRouterService,
+    private readonly commandParser: CommandParser,
+    private readonly reportHandler: ReportCommandHandler,
+    private readonly reminderHandler: ReminderCommandHandler,
+    private readonly rbacHandler: RbacCommandHandler,
+    private readonly analyticsHandler: AnalyticsCommandHandler,
   ) {}
 
-  async executeCommand(text: string, userId: string, wsId: string): Promise<AgentResult> {
+  /**
+   * Main entry: user says something, agent does something
+   */
+  async executeCommand(
+    naturalLanguage: string,
+    userId: string,
+    workspaceId: string,
+  ): Promise<AgentResult> {
+    this.logger.log(`Agent command from ${userId}: "${naturalLanguage}"`);
+
     try {
-      const p = await this.parser.parse(text, wsId);
-      switch (p.intent) {
+      // Step 1: Parse intent
+      const parsed = await this.commandParser.parse(naturalLanguage, workspaceId);
+
+      // Step 2: Route to handler
+      switch (parsed.intent) {
         case 'REPORT_CREATE':
-          return this.report.handle(p, userId, wsId);
+          return this.reportHandler.handle(parsed, userId, workspaceId);
+
         case 'REMINDER_SEND':
-          return this.reminder.handle(p, userId, wsId);
+          return this.reminderHandler.handle(parsed, userId, workspaceId);
+
         case 'RBAC_CHECK':
         case 'RBAC_ASSIGN':
-          return this.rbac.handle(p, userId, wsId);
+          return this.rbacHandler.handle(parsed, userId, workspaceId);
+
         case 'ANALYTICS_QUERY':
-          return this.analytics.handle(p, userId, wsId);
-        case 'DIAGNOSIS_ASSIST':
-          return this.diagnosis.handle(p, userId, wsId);
-        case 'TREATMENT_RECOMMEND':
-        case 'DRUG_INTERACTION':
-          return this.treatment.handle(p, userId, wsId);
-        case 'IMAGE_ANALYSIS':
-          return this.image.handle(p, userId, wsId);
-        case 'SCHEDULING_OPTIMIZE':
-          return this.scheduling.handle(p, userId, wsId);
-        case 'CLIENT_COMMUNICATION':
-          return this.communication.handle(p, userId, wsId);
-        case 'REVENUE_OPTIMIZE':
-        case 'INVENTORY_PREDICT':
-        case 'CHURN_PREDICT':
-        case 'QUALITY_AUDIT':
-        case 'KNOWLEDGE_QUERY':
-          return this.analytics.handle(p, userId, wsId);
+          return this.analyticsHandler.handle(parsed, userId, workspaceId);
+
+        case 'UNKNOWN':
         default:
-          return { success: false, action: 'UNKNOWN', message: 'لم أفهم الأمر' };
+          // Fall back to AI chat
+          const aiResponse = await this.aiRouter.route({
+            message: naturalLanguage,
+            workspaceId,
+            context: { type: 'agent_fallback', userId },
+          });
+          return {
+            success: true,
+            action: 'AI_CHAT',
+            message: aiResponse.content,
+          };
       }
-    } catch (e) {
-      const error = e as Error;
-      this.logger.error('AI agent command execution failed', error.stack);
+    } catch (error) {
+      this.logger.error(`Agent execution failed: ${error.message}`);
       return {
         success: false,
         action: 'ERROR',
-        message: 'فشل التنفيذ',
+        message: 'Failed to execute command. Please try again or contact support.',
         error: error.message,
       };
     }
+  }
+
+  /**
+   * Get command history for a user
+   */
+  async getCommandHistory(userId: string, workspaceId: string, limit = 20) {
+    return this.prisma.agentLog.findMany({
+      where: { userId, workspaceId },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
   }
 }

@@ -1,124 +1,164 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
-import { PrismaService } from '../common/prisma.service';
-import { Permission } from './permissions.enum';
-import { ROLE_ORDER, ROLE_PERMISSIONS, WorkspaceRole, isWorkspaceRole } from './roles.config';
+/**
+ * ONX RBAC — Service
+ * Provides permission checking and role management APIs
+ */
 
-type UserScope = {
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { Permission } from './permissions.enum';
+import { Role, RolePermissions } from './roles.config';
+
+export interface UserRoleAssignment {
   userId: string;
+  role: Role;
   workspaceId: string;
-};
+  assignedBy: string;
+  permissions?: Permission[];
+}
+
+export interface PermissionCheckResult {
+  allowed: boolean;
+  permission: Permission;
+  role: Role;
+}
 
 @Injectable()
 export class RbacService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private workspaceMemberDelegate() {
-    return (this.prisma as unknown as {
-      workspaceMember: {
-        findUnique: (args: {
-          where: { workspaceId_userId: { workspaceId: string; userId: string } };
-          select: { role: true };
-        }) => Promise<{ role: string } | null>;
-        upsert: (args: {
-          where: { workspaceId_userId: { workspaceId: string; userId: string } };
-          update: { role: WorkspaceRole; assignedBy?: string };
-          create: {
-            workspaceId: string;
-            userId: string;
-            role: WorkspaceRole;
-            assignedBy?: string;
-          };
-        }) => Promise<unknown>;
-      };
-    }).workspaceMember;
-  }
-
-  listPermissions(): Permission[] {
-    return Object.values(Permission);
-  }
-
-  listRoles() {
-    return ROLE_ORDER.map((role) => ({
-      role,
-      permissions: ROLE_PERMISSIONS[role],
-    }));
-  }
-
-  permissionsForRole(role: WorkspaceRole): Permission[] {
-    return ROLE_PERMISSIONS[role] ?? [];
-  }
-
-  async getUserRole(scope: UserScope): Promise<WorkspaceRole> {
-    const member = await this.workspaceMemberDelegate().findUnique({
-      where: {
-        workspaceId_userId: {
-          workspaceId: scope.workspaceId,
-          userId: scope.userId,
-        },
-      },
-      select: { role: true },
+  /**
+   * Check if a user has a specific permission
+   */
+  async hasPermission(
+    userId: string,
+    permission: Permission,
+    workspaceId?: string,
+  ): Promise<boolean> {
+    const assignment = await this.prisma.workspaceMember.findFirst({
+      where: { userId, workspaceId },
     });
 
-    if (member?.role && isWorkspaceRole(member.role)) {
-      return member.role;
-    }
+    if (!assignment) return false;
 
-    // Fallback for existing tenants that have not assigned membership yet.
-    return WorkspaceRole.VIEWER;
-  }
-
-  async getUserPermissions(scope: UserScope): Promise<Permission[]> {
-    const role = await this.getUserRole(scope);
-    return this.permissionsForRole(role);
-  }
-
-  async hasPermission(scope: UserScope, permission: Permission): Promise<boolean> {
-    const permissions = await this.getUserPermissions(scope);
+    const role = assignment.role as Role;
+    const permissions = RolePermissions[role] ?? [];
     return permissions.includes(permission);
   }
 
-  async checkPermissions(scope: UserScope, permissions: Permission[]): Promise<boolean> {
-    if (permissions.length === 0) {
-      return true;
+  /**
+   * Check multiple permissions at once
+   */
+  async hasPermissions(
+    userId: string,
+    permissions: Permission[],
+    workspaceId?: string,
+  ): Promise<PermissionCheckResult[]> {
+    const assignment = await this.prisma.workspaceMember.findFirst({
+      where: { userId, workspaceId },
+    });
+
+    if (!assignment) {
+      return permissions.map(p => ({ allowed: false, permission: p, role: Role.VIEWER }));
     }
-    const userPermissions = await this.getUserPermissions(scope);
-    return permissions.every((permission) => userPermissions.includes(permission));
+
+    const role = assignment.role as Role;
+    const rolePerms = RolePermissions[role] ?? [];
+
+    return permissions.map(p => ({
+      allowed: rolePerms.includes(p),
+      permission: p,
+      role,
+    }));
   }
 
-  async assertPermissions(scope: UserScope, permissions: Permission[]): Promise<void> {
-    const hasAll = await this.checkPermissions(scope, permissions);
-    if (!hasAll) {
-      throw new ForbiddenException('Insufficient permissions for this action');
-    }
-  }
-
-  async assignRole(input: {
-    workspaceId: string;
-    targetUserId: string;
-    role: WorkspaceRole;
-    assignedBy?: string;
-  }) {
-    return this.workspaceMemberDelegate().upsert({
+  /**
+   * Assign a role to a user in a workspace
+   */
+  async assignRole(
+    userId: string,
+    workspaceId: string,
+    role: Role,
+    assignedBy: string,
+  ): Promise<void> {
+    await this.prisma.workspaceMember.upsert({
       where: {
-        workspaceId_userId: {
-          workspaceId: input.workspaceId,
-          userId: input.targetUserId,
-        },
+        workspaceId_userId: { workspaceId, userId },
       },
-      update: {
-        role: input.role,
-        assignedBy: input.assignedBy,
-      },
-      create: {
-        workspaceId: input.workspaceId,
-        userId: input.targetUserId,
-        role: input.role,
-        assignedBy: input.assignedBy,
-      },
+      update: { role },
+      create: { workspaceId, userId, role, assignedBy },
     });
   }
 
-  suggestRolesForPermission(permission: Permission): WorkspaceRole[] {
-    return ROLE_ORDER.filter((role) => ROLE_PERMISSIONS[role].includes(permission));
+  /**
+   * Get role permissions
+   */
+  getRolePermissions(role: Role): Permission[] {
+    return RolePermissions[role] ?? [];
+  }
+
+  /**
+   * Get all available roles with their permissions
+   */
+  getAllRoles(): { role: Role; permissions: Permission[] }[] {
+    return Object.values(Role).map(role => ({
+      role,
+      permissions: RolePermissions[role] ?? [],
+    }));
+  }
+
+  /**
+   * Suggest role based on job function
+   */
+  suggestRole(jobFunction: string): { role: Role; confidence: number; reason: string }[] {
+    const normalized = jobFunction.toLowerCase().trim();
+
+    const suggestions: Record<string, { role: Role; confidence: number; reason: string }[]> = {
+      'veterinarian': [{ role: Role.VETERINARIAN, confidence: 0.95, reason: 'Full clinical access with prescription and diagnosis capabilities' }],
+      'vet': [{ role: Role.VETERINARIAN, confidence: 0.95, reason: 'Full clinical access with prescription and diagnosis capabilities' }],
+      'doctor': [{ role: Role.VETERINARIAN, confidence: 0.90, reason: 'Clinical role with patient and prescription access' }],
+      'technician': [{ role: Role.TECHNICIAN, confidence: 0.95, reason: 'Lab and technical operations, limited clinical access' }],
+      'tech': [{ role: Role.TECHNICIAN, confidence: 0.90, reason: 'Technical role with lab result access' }],
+      'receptionist': [{ role: Role.RECEPTIONIST, confidence: 0.95, reason: 'Front desk with scheduling and billing access' }],
+      'reception': [{ role: Role.RECEPTIONIST, confidence: 0.95, reason: 'Front desk with scheduling and billing access' }],
+      'admin': [{ role: Role.ADMIN, confidence: 0.95, reason: 'Full administrative access to all system features' }],
+      'administrator': [{ role: Role.ADMIN, confidence: 0.95, reason: 'Full administrative access to all system features' }],
+      'manager': [{ role: Role.ADMIN, confidence: 0.85, reason: 'Management role suggesting administrative access' }],
+      'owner': [{ role: Role.FOUNDER, confidence: 0.95, reason: 'Practice owner with full system access' }],
+      'founder': [{ role: Role.FOUNDER, confidence: 0.95, reason: 'Full sovereign access to all features' }],
+      'viewer': [{ role: Role.VIEWER, confidence: 0.95, reason: 'Read-only access to basic features' }],
+      'assistant': [{ role: Role.RECEPTIONIST, confidence: 0.80, reason: 'Support role with scheduling and patient access' }],
+    };
+
+    const direct = suggestions[normalized];
+    if (direct) return direct;
+
+    // Partial matching
+    for (const [key, value] of Object.entries(suggestions)) {
+      if (normalized.includes(key) || key.includes(normalized)) {
+        return [{ ...value[0], confidence: value[0].confidence * 0.8 }];
+      }
+    }
+
+    // Default
+    return [{ role: Role.VIEWER, confidence: 0.5, reason: 'Unrecognized role, defaulting to viewer access' }];
+  }
+
+  /**
+   * Get workspace members with roles
+   */
+  async getWorkspaceMembers(workspaceId: string) {
+    return this.prisma.workspaceMember.findMany({
+      where: { workspaceId },
+      include: { user: { select: { id: true, email: true, name: true } } },
+    });
+  }
+
+  /**
+   * Remove user from workspace
+   */
+  async removeMember(userId: string, workspaceId: string): Promise<void> {
+    await this.prisma.workspaceMember.deleteMany({
+      where: { userId, workspaceId },
+    });
   }
 }
