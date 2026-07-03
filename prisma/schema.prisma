@@ -340,6 +340,31 @@ model AuditLog {
   @@map("audit_logs")
 }
 
+model AIQueryLog {
+  id           String   @id @default(cuid())
+  queryId      String   @unique @map("query_id")
+  workspaceId  String   @map("workspace_id")
+  requesterId  String   @map("requester_id")
+  query        String
+  domain       String
+  providerUsed String   @map("provider_used")
+  modelUsed    String   @map("model_used")
+  response     String?
+  tokensUsed   Int      @map("tokens_used")
+  latencyMs    Int      @map("latency_ms")
+  evidenceTier String   @map("evidence_tier")
+  ficStatus    String   @map("fic_status")
+  ficCheckId   String?  @map("fic_check_id")
+  sechRouteId  String?  @map("sech_route_id")
+  iurgNodeId   String?  @map("iurg_node_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([workspaceId])
+  @@index([createdAt])
+  @@index([queryId])
+  @@map("ai_query_logs")
+}
+
 enum UserStatus {
   ACTIVE
   INACTIVE
