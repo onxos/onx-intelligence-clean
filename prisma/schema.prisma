@@ -97,7 +97,10 @@ model Workspace {
   agents                     Agent[]
   memoryItems                MemoryEntry[]
   clinicalPatients           ClinicalPatient[]
-  clinicalLifecycleEvents     ClinicalLifecycleEvent[]
+  clinicalLifecycleEvents    ClinicalLifecycleEvent[]
+  labOrders                  LabOrder[]
+  labResults                 LabResult[]
+  labQualityControls         LabQualityControl[]
   founderIntents             FounderIntent[]
   founderIntentVersions      FounderIntentVersion[]
   founderIntentRelationships FounderIntentRelationship[]
@@ -328,6 +331,68 @@ model ClinicalLifecycleEvent {
   @@index([patientId, createdAt])
   @@index([workspaceId, createdAt])
   @@map("clinical_lifecycle_events")
+}
+
+model LabOrder {
+  id          String   @id @default(cuid())
+  patientId   String
+  workspaceId String
+  orderType   String
+  testCodes   String[]
+  priority    String   @default("ROUTINE")
+  status      String   @default("PENDING")
+  requestedBy String
+  notes       String?
+  collectedAt DateTime?
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([patientId])
+  @@index([workspaceId])
+  @@index([status])
+}
+
+model LabResult {
+  id             String   @id @default(cuid())
+  orderId        String
+  patientId      String
+  workspaceId    String
+  testCode       String
+  testName       String
+  value          String
+  unit           String
+  referenceRange String
+  status         String   @default("PENDING")
+  reviewedBy     String?
+  reviewedAt     DateTime?
+  notes          String?
+  createdAt      DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([orderId])
+  @@index([patientId])
+  @@index([status])
+}
+
+model LabQualityControl {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  testCode      String
+  controlName   String
+  expectedValue String
+  actualValue   String
+  status        String   @default("PASS")
+  reviewedBy    String?
+  createdAt     DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId])
+  @@index([testCode])
 }
 
 model Tenant {
