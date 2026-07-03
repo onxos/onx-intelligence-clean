@@ -36,6 +36,12 @@ export enum Permission {
   CAPITAL_ALLOCATE = 'capital.allocate',
   CAPITAL_APPROVE = 'capital.approve',
 
+  BILLING_READ = 'billing.read',
+  BILLING_CREATE = 'billing.create',
+  BILLING_UPDATE = 'billing.update',
+  BILLING_DELETE = 'billing.delete',
+  BILLING_REFUND = 'billing.refund',
+
   SECURITY_READ = 'security.read',
   SECURITY_AUDIT = 'security.audit',
   SECURITY_POLICY_WRITE = 'security.policy.write',
