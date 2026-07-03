@@ -4,6 +4,11 @@ import { ReportCommandHandler } from './handlers/report.handler';
 import { ReminderCommandHandler } from './handlers/reminder.handler';
 import { RbacCommandHandler } from './handlers/rbac.handler';
 import { AnalyticsCommandHandler } from './handlers/analytics.handler';
+import { DiagnosisCommandHandler } from './handlers/diagnosis.handler';
+import { TreatmentCommandHandler } from './handlers/treatment.handler';
+import { ImageCommandHandler } from './handlers/image.handler';
+import { SchedulingCommandHandler } from './handlers/scheduling.handler';
+import { CommunicationCommandHandler } from './handlers/communication.handler';
 
 export interface AgentResult {
   success: boolean;
@@ -23,6 +28,11 @@ export class AiAgentService {
     private readonly reminder: ReminderCommandHandler,
     private readonly rbac: RbacCommandHandler,
     private readonly analytics: AnalyticsCommandHandler,
+    private readonly diagnosis: DiagnosisCommandHandler,
+    private readonly treatment: TreatmentCommandHandler,
+    private readonly image: ImageCommandHandler,
+    private readonly scheduling: SchedulingCommandHandler,
+    private readonly communication: CommunicationCommandHandler,
   ) {}
 
   async executeCommand(text: string, userId: string, wsId: string): Promise<AgentResult> {
@@ -37,6 +47,23 @@ export class AiAgentService {
         case 'RBAC_ASSIGN':
           return this.rbac.handle(p, userId, wsId);
         case 'ANALYTICS_QUERY':
+          return this.analytics.handle(p, userId, wsId);
+        case 'DIAGNOSIS_ASSIST':
+          return this.diagnosis.handle(p, userId, wsId);
+        case 'TREATMENT_RECOMMEND':
+        case 'DRUG_INTERACTION':
+          return this.treatment.handle(p, userId, wsId);
+        case 'IMAGE_ANALYSIS':
+          return this.image.handle(p, userId, wsId);
+        case 'SCHEDULING_OPTIMIZE':
+          return this.scheduling.handle(p, userId, wsId);
+        case 'CLIENT_COMMUNICATION':
+          return this.communication.handle(p, userId, wsId);
+        case 'REVENUE_OPTIMIZE':
+        case 'INVENTORY_PREDICT':
+        case 'CHURN_PREDICT':
+        case 'QUALITY_AUDIT':
+        case 'KNOWLEDGE_QUERY':
           return this.analytics.handle(p, userId, wsId);
         default:
           return { success: false, action: 'UNKNOWN', message: 'لم أفهم الأمر' };

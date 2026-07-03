@@ -6,6 +6,18 @@ export type IntentType =
   | 'RBAC_CHECK'
   | 'RBAC_ASSIGN'
   | 'ANALYTICS_QUERY'
+  | 'DIAGNOSIS_ASSIST'
+  | 'TREATMENT_RECOMMEND'
+  | 'DRUG_INTERACTION'
+  | 'IMAGE_ANALYSIS'
+  | 'SCHEDULING_OPTIMIZE'
+  | 'VOICE_TO_SOAP'
+  | 'CLIENT_COMMUNICATION'
+  | 'REVENUE_OPTIMIZE'
+  | 'INVENTORY_PREDICT'
+  | 'CHURN_PREDICT'
+  | 'QUALITY_AUDIT'
+  | 'KNOWLEDGE_QUERY'
   | 'UNKNOWN';
 
 export interface ParsedCommand {
@@ -19,6 +31,50 @@ export interface ParsedCommand {
 export class CommandParser {
   async parse(text: string, _ws: string): Promise<ParsedCommand> {
     const l = text.toLowerCase();
+
+    if (l.includes('diagnosis') || l.includes('تشخيص') || l.includes('symptoms') || l.includes('أعراض')) {
+      return { intent: 'DIAGNOSIS_ASSIST', confidence: 0.9, entities: {}, originalText: text };
+    }
+
+    if (l.includes('treatment') || l.includes('علاج') || l.includes('dosage') || l.includes('جرعة')) {
+      return { intent: 'TREATMENT_RECOMMEND', confidence: 0.9, entities: {}, originalText: text };
+    }
+
+    if (l.includes('drug interaction') || l.includes('تفاعل دوائي') || l.includes('interaction')) {
+      return { intent: 'DRUG_INTERACTION', confidence: 0.9, entities: {}, originalText: text };
+    }
+
+    if (l.includes('voice') || l.includes('صوت') || l.includes(' dictate') || l.includes('soap')) {
+      return { intent: 'VOICE_TO_SOAP', confidence: 0.9, entities: {}, originalText: text };
+    }
+
+    if (l.includes('schedule') || l.includes('موعد') || l.includes('calendar') || l.includes('optimize')) {
+      return { intent: 'SCHEDULING_OPTIMIZE', confidence: 0.9, entities: {}, originalText: text };
+    }
+
+    if (l.includes('communication') || l.includes('message') || l.includes('remind') || l.includes('تذكير') || l.includes('أرسل')) {
+      return { intent: 'CLIENT_COMMUNICATION', confidence: 0.9, entities: { type: 'reminder' }, originalText: text };
+    }
+
+    if (l.includes('revenue') || l.includes('billing') || l.includes('فاتورة') || l.includes('charge')) {
+      return { intent: 'REVENUE_OPTIMIZE', confidence: 0.9, entities: {}, originalText: text };
+    }
+
+    if (l.includes('inventory') || l.includes('stock') || l.includes('مخزون')) {
+      return { intent: 'INVENTORY_PREDICT', confidence: 0.9, entities: {}, originalText: text };
+    }
+
+    if (l.includes('churn') || l.includes('retention') || l.includes('loyalty')) {
+      return { intent: 'CHURN_PREDICT', confidence: 0.9, entities: {}, originalText: text };
+    }
+
+    if (l.includes('quality') || l.includes('audit') || l.includes('compliance')) {
+      return { intent: 'QUALITY_AUDIT', confidence: 0.9, entities: {}, originalText: text };
+    }
+
+    if (l.includes('knowledge') || l.includes('sop') || l.includes('procedure') || l.includes('بروتوكول')) {
+      return { intent: 'KNOWLEDGE_QUERY', confidence: 0.9, entities: {}, originalText: text };
+    }
 
     if (l.includes('report') || l.includes('تقرير')) {
       return {
