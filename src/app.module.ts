@@ -9,10 +9,12 @@ import { ToolModule } from './tool/tool.module';
 import { SovereigntyModule } from './sovereignty/sovereignty.module';
 import { EvidenceModule } from './evidence/evidence.module';
 import { RbacModule } from './rbac/rbac.module';
+import { AiCoreModule } from './ai-core/ai-core.module';
 import { AiAgentModule } from './ai-agent/ai-agent.module';
 import { PluginSystemModule } from './plugin-system/plugin-system.module';
 import { QueueModule } from './queue/queue.module';
-import { AiCoreModule } from './ai-core/ai-core.module';
+import { SechModule } from './sech/sech.module';
+import { IurgModule } from './iurg/iurg.module';
 
 @Module({
   imports: [
@@ -25,6 +27,8 @@ import { AiCoreModule } from './ai-core/ai-core.module';
     ToolModule,
     SovereigntyModule,
     EvidenceModule,
+    SechModule,
+    IurgModule,
     // Phase R1: Integrated modules
     RbacModule,
     AiCoreModule,
