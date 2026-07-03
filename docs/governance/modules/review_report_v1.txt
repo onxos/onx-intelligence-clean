@@ -1,0 +1,396 @@
+==== MODULE: rbac ====
+-- naming/export class --
+src/rbac/rbac.service.ts:12:export class RbacService {
+src/rbac/rbac.module.ts:19:export class RbacModule {}
+src/rbac/rbac.guard.ts:17:export class RbacGuard implements CanActivate {
+src/rbac/rbac.controller.ts:18:export class RbacController {
+-- dto validation decorators --
+(none)
+-- controller swagger docs --
+(none)
+-- service classes --
+src/rbac/rbac.service.ts:12:export class RbacService {
+-- RBAC guards/permissions --
+src/rbac/rbac.controller.ts:17:@UseGuards(JwtAuthGuard)
+src/rbac/rbac.controller.ts:59:  @UseGuards(JwtAuthGuard, RbacGuard)
+src/rbac/rbac.controller.ts:60:  @RequirePermissions(Permission.USER_MANAGE_ROLES)
+
+==== MODULE: ai-agent ====
+-- naming/export class --
+src/ai-agent/command.parser.ts:31:export class CommandParser {
+src/ai-agent/ai-agent.module.ts:32:export class AiAgentModule {}
+src/ai-agent/ai-agent.service.ts:22:export class AiAgentService {
+src/ai-agent/handlers/report.handler.ts:6:export class ReportCommandHandler {
+src/ai-agent/handlers/rbac.handler.ts:6:export class RbacCommandHandler {
+src/ai-agent/handlers/scheduling.handler.ts:6:export class SchedulingCommandHandler {
+src/ai-agent/handlers/diagnosis.handler.ts:6:export class DiagnosisCommandHandler {
+src/ai-agent/handlers/reminder.handler.ts:6:export class ReminderCommandHandler {
+src/ai-agent/handlers/image.handler.ts:6:export class ImageCommandHandler {
+src/ai-agent/handlers/analytics.handler.ts:6:export class AnalyticsCommandHandler {
+src/ai-agent/handlers/treatment.handler.ts:6:export class TreatmentCommandHandler {
+src/ai-agent/handlers/communication.handler.ts:6:export class CommunicationCommandHandler {
+src/ai-agent/ai-agent.controller.ts:9:export class AiAgentController {
+-- dto validation decorators --
+(none)
+-- controller swagger docs --
+(none)
+-- service classes --
+src/ai-agent/ai-agent.service.ts:22:export class AiAgentService {
+-- RBAC guards/permissions --
+src/ai-agent/ai-agent.controller.ts:8:@UseGuards(JwtAuthGuard)
+src/ai-agent/ai-agent.controller.ts:13:  @RequirePermissions(Permission.AI_QUERY)
+src/ai-agent/ai-agent.controller.ts:14:  @UseGuards(RbacGuard)
+
+==== MODULE: plugin-system ====
+-- naming/export class --
+src/plugin-system/plugin.controller.ts:19:export class PluginController {
+src/plugin-system/plugin-system.module.ts:10:export class PluginSystemModule {}
+src/plugin-system/plugin-registry.service.ts:7:export class PluginRegistryService {
+-- dto validation decorators --
+(none)
+-- controller swagger docs --
+(none)
+-- service classes --
+src/plugin-system/plugin-registry.service.ts:7:export class PluginRegistryService {
+-- RBAC guards/permissions --
+src/plugin-system/plugin.controller.ts:18:@UseGuards(JwtAuthGuard)
+src/plugin-system/plugin.controller.ts:23:  @RequirePermissions(Permission.WORKSPACE_READ)
+src/plugin-system/plugin.controller.ts:24:  @UseGuards(RbacGuard)
+src/plugin-system/plugin.controller.ts:30:  @RequirePermissions(Permission.WORKSPACE_SETTINGS)
+src/plugin-system/plugin.controller.ts:31:  @UseGuards(RbacGuard)
+src/plugin-system/plugin.controller.ts:37:  @RequirePermissions(Permission.WORKSPACE_SETTINGS)
+src/plugin-system/plugin.controller.ts:38:  @UseGuards(RbacGuard)
+src/plugin-system/plugin.controller.ts:44:  @RequirePermissions(Permission.WORKSPACE_SETTINGS)
+src/plugin-system/plugin.controller.ts:45:  @UseGuards(RbacGuard)
+src/plugin-system/plugin.controller.ts:51:  @RequirePermissions(Permission.WORKSPACE_SETTINGS)
+src/plugin-system/plugin.controller.ts:52:  @UseGuards(RbacGuard)
+
+==== MODULE: queue ====
+-- naming/export class --
+src/queue/queue.module.ts:22:export class QueueModule {}
+src/queue/queue.service.ts:7:export class QueueService {
+src/queues/queue-processors.service.ts:13:export class QueueProcessorsService implements OnModuleInit {
+src/queues/queues.module.ts:9:export class QueuesModule {}
+src/queues/queue.service.ts:26:export class QueueService {
+-- dto validation decorators --
+(none)
+-- controller swagger docs --
+(none)
+-- service classes --
+src/queue/queue.service.ts:7:export class QueueService {
+src/queues/queue-processors.service.ts:13:export class QueueProcessorsService implements OnModuleInit {
+src/queues/queue.service.ts:26:export class QueueService {
+-- RBAC guards/permissions --
+(none)
+
+==== MODULE: webhook-signature ====
+-- naming/export class --
+src/connectors/connectors.service.ts:34:export class ConnectorsService {
+src/connectors/whatsapp/whatsapp.controller.ts:23:export class WhatsAppController {
+src/connectors/whatsapp/whatsapp.service.ts:24:export class WhatsAppService {
+src/connectors/calendar/calendar.service.ts:48:export class CalendarService {
+src/connectors/calendar/calendar.controller.ts:12:export class CalendarController {
+src/connectors/pos/pos.service.ts:21:export class PosService {
+src/connectors/pos/pos.controller.ts:23:export class PosController {
+src/connectors/emr/emr.controller.ts:12:export class EmrController {
+src/connectors/emr/emr.service.ts:37:export class EmrService {
+src/connectors/webhook-signature.service.ts:39:export class WebhookSignatureService {
+src/connectors/connectors.module.ts:35:export class ConnectorsModule {}
+src/connectors/dto/connector.dto.ts:5:export class ConfigureConnectorDto {
+src/connectors/dto/connector.dto.ts:33:export class SyncConnectorDto {
+src/connectors/dto/connector.dto.ts:48:export class ConnectorLogQueryDto {
+src/connectors/connectors.controller.ts:12:export class ConnectorsController {
+-- dto validation decorators --
+src/connectors/dto/connector.dto.ts:7:  @IsString()
+src/connectors/dto/connector.dto.ts:12:  @IsOptional()
+src/connectors/dto/connector.dto.ts:20:  @IsOptional()
+src/connectors/dto/connector.dto.ts:28:  @IsOptional()
+src/connectors/dto/connector.dto.ts:35:  @IsOptional()
+src/connectors/dto/connector.dto.ts:36:  @IsString()
+src/connectors/dto/connector.dto.ts:44:  @IsOptional()
+src/connectors/dto/connector.dto.ts:50:  @IsOptional()
+src/connectors/dto/connector.dto.ts:57:  @IsOptional()
+src/connectors/dto/connector.dto.ts:64:  @IsOptional()
+src/connectors/dto/connector.dto.ts:65:  @IsString()
+src/connectors/dto/connector.dto.ts:70:  @IsOptional()
+src/connectors/dto/connector.dto.ts:71:  @IsString()
+-- controller swagger docs --
+src/connectors/whatsapp/whatsapp.controller.ts:31:  @ApiOperation({ summary: 'Receive a Twilio WhatsApp webhook (public)' })
+src/connectors/calendar/calendar.controller.ts:16:  @ApiOperation({ summary: 'Pull calendar events into the USFIP bus (tier 2, operational)' })
+src/connectors/pos/pos.controller.ts:49:  @ApiOperation({ summary: 'Receive a Square/Stripe POS webhook (public)' })
+src/connectors/emr/emr.controller.ts:16:  @ApiOperation({ summary: 'Pull EMR patient records into the USFIP bus (tier 1, clinical)' })
+src/connectors/connectors.controller.ts:20:  @ApiOperation({ summary: 'List configured connectors for the workspace' })
+src/connectors/connectors.controller.ts:27:  @ApiOperation({ summary: 'Configure (upsert) a connector provider' })
+src/connectors/connectors.controller.ts:40:  @ApiOperation({ summary: 'Connector health + last event summary' })
+src/connectors/connectors.controller.ts:48:  @ApiOperation({ summary: 'Ingestion logs for a connector' })
+src/connectors/connectors.controller.ts:60:  @ApiOperation({ summary: 'Connector ingestion statistics' })
+-- service classes --
+src/connectors/connectors.service.ts:34:export class ConnectorsService {
+src/connectors/whatsapp/whatsapp.service.ts:24:export class WhatsAppService {
+src/connectors/calendar/calendar.service.ts:48:export class CalendarService {
+src/connectors/pos/pos.service.ts:21:export class PosService {
+src/connectors/emr/emr.service.ts:37:export class EmrService {
+src/connectors/webhook-signature.service.ts:39:export class WebhookSignatureService {
+-- RBAC guards/permissions --
+src/connectors/whatsapp/whatsapp.controller.ts:21:@UseGuards(ThrottlerGuard)
+src/connectors/calendar/calendar.controller.ts:10:@UseGuards(JwtAuthGuard)
+src/connectors/pos/pos.controller.ts:21:@UseGuards(ThrottlerGuard)
+src/connectors/emr/emr.controller.ts:10:@UseGuards(JwtAuthGuard)
+src/connectors/connectors.controller.ts:10:@UseGuards(JwtAuthGuard)
+
+==== MODULE: patient-lifecycle ====
+-- naming/export class --
+src/clinical/patient-lifecycle/patient-lifecycle.controller.ts:15:export class PatientLifecycleController {
+src/clinical/patient-lifecycle/patient-lifecycle.service.ts:22:export class PatientLifecycleService {
+src/clinical/patient-lifecycle/patient-lifecycle.dto.ts:15:export class ClinicalPatientListQueryDto {
+src/clinical/patient-lifecycle/patient-lifecycle.dto.ts:21:export class CreateClinicalPatientDto {
+src/clinical/patient-lifecycle/patient-lifecycle.dto.ts:56:export class UpdateClinicalPatientStatusDto {
+src/clinical/patient-lifecycle/patient-lifecycle.dto.ts:65:export class AddClinicalLifecycleEventDto {
+src/clinical/patient-lifecycle/patient-lifecycle.module.ts:12:export class PatientLifecycleModule {}
+-- dto validation decorators --
+src/clinical/patient-lifecycle/patient-lifecycle.dto.ts:16:  @IsOptional()
+src/clinical/patient-lifecycle/patient-lifecycle.dto.ts:22:  @IsString()
+src/clinical/patient-lifecycle/patient-lifecycle.dto.ts:25:  @IsString()
+src/clinical/patient-lifecycle/patient-lifecycle.dto.ts:28:  @IsString()
+src/clinical/patient-lifecycle/patient-lifecycle.dto.ts:41:  @IsOptional()
+src/clinical/patient-lifecycle/patient-lifecycle.dto.ts:45:  @IsOptional()
+src/clinical/patient-lifecycle/patient-lifecycle.dto.ts:47:  @IsString({ each: true })
+src/clinical/patient-lifecycle/patient-lifecycle.dto.ts:50:  @IsOptional()
+src/clinical/patient-lifecycle/patient-lifecycle.dto.ts:60:  @IsOptional()
+src/clinical/patient-lifecycle/patient-lifecycle.dto.ts:61:  @IsString()
+src/clinical/patient-lifecycle/patient-lifecycle.dto.ts:66:  @IsString()
+src/clinical/patient-lifecycle/patient-lifecycle.dto.ts:69:  @IsOptional()
+src/clinical/patient-lifecycle/patient-lifecycle.dto.ts:70:  @IsString()
+src/clinical/patient-lifecycle/patient-lifecycle.dto.ts:73:  @IsOptional()
+src/clinical/patient-lifecycle/patient-lifecycle.dto.ts:77:  @IsOptional()
+-- controller swagger docs --
+(none)
+-- service classes --
+src/clinical/patient-lifecycle/patient-lifecycle.service.ts:22:export class PatientLifecycleService {
+-- RBAC guards/permissions --
+src/clinical/patient-lifecycle/patient-lifecycle.controller.ts:14:@UseGuards(JwtAuthGuard)
+
+==== MODULE: appointment-intelligence ====
+-- naming/export class --
+src/clinical/appointment-intelligence/appointment-intelligence.controller.ts:8:export class AppointmentIntelligenceController {
+src/clinical/appointment-intelligence/appointment-intelligence.module.ts:13:export class AppointmentIntelligenceModule {}
+src/clinical/appointment-intelligence/appointment-intelligence.service.ts:18:export class AppointmentIntelligenceService {
+src/clinical/appointment-intelligence/appointment-intelligence.dto.ts:4:export class CreateAppointmentDto {
+src/clinical/appointment-intelligence/appointment-intelligence.dto.ts:22:export class AddToWaitlistDto {
+src/clinical/appointment-intelligence/appointment-intelligence.dto.ts:37:export class BuildScheduleDto {
+-- dto validation decorators --
+src/clinical/appointment-intelligence/appointment-intelligence.dto.ts:5:  @IsString()
+src/clinical/appointment-intelligence/appointment-intelligence.dto.ts:8:  @IsString()
+src/clinical/appointment-intelligence/appointment-intelligence.dto.ts:11:  @IsString()
+src/clinical/appointment-intelligence/appointment-intelligence.dto.ts:14:  @IsString()
+src/clinical/appointment-intelligence/appointment-intelligence.dto.ts:17:  @IsOptional()
+src/clinical/appointment-intelligence/appointment-intelligence.dto.ts:18:  @IsString()
+src/clinical/appointment-intelligence/appointment-intelligence.dto.ts:23:  @IsString()
+src/clinical/appointment-intelligence/appointment-intelligence.dto.ts:26:  @IsOptional()
+src/clinical/appointment-intelligence/appointment-intelligence.dto.ts:27:  @IsString()
+src/clinical/appointment-intelligence/appointment-intelligence.dto.ts:30:  @IsOptional()
+src/clinical/appointment-intelligence/appointment-intelligence.dto.ts:38:  @IsOptional()
+-- controller swagger docs --
+(none)
+-- service classes --
+src/clinical/appointment-intelligence/appointment-intelligence.service.ts:18:export class AppointmentIntelligenceService {
+-- RBAC guards/permissions --
+src/clinical/appointment-intelligence/appointment-intelligence.controller.ts:7:@UseGuards(JwtAuthGuard)
+
+==== MODULE: soap-intelligence ====
+-- naming/export class --
+src/clinical/soap-intelligence/soap-intelligence.controller.ts:8:export class SoapIntelligenceController {
+src/clinical/soap-intelligence/soap-intelligence.dto.ts:4:export class BuildSoapNoteDto {
+src/clinical/soap-intelligence/soap-intelligence.service.ts:6:export class SoapIntelligenceService {
+src/clinical/soap-intelligence/soap-intelligence.module.ts:10:export class SoapIntelligenceModule {}
+-- dto validation decorators --
+src/clinical/soap-intelligence/soap-intelligence.dto.ts:5:  @IsOptional()
+src/clinical/soap-intelligence/soap-intelligence.dto.ts:6:  @IsString()
+src/clinical/soap-intelligence/soap-intelligence.dto.ts:9:  @IsOptional()
+src/clinical/soap-intelligence/soap-intelligence.dto.ts:10:  @IsString()
+src/clinical/soap-intelligence/soap-intelligence.dto.ts:13:  @IsOptional()
+src/clinical/soap-intelligence/soap-intelligence.dto.ts:14:  @IsString()
+src/clinical/soap-intelligence/soap-intelligence.dto.ts:17:  @IsOptional()
+src/clinical/soap-intelligence/soap-intelligence.dto.ts:18:  @IsString()
+src/clinical/soap-intelligence/soap-intelligence.dto.ts:21:  @IsOptional()
+src/clinical/soap-intelligence/soap-intelligence.dto.ts:22:  @IsString()
+src/clinical/soap-intelligence/soap-intelligence.dto.ts:25:  @IsOptional()
+src/clinical/soap-intelligence/soap-intelligence.dto.ts:26:  @IsString()
+src/clinical/soap-intelligence/soap-intelligence.dto.ts:29:  @IsOptional()
+-- controller swagger docs --
+(none)
+-- service classes --
+src/clinical/soap-intelligence/soap-intelligence.service.ts:6:export class SoapIntelligenceService {
+-- RBAC guards/permissions --
+src/clinical/soap-intelligence/soap-intelligence.controller.ts:7:@UseGuards(JwtAuthGuard)
+
+==== MODULE: diagnosis-support ====
+-- naming/export class --
+src/clinical/diagnosis-support/diagnosis-support.dto.ts:4:export class ClinicalDiagnosisSupportDto {
+src/clinical/diagnosis-support/diagnosis-support.module.ts:13:export class DiagnosisSupportModule {}
+src/clinical/diagnosis-support/diagnosis-support.service.ts:9:export class DiagnosisSupportService {
+src/clinical/diagnosis-support/diagnosis-support.controller.ts:8:export class DiagnosisSupportController {
+-- dto validation decorators --
+src/clinical/diagnosis-support/diagnosis-support.dto.ts:9:  @IsOptional()
+src/clinical/diagnosis-support/diagnosis-support.dto.ts:10:  @IsString()
+src/clinical/diagnosis-support/diagnosis-support.dto.ts:13:  @IsOptional()
+src/clinical/diagnosis-support/diagnosis-support.dto.ts:14:  @IsString()
+src/clinical/diagnosis-support/diagnosis-support.dto.ts:17:  @IsOptional()
+src/clinical/diagnosis-support/diagnosis-support.dto.ts:18:  @IsString()
+-- controller swagger docs --
+(none)
+-- service classes --
+src/clinical/diagnosis-support/diagnosis-support.service.ts:9:export class DiagnosisSupportService {
+-- RBAC guards/permissions --
+src/clinical/diagnosis-support/diagnosis-support.controller.ts:7:@UseGuards(JwtAuthGuard)
+
+==== MODULE: order-intelligence ====
+-- naming/export class --
+src/clinical/order-intelligence/order-intelligence.dto.ts:4:export class CreateClinicalOrderDto {
+src/clinical/order-intelligence/order-intelligence.dto.ts:36:export class ClinicalOrderRecommendationDto {
+src/clinical/order-intelligence/order-intelligence.service.ts:5:export class OrderIntelligenceService {
+src/clinical/order-intelligence/order-intelligence.controller.ts:8:export class OrderIntelligenceController {
+src/clinical/order-intelligence/order-intelligence.module.ts:10:export class OrderIntelligenceModule {}
+-- dto validation decorators --
+src/clinical/order-intelligence/order-intelligence.dto.ts:5:  @IsString()
+src/clinical/order-intelligence/order-intelligence.dto.ts:8:  @IsString()
+src/clinical/order-intelligence/order-intelligence.dto.ts:11:  @IsOptional()
+src/clinical/order-intelligence/order-intelligence.dto.ts:12:  @IsString()
+src/clinical/order-intelligence/order-intelligence.dto.ts:15:  @IsOptional()
+src/clinical/order-intelligence/order-intelligence.dto.ts:16:  @IsString()
+src/clinical/order-intelligence/order-intelligence.dto.ts:19:  @IsOptional()
+src/clinical/order-intelligence/order-intelligence.dto.ts:20:  @IsString()
+src/clinical/order-intelligence/order-intelligence.dto.ts:23:  @IsOptional()
+src/clinical/order-intelligence/order-intelligence.dto.ts:24:  @IsString()
+src/clinical/order-intelligence/order-intelligence.dto.ts:27:  @IsOptional()
+src/clinical/order-intelligence/order-intelligence.dto.ts:28:  @IsString()
+src/clinical/order-intelligence/order-intelligence.dto.ts:31:  @IsOptional()
+src/clinical/order-intelligence/order-intelligence.dto.ts:32:  @IsString()
+src/clinical/order-intelligence/order-intelligence.dto.ts:37:  @IsString()
+src/clinical/order-intelligence/order-intelligence.dto.ts:40:  @IsOptional()
+src/clinical/order-intelligence/order-intelligence.dto.ts:41:  @IsString()
+src/clinical/order-intelligence/order-intelligence.dto.ts:44:  @IsOptional()
+src/clinical/order-intelligence/order-intelligence.dto.ts:49:  @IsOptional()
+-- controller swagger docs --
+(none)
+-- service classes --
+src/clinical/order-intelligence/order-intelligence.service.ts:5:export class OrderIntelligenceService {
+-- RBAC guards/permissions --
+src/clinical/order-intelligence/order-intelligence.controller.ts:7:@UseGuards(JwtAuthGuard)
+
+==== MODULE: vitals-trending ====
+-- naming/export class --
+src/clinical/vitals-trending/vitals-trending.dto.ts:4:export class ClinicalVitalReadingDto {
+src/clinical/vitals-trending/vitals-trending.dto.ts:22:export class AnalyzeVitalsDto {
+src/clinical/vitals-trending/vitals-trending.module.ts:13:export class VitalsTrendingModule {}
+src/clinical/vitals-trending/vitals-trending.service.ts:8:export class VitalsTrendingService {
+src/clinical/vitals-trending/vitals-trending.controller.ts:8:export class VitalsTrendingController {
+-- dto validation decorators --
+src/clinical/vitals-trending/vitals-trending.dto.ts:5:  @IsString()
+src/clinical/vitals-trending/vitals-trending.dto.ts:13:  @IsOptional()
+src/clinical/vitals-trending/vitals-trending.dto.ts:14:  @IsString()
+src/clinical/vitals-trending/vitals-trending.dto.ts:17:  @IsOptional()
+src/clinical/vitals-trending/vitals-trending.dto.ts:23:  @IsString()
+-- controller swagger docs --
+(none)
+-- service classes --
+src/clinical/vitals-trending/vitals-trending.service.ts:8:export class VitalsTrendingService {
+-- RBAC guards/permissions --
+src/clinical/vitals-trending/vitals-trending.controller.ts:7:@UseGuards(JwtAuthGuard)
+
+==== MODULE: lab-order ====
+-- naming/export class --
+src/clinical/lab-integration/lab-order/lab-order.module.ts:10:export class LabOrderModule {}
+src/clinical/lab-integration/lab-order/lab-order.dto.ts:4:export class CreateLabOrderDto {
+src/clinical/lab-integration/lab-order/lab-order.dto.ts:28:export class ListLabOrdersQueryDto {
+src/clinical/lab-integration/lab-order/lab-order.dto.ts:34:export class UpdateLabOrderStatusDto {
+src/clinical/lab-integration/lab-order/lab-order.controller.ts:10:export class LabOrderController {
+src/clinical/lab-integration/lab-order/lab-order.service.ts:6:export class LabOrderService {
+-- dto validation decorators --
+src/clinical/lab-integration/lab-order/lab-order.dto.ts:5:  @IsString()
+src/clinical/lab-integration/lab-order/lab-order.dto.ts:8:  @IsString()
+src/clinical/lab-integration/lab-order/lab-order.dto.ts:15:  @IsOptional()
+src/clinical/lab-integration/lab-order/lab-order.dto.ts:19:  @IsOptional()
+src/clinical/lab-integration/lab-order/lab-order.dto.ts:20:  @IsString()
+src/clinical/lab-integration/lab-order/lab-order.dto.ts:23:  @IsOptional()
+src/clinical/lab-integration/lab-order/lab-order.dto.ts:24:  @IsString()
+src/clinical/lab-integration/lab-order/lab-order.dto.ts:29:  @IsOptional()
+src/clinical/lab-integration/lab-order/lab-order.dto.ts:30:  @IsString()
+-- controller swagger docs --
+(none)
+-- service classes --
+src/clinical/lab-integration/lab-order/lab-order.service.ts:6:export class LabOrderService {
+-- RBAC guards/permissions --
+src/clinical/lab-integration/lab-order/lab-order.controller.ts:9:@UseGuards(JwtAuthGuard)
+
+==== MODULE: result-management ====
+-- naming/export class --
+src/clinical/lab-integration/result-management/result-management.controller.ts:10:export class ResultManagementController {
+src/clinical/lab-integration/result-management/result-management.module.ts:12:export class ResultManagementModule {}
+src/clinical/lab-integration/result-management/result-management.service.ts:7:export class ResultManagementService {
+src/clinical/lab-integration/result-management/result-management.dto.ts:3:export class CreateLabResultDto {
+src/clinical/lab-integration/result-management/result-management.dto.ts:34:export class ListLabResultsQueryDto {
+src/clinical/lab-integration/result-management/result-management.dto.ts:40:export class ReviewLabResultDto {
+-- dto validation decorators --
+src/clinical/lab-integration/result-management/result-management.dto.ts:4:  @IsString()
+src/clinical/lab-integration/result-management/result-management.dto.ts:7:  @IsString()
+src/clinical/lab-integration/result-management/result-management.dto.ts:10:  @IsString()
+src/clinical/lab-integration/result-management/result-management.dto.ts:13:  @IsString()
+src/clinical/lab-integration/result-management/result-management.dto.ts:16:  @IsString()
+src/clinical/lab-integration/result-management/result-management.dto.ts:19:  @IsString()
+src/clinical/lab-integration/result-management/result-management.dto.ts:22:  @IsString()
+src/clinical/lab-integration/result-management/result-management.dto.ts:25:  @IsOptional()
+src/clinical/lab-integration/result-management/result-management.dto.ts:29:  @IsOptional()
+src/clinical/lab-integration/result-management/result-management.dto.ts:30:  @IsString()
+src/clinical/lab-integration/result-management/result-management.dto.ts:35:  @IsOptional()
+src/clinical/lab-integration/result-management/result-management.dto.ts:36:  @IsString()
+src/clinical/lab-integration/result-management/result-management.dto.ts:41:  @IsOptional()
+src/clinical/lab-integration/result-management/result-management.dto.ts:45:  @IsOptional()
+src/clinical/lab-integration/result-management/result-management.dto.ts:46:  @IsString()
+src/clinical/lab-integration/result-management/result-management.dto.ts:49:  @IsOptional()
+src/clinical/lab-integration/result-management/result-management.dto.ts:50:  @IsString()
+-- controller swagger docs --
+(none)
+-- service classes --
+src/clinical/lab-integration/result-management/result-management.service.ts:7:export class ResultManagementService {
+-- RBAC guards/permissions --
+src/clinical/lab-integration/result-management/result-management.controller.ts:9:@UseGuards(JwtAuthGuard)
+
+==== MODULE: analyzer-interface ====
+-- naming/export class --
+src/clinical/lab-integration/analyzer-interface/analyzer-interface.module.ts:10:export class AnalyzerInterfaceModule {}
+src/clinical/lab-integration/analyzer-interface/analyzer-interface.service.ts:28:export class AnalyzerInterfaceService {
+src/clinical/lab-integration/analyzer-interface/analyzer-interface.controller.ts:9:export class AnalyzerInterfaceController {
+-- dto validation decorators --
+(none)
+-- controller swagger docs --
+(none)
+-- service classes --
+src/clinical/lab-integration/analyzer-interface/analyzer-interface.service.ts:28:export class AnalyzerInterfaceService {
+-- RBAC guards/permissions --
+src/clinical/lab-integration/analyzer-interface/analyzer-interface.controller.ts:8:@UseGuards(JwtAuthGuard)
+
+==== MODULE: quality-control ====
+-- naming/export class --
+src/clinical/lab-integration/quality-control/quality-control.dto.ts:3:export class CreateLabQualityControlDto {
+src/clinical/lab-integration/quality-control/quality-control.dto.ts:25:export class ListLabQualityControlQueryDto {
+src/clinical/lab-integration/quality-control/quality-control.controller.ts:10:export class QualityControlController {
+src/clinical/lab-integration/quality-control/quality-control.module.ts:10:export class QualityControlModule {}
+src/clinical/lab-integration/quality-control/quality-control.service.ts:6:export class QualityControlService {
+-- dto validation decorators --
+src/clinical/lab-integration/quality-control/quality-control.dto.ts:4:  @IsString()
+src/clinical/lab-integration/quality-control/quality-control.dto.ts:7:  @IsString()
+src/clinical/lab-integration/quality-control/quality-control.dto.ts:10:  @IsString()
+src/clinical/lab-integration/quality-control/quality-control.dto.ts:13:  @IsString()
+src/clinical/lab-integration/quality-control/quality-control.dto.ts:16:  @IsOptional()
+src/clinical/lab-integration/quality-control/quality-control.dto.ts:20:  @IsOptional()
+src/clinical/lab-integration/quality-control/quality-control.dto.ts:21:  @IsString()
+src/clinical/lab-integration/quality-control/quality-control.dto.ts:26:  @IsOptional()
+src/clinical/lab-integration/quality-control/quality-control.dto.ts:27:  @IsString()
+-- controller swagger docs --
+(none)
+-- service classes --
+src/clinical/lab-integration/quality-control/quality-control.service.ts:6:export class QualityControlService {
+-- RBAC guards/permissions --
+src/clinical/lab-integration/quality-control/quality-control.controller.ts:9:@UseGuards(JwtAuthGuard)
+
