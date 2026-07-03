@@ -4,7 +4,7 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../common/prisma.service';
 import { AiRouterService } from '../ai-core/ai-router.service';
 import { CommandParser, ParsedCommand } from './command.parser';
 import { ReportCommandHandler } from './handlers/report.handler';

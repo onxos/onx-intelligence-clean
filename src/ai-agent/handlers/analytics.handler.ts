@@ -1,11 +1,10 @@
 /**
- * ONX AI Agent — Analytics Command Handler
- * "How many patients this month?" → returns statistics
- * "What is the revenue trend?" → returns analytics
+ * ONX AI Agent — Analytics Command Handler (Simplified for R1)
+ * Uses IntelligenceObject and Report models (existing)
  */
 
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../common/prisma.service';
 import { ParsedCommand } from '../command.parser';
 import { AgentResult } from '../ai-agent.service';
 
@@ -26,37 +25,27 @@ export class AnalyticsCommandHandler {
     try {
       const now = new Date();
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
 
-      let data: any;
+      // Use IntelligenceObject and Report as data sources
+      const [totalObjects, thisMonthObjects, totalReports, thisMonthReports] = await Promise.all([
+        this.prisma.intelligenceObject.count({ where: { workspaceId } }),
+        this.prisma.intelligenceObject.count({ where: { workspaceId, createdAt: { gte: monthStart } } }),
+        this.prisma.report.count({ where: { workspaceId } }),
+        this.prisma.report.count({ where: { workspaceId, createdAt: { gte: monthStart } } }),
+      ]);
 
-      switch (metric) {
-        case 'patient_count':
-          data = await this.getPatientAnalytics(workspaceId, monthStart, lastMonthStart, lastMonthEnd);
-          break;
-        case 'appointment_count':
-          data = await this.getAppointmentAnalytics(workspaceId, monthStart, lastMonthStart, lastMonthEnd);
-          break;
-        case 'revenue':
-          data = await this.getRevenueAnalytics(workspaceId, monthStart, lastMonthStart, lastMonthEnd);
-          break;
-        case 'utilization':
-          data = await this.getUtilizationAnalytics(workspaceId, monthStart);
-          break;
-        default:
-          const [patients, appointments, revenue] = await Promise.all([
-            this.getPatientAnalytics(workspaceId, monthStart, lastMonthStart, lastMonthEnd),
-            this.getAppointmentAnalytics(workspaceId, monthStart, lastMonthStart, lastMonthEnd),
-            this.getRevenueAnalytics(workspaceId, monthStart, lastMonthStart, lastMonthEnd),
-          ]);
-          data = { patients, appointments, revenue };
-      }
+      const data: any = {
+        intelligenceObjects: { total: totalObjects, thisMonth: thisMonthObjects },
+        reports: { total: totalReports, thisMonth: thisMonthReports },
+        workspaceId,
+        generatedAt: now.toISOString(),
+        note: 'Full clinical analytics (Patient/Appointment/Revenue) require Phase R3 (Clinical Core)',
+      };
 
       return {
         success: true,
         action: 'ANALYTICS_QUERY',
-        message: this.formatAnalyticsMessage(metric, data),
+        message: this.formatMessage(metric, data),
         data,
       };
     } catch (error) {
@@ -70,86 +59,13 @@ export class AnalyticsCommandHandler {
     }
   }
 
-  private async getPatientAnalytics(
-    workspaceId: string,
-    thisMonth: Date,
-    lastMonthStart: Date,
-    lastMonthEnd: Date,
-  ) {
-    const [thisMonthCount, lastMonthCount, total] = await Promise.all([
-      this.prisma.patient.count({ where: { workspaceId, createdAt: { gte: thisMonth } } }),
-      this.prisma.patient.count({ where: { workspaceId, createdAt: { gte: lastMonthStart, lte: lastMonthEnd } } }),
-      this.prisma.patient.count({ where: { workspaceId } }),
-    ]);
-
-    const change = lastMonthCount === 0 ? 100 : ((thisMonthCount - lastMonthCount) / lastMonthCount * 100).toFixed(1);
-
-    return { thisMonth: thisMonthCount, lastMonth: lastMonthCount, total, changePercent: `${change}%` };
-  }
-
-  private async getAppointmentAnalytics(
-    workspaceId: string,
-    thisMonth: Date,
-    lastMonthStart: Date,
-    lastMonthEnd: Date,
-  ) {
-    const [thisMonthCount, lastMonthCount, byStatus] = await Promise.all([
-      this.prisma.appointment.count({ where: { workspaceId, createdAt: { gte: thisMonth } } }),
-      this.prisma.appointment.count({ where: { workspaceId, createdAt: { gte: lastMonthStart, lte: lastMonthEnd } } }),
-      this.prisma.appointment.groupBy({
-        by: ['status'],
-        where: { workspaceId, createdAt: { gte: thisMonth } },
-        _count: true,
-      }),
-    ]);
-
-    return { thisMonth: thisMonthCount, lastMonth: lastMonthCount, byStatus };
-  }
-
-  private async getRevenueAnalytics(
-    workspaceId: string,
-    thisMonth: Date,
-    lastMonthStart: Date,
-    lastMonthEnd: Date,
-  ) {
-    const [thisMonthRevenue, lastMonthRevenue] = await Promise.all([
-      this.prisma.invoice.aggregate({
-        where: { workspaceId, createdAt: { gte: thisMonth }, status: 'PAID' },
-        _sum: { amount: true },
-      }),
-      this.prisma.invoice.aggregate({
-        where: { workspaceId, createdAt: { gte: lastMonthStart, lte: lastMonthEnd }, status: 'PAID' },
-        _sum: { amount: true },
-      }),
-    ]);
-
-    const thisAmount = thisMonthRevenue._sum.amount ?? 0;
-    const lastAmount = lastMonthRevenue._sum.amount ?? 0;
-    const change = lastAmount === 0 ? 100 : ((thisAmount - lastAmount) / lastAmount * 100).toFixed(1);
-
-    return { thisMonth: thisAmount, lastMonth: lastAmount, changePercent: `${change}%`, currency: 'USD' };
-  }
-
-  private async getUtilizationAnalytics(workspaceId: string, monthStart: Date) {
-    const [totalSlots, bookedSlots] = await Promise.all([
-      this.prisma.appointmentSlot.count({ where: { workspaceId, date: { gte: monthStart } } }),
-      this.prisma.appointment.count({ where: { workspaceId, createdAt: { gte: monthStart }, status: { not: 'CANCELLED' } } }),
-    ]);
-
-    const rate = totalSlots === 0 ? 0 : ((bookedSlots / totalSlots) * 100).toFixed(1);
-    return { totalSlots, bookedSlots, utilizationRate: `${rate}%` };
-  }
-
-  private formatAnalyticsMessage(metric: string, data: any): string {
+  private formatMessage(metric: string, data: any): string {
     if (metric === 'patient_count') {
-      return `This month: ${data.thisMonth} new patients (${data.changePercent} vs last month). Total: ${data.total}.`;
-    }
-    if (metric === 'appointment_count') {
-      return `This month: ${data.thisMonth} appointments (last month: ${data.lastMonth}).`;
+      return `Intelligence objects: ${data.intelligenceObjects.total} total (${data.intelligenceObjects.thisMonth} this month). Full patient analytics in Phase R3.`;
     }
     if (metric === 'revenue') {
-      return `This month revenue: $${data.thisMonth} (${data.changePercent} vs last month).`;
+      return `Reports generated: ${data.reports.total} total (${data.reports.thisMonth} this month). Full revenue analytics in Phase R3.`;
     }
-    return `Analytics summary: ${JSON.stringify(data).slice(0, 200)}...`;
+    return `Summary: ${data.intelligenceObjects.total} intelligence objects, ${data.reports.total} reports. Phase R3 for clinical metrics.`;
   }
 }

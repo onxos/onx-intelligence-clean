@@ -15,7 +15,7 @@ import {
 } from '@nestjs/common';
 import { RbacService } from './rbac.service';
 import { RbacGuard, RequirePermissions } from './rbac.guard';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { JwtAuthGuard } from '../auth/jwt.guard';
 import { Permission } from './permissions.enum';
 import { Role } from './roles.config';
 

@@ -1,10 +1,10 @@
 /**
- * ONX AI Agent — Report Command Handler
- * "Create a report for clinic this week" → generates report
+ * ONX AI Agent — Report Command Handler (Simplified for R1)
+ * Uses Report model (existing) instead of Patient/Appointment/Invoice
  */
 
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../common/prisma.service';
 import { ParsedCommand } from '../command.parser';
 import { AgentResult } from '../ai-agent.service';
 
@@ -23,47 +23,39 @@ export class ReportCommandHandler {
     const reportType = entities.reportType ?? 'summary';
     const dateRange = entities.dateRange ?? 'this_week';
 
-    const { startDate, endDate } = this.resolveDateRange(dateRange);
-
     try {
-      let data: any;
-      let title: string;
+      // Count existing reports as baseline
+      const totalReports = await this.prisma.report.count({ where: { workspaceId } });
+      const recentReports = await this.prisma.report.count({
+        where: { workspaceId, createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } },
+      });
 
-      switch (reportType) {
-        case 'patients':
-          data = await this.getPatientReport(workspaceId, startDate, endDate);
-          title = `Patient Report (${dateRange})`;
-          break;
-        case 'appointments':
-          data = await this.getAppointmentReport(workspaceId, startDate, endDate);
-          title = `Appointment Report (${dateRange})`;
-          break;
-        case 'billing':
-          data = await this.getBillingReport(workspaceId, startDate, endDate);
-          title = `Billing Report (${dateRange})`;
-          break;
-        default:
-          data = await this.getSummaryReport(workspaceId, startDate, endDate);
-          title = `Clinic Summary (${dateRange})`;
-      }
+      const reportData = {
+        type: reportType,
+        dateRange,
+        totalReports,
+        recentReports,
+        generatedAt: new Date().toISOString(),
+        note: 'Full clinical reports (Patient/Appointment/Billing) require Phase R3 (Clinical Core)',
+      };
 
       // Store report record
-      await this.prisma.report.create({
+      const report = await this.prisma.report.create({
         data: {
-          title,
+          title: `${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report (${dateRange})`,
           type: reportType,
           workspaceId,
           createdBy: userId,
-          data,
-          dateRange: `${startDate.toISOString()}_${endDate.toISOString()}`,
+          data: reportData,
+          dateRange,
         },
       });
 
       return {
         success: true,
         action: 'REPORT_CREATE',
-        message: `Report "${title}" generated successfully.`,
-        data: { title, type: reportType, ...data },
+        message: `Report #${report.id} generated successfully (${reportType}).`,
+        data: reportData,
       };
     } catch (error) {
       this.logger.error(`Report generation failed: ${error.message}`);
@@ -74,76 +66,5 @@ export class ReportCommandHandler {
         error: error.message,
       };
     }
-  }
-
-  private resolveDateRange(range: string): { startDate: Date; endDate: Date } {
-    const endDate = new Date();
-    const startDate = new Date();
-
-    switch (range) {
-      case 'today':
-        startDate.setHours(0, 0, 0, 0);
-        break;
-      case 'this_week':
-        startDate.setDate(startDate.getDate() - startDate.getDay());
-        startDate.setHours(0, 0, 0, 0);
-        break;
-      case 'this_month':
-        startDate.setDate(1);
-        startDate.setHours(0, 0, 0, 0);
-        break;
-      case 'last_month':
-        startDate.setMonth(startDate.getMonth() - 1);
-        startDate.setDate(1);
-        startDate.setHours(0, 0, 0, 0);
-        endDate.setDate(0);
-        endDate.setHours(23, 59, 59, 999);
-        break;
-      default:
-        startDate.setDate(startDate.getDate() - 7);
-    }
-
-    return { startDate, endDate };
-  }
-
-  private async getPatientReport(workspaceId: string, start: Date, end: Date) {
-    const [total, newPatients, bySpecies] = await Promise.all([
-      this.prisma.patient.count({ where: { workspaceId } }),
-      this.prisma.patient.count({ where: { workspaceId, createdAt: { gte: start, lte: end } } }),
-      this.prisma.patient.groupBy({
-        by: ['species'],
-        where: { workspaceId },
-        _count: true,
-      }),
-    ]);
-    return { total, newPatients, period: `${start.toDateString()} - ${end.toDateString()}`, bySpecies };
-  }
-
-  private async getAppointmentReport(workspaceId: string, start: Date, end: Date) {
-    const [total, completed, cancelled, upcoming] = await Promise.all([
-      this.prisma.appointment.count({ where: { workspaceId, createdAt: { gte: start, lte: end } } }),
-      this.prisma.appointment.count({ where: { workspaceId, status: 'COMPLETED', createdAt: { gte: start, lte: end } } }),
-      this.prisma.appointment.count({ where: { workspaceId, status: 'CANCELLED', createdAt: { gte: start, lte: end } } }),
-      this.prisma.appointment.count({ where: { workspaceId, status: 'SCHEDULED', date: { gte: new Date() } } }),
-    ]);
-    return { total, completed, cancelled, upcoming };
-  }
-
-  private async getBillingReport(workspaceId: string, start: Date, end: Date) {
-    const invoices = await this.prisma.invoice.aggregate({
-      where: { workspaceId, createdAt: { gte: start, lte: end } },
-      _sum: { amount: true },
-      _count: true,
-    });
-    return { totalRevenue: invoices._sum.amount ?? 0, invoiceCount: invoices._count };
-  }
-
-  private async getSummaryReport(workspaceId: string, start: Date, end: Date) {
-    const [patients, appointments, billing] = await Promise.all([
-      this.getPatientReport(workspaceId, start, end),
-      this.getAppointmentReport(workspaceId, start, end),
-      this.getBillingReport(workspaceId, start, end),
-    ]);
-    return { patients, appointments, billing };
   }
 }

@@ -13,7 +13,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { AiAgentService } from './ai-agent.service';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { JwtAuthGuard } from '../auth/jwt.guard';
 import { RequirePermissions, RbacGuard } from '../rbac/rbac.guard';
 import { Permission } from '../rbac/permissions.enum';
 

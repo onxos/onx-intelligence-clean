@@ -15,7 +15,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { PluginRegistryService } from './plugin-registry.service';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { JwtAuthGuard } from '../auth/jwt.guard';
 import { RbacGuard, RequirePermissions } from '../rbac/rbac.guard';
 import { Permission } from '../rbac/permissions.enum';
 import { PluginManifest } from './plugin.interface';
