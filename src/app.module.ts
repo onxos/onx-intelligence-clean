@@ -45,6 +45,7 @@ import { ExceptionModule } from './exception/exception.module';
 import { AiCoreModule } from './ai-core/ai-core.module';
 import { ConnectorsModule } from './connectors/connectors.module';
 import { MonitoringModule } from './monitoring/monitoring.module';
+import { RbacModule } from './rbac/rbac.module';
 
 @Module({
   imports: [
@@ -95,6 +96,7 @@ import { MonitoringModule } from './monitoring/monitoring.module';
     AiCoreModule,
     ConnectorsModule,
     MonitoringModule,
+    RbacModule,
     CommitModule,
   ],
   controllers: [AppController],
