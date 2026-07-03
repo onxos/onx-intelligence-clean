@@ -13,6 +13,11 @@ export class SoapIntelligenceController {
     return this.service.list(patientId);
   }
 
+  @Post()
+  create(@Body() dto: BuildSoapNoteDto, @Req() req: { user: { workspaceId: string } }) {
+    return this.service.buildNote(req.user.workspaceId, dto);
+  }
+
   @Post('notes')
   build(@Body() dto: BuildSoapNoteDto, @Req() req: { user: { workspaceId: string } }) {
     return this.service.buildNote(req.user.workspaceId, dto);

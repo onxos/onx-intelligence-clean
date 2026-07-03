@@ -1,6 +1,24 @@
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsPositive, IsString, Min } from 'class-validator';
 
+export class CreateAppointmentDto {
+  @IsString()
+  patientId!: string;
+
+  @IsString()
+  date!: string;
+
+  @IsString()
+  type!: string;
+
+  @IsString()
+  reason!: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
 export class AddToWaitlistDto {
   @IsString()
   patientId!: string;

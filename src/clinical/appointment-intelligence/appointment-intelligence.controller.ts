@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt.guard';
-import { AddToWaitlistDto, BuildScheduleDto } from './appointment-intelligence.dto';
+import { AddToWaitlistDto, BuildScheduleDto, CreateAppointmentDto } from './appointment-intelligence.dto';
 import { AppointmentIntelligenceService } from './appointment-intelligence.service';
 
 @Controller('clinical/appointments')
@@ -11,6 +11,16 @@ export class AppointmentIntelligenceController {
   @Get()
   list(@Req() req: { user: { workspaceId: string } }) {
     return this.service.buildSchedule(req.user.workspaceId, {});
+  }
+
+  @Post()
+  createAppointment(@Body() dto: CreateAppointmentDto, @Req() req: { user: { workspaceId: string } }) {
+    const reason = [dto.type, dto.reason, dto.notes].filter(Boolean).join(' | ');
+    return this.service.addToWaitlist(req.user.workspaceId, {
+      patientId: dto.patientId,
+      reason: `${dto.date} | ${reason}`,
+      priority: 1,
+    });
   }
 
   @Post('waitlist')

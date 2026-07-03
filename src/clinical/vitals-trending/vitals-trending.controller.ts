@@ -13,6 +13,11 @@ export class VitalsTrendingController {
     return this.service.list(patientId);
   }
 
+  @Post('analyze')
+  analyzeViaAlias(@Body() dto: AnalyzeVitalsDto, @Req() req: { user: { workspaceId: string } }) {
+    return this.service.analyze(req.user.workspaceId, dto);
+  }
+
   @Post('trends')
   analyze(@Body() dto: AnalyzeVitalsDto, @Req() req: { user: { workspaceId: string } }) {
     return this.service.analyze(req.user.workspaceId, dto);

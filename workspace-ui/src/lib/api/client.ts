@@ -93,17 +93,82 @@ export const api = {
     patients: () => workspaceFetch<Array<Record<string, unknown>>>("/clinical/patients"),
     patientById: (patientId: string) =>
       workspaceFetch<Record<string, unknown>>(`/clinical/patients/${patientId}`),
-    createPatient: (body: Record<string, unknown>) =>
-      workspaceFetch("/clinical/patients", { method: "POST", body }),
+    createPatient: (body: {
+      name: string;
+      species: string;
+      breed: string;
+      ageYears: number;
+      weightKg: number;
+      status?: 'stable' | 'monitoring' | 'critical';
+      presentingSigns?: string[];
+    }) => workspaceFetch("/clinical/patients", { method: 'POST', body }),
     appointments: () => workspaceFetch<Record<string, unknown>>("/clinical/appointments"),
+    createAppointment: (body: {
+      patientId: string;
+      date: string;
+      type: string;
+      reason: string;
+      notes?: string;
+    }) => workspaceFetch("/clinical/appointments", { method: 'POST', body }),
     soapNotes: (patientId: string) =>
       workspaceFetch<Array<Record<string, unknown>>>("/clinical/soap", {
         query: { patientId },
+      }),
+    addSoapNote: (body: {
+      patientId: string;
+      subjective: string;
+      objective: string;
+      assessment: string;
+      plan: string;
+      veterinarianId?: string;
+    }) =>
+      workspaceFetch("/clinical/soap", {
+        method: 'POST',
+        body: {
+          patientId: body.patientId,
+          subject: body.subjective,
+          objective: body.objective,
+          assessment: body.assessment,
+          plan: body.plan,
+        },
       }),
     vitalsHistory: (patientId: string) =>
       workspaceFetch<Array<Record<string, unknown>>>("/clinical/vitals", {
         query: { patientId },
       }),
+    analyzeVitals: (body: {
+      patientId: string;
+      temperature?: number;
+      heartRate?: number;
+      respiratoryRate?: number;
+      weight?: number;
+      bloodPressure?: string;
+    }) =>
+      workspaceFetch("/clinical/vitals/analyze", {
+        method: 'POST',
+        body: {
+          patientId: body.patientId,
+          readings: [
+            body.temperature !== undefined ? { kind: 'temperature', value: body.temperature, unit: 'C' } : null,
+            body.heartRate !== undefined ? { kind: 'heartRate', value: body.heartRate, unit: 'bpm' } : null,
+            body.respiratoryRate !== undefined ? { kind: 'respiratoryRate', value: body.respiratoryRate, unit: 'rpm' } : null,
+            body.weight !== undefined ? { kind: 'weight', value: body.weight, unit: 'kg' } : null,
+            body.bloodPressure !== undefined
+              ? { kind: 'bloodPressure', value: Number(body.bloodPressure.split('/')[0]) || 0, unit: 'mmHg' }
+              : null,
+          ].filter((entry) => entry !== null),
+        },
+      }),
+    createOrder: (body: {
+      patientId: string;
+      type: string;
+      testCode?: string;
+      medicationName?: string;
+      dosage?: string;
+      frequency?: string;
+      route?: string;
+      veterinarianId?: string;
+    }) => workspaceFetch("/clinical/orders", { method: 'POST', body }),
   },
   sech: {
     gates: () => workspaceFetch("/sech/gates"),

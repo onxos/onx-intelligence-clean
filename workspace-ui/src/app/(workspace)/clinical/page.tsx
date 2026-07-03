@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
 import { PatientList } from "@/components/clinical/patient-list";
 import { DiagnosisPanel } from "@/components/clinical/diagnosis-panel";
@@ -177,6 +177,113 @@ export default function ClinicalPage() {
 
   const patients = patientsQuery.data ?? [];
 
+  const createPatientMutation = useMutation({
+    mutationFn: api.clinical.createPatient,
+    onSuccess: () => void patientsQuery.refetch(),
+  });
+
+  const createAppointmentMutation = useMutation({
+    mutationFn: api.clinical.createAppointment,
+    onSuccess: () => void appointmentsQuery.refetch(),
+  });
+
+  const addSoapNoteMutation = useMutation({
+    mutationFn: api.clinical.addSoapNote,
+    onSuccess: () => void soapQuery.refetch(),
+  });
+
+  const analyzeVitalsMutation = useMutation({
+    mutationFn: api.clinical.analyzeVitals,
+    onSuccess: () => void vitalsQuery.refetch(),
+  });
+
+  const createOrderMutation = useMutation({
+    mutationFn: api.clinical.createOrder,
+  });
+
+  const handleCreatePatient = async () => {
+    const name = window.prompt("Patient name");
+    if (!name) return;
+    const species = window.prompt("Species", "Canine") || "Canine";
+    const breed = window.prompt("Breed", "Mixed") || "Mixed";
+    const ageYears = Number(window.prompt("Age (years)", "1") || "1");
+    const weightKg = Number(window.prompt("Weight (kg)", "1") || "1");
+    await createPatientMutation.mutateAsync({
+      name,
+      species,
+      breed,
+      ageYears,
+      weightKg,
+    });
+  };
+
+  const handleCreateAppointment = async () => {
+    if (!selected?.id) return;
+    const date = window.prompt("Appointment date/time (ISO or text)", new Date().toISOString());
+    if (!date) return;
+    const type = window.prompt("Appointment type", "consultation") || "consultation";
+    const reason = window.prompt("Reason", "follow-up") || "follow-up";
+    const notes = window.prompt("Notes (optional)") || undefined;
+    await createAppointmentMutation.mutateAsync({
+      patientId: selected.id,
+      date,
+      type,
+      reason,
+      notes,
+    });
+  };
+
+  const handleAddSoapNote = async () => {
+    if (!selected?.id) return;
+    const subjective = window.prompt("Subjective") || "";
+    const objective = window.prompt("Objective") || "";
+    const assessment = window.prompt("Assessment") || "";
+    const plan = window.prompt("Plan") || "";
+    await addSoapNoteMutation.mutateAsync({
+      patientId: selected.id,
+      subjective,
+      objective,
+      assessment,
+      plan,
+    });
+  };
+
+  const handleRunVitalsAnalysis = async () => {
+    if (!selected?.id) return;
+    const temperature = Number(window.prompt("Temperature (C)", "38.5") || "38.5");
+    const heartRate = Number(window.prompt("Heart rate (bpm)", "90") || "90");
+    const respiratoryRate = Number(window.prompt("Respiratory rate", "20") || "20");
+    const weight = Number(window.prompt("Weight (kg)", String(selected.weightKg || 1)) || String(selected.weightKg || 1));
+    const bloodPressure = window.prompt("Blood pressure (e.g., 120/80)", "120/80") || "120/80";
+    await analyzeVitalsMutation.mutateAsync({
+      patientId: selected.id,
+      temperature,
+      heartRate,
+      respiratoryRate,
+      weight,
+      bloodPressure,
+    });
+  };
+
+  const handleCreateOrder = async () => {
+    if (!selected?.id) return;
+    const type = window.prompt("Order type", "lab") || "lab";
+    const testCode = window.prompt("Test code (optional)") || undefined;
+    const medicationName = window.prompt("Medication name (optional)") || undefined;
+    const dosage = window.prompt("Dosage (optional)") || undefined;
+    const frequency = window.prompt("Frequency (optional)") || undefined;
+    const route = window.prompt("Route (optional)") || undefined;
+    await createOrderMutation.mutateAsync({
+      patientId: selected.id,
+      type,
+      testCode,
+      medicationName,
+      dosage,
+      frequency,
+      route,
+    });
+  };
+
   return (
     <div className="space-y-4">
       <div>
@@ -229,8 +336,11 @@ export default function ClinicalPage() {
 
               {activeTab === "patientLifecycle" ? (
                 <Card>
-                  <CardHeader>
+                  <CardHeader className="flex items-center justify-between">
                     <CardTitle className="text-sm">Lifecycle Snapshot</CardTitle>
+                    <Button size="sm" onClick={() => void handleCreatePatient()}>
+                      Create Patient
+                    </Button>
                   </CardHeader>
                   <CardContent className="space-y-2 text-sm text-slate-600">
                     <p>Patient ID: {selected.id}</p>
@@ -243,13 +353,18 @@ export default function ClinicalPage() {
                 <Card>
                   <CardHeader className="flex items-center justify-between">
                     <CardTitle className="text-sm">Appointment Intelligence</CardTitle>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => void appointmentsQuery.refetch()}
-                    >
-                      Refresh
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" onClick={() => void handleCreateAppointment()}>
+                        Schedule Appointment
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void appointmentsQuery.refetch()}
+                      >
+                        Refresh
+                      </Button>
+                    </div>
                   </CardHeader>
                   <CardContent className="space-y-2 text-sm">
                     {(appointmentsQuery.data?.schedule ?? []).map((row) => (
@@ -273,9 +388,14 @@ export default function ClinicalPage() {
                 <Card>
                   <CardHeader className="flex items-center justify-between">
                     <CardTitle className="text-sm">SOAP Intelligence</CardTitle>
-                    <Button size="sm" variant="outline" onClick={() => void soapQuery.refetch()}>
-                      Refresh
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" onClick={() => void handleAddSoapNote()}>
+                        Add SOAP Note
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => void soapQuery.refetch()}>
+                        Refresh
+                      </Button>
+                    </div>
                   </CardHeader>
                   <CardContent className="space-y-2 text-sm text-slate-700">
                     {(soapQuery.data ?? []).map((row) => (
@@ -303,8 +423,11 @@ export default function ClinicalPage() {
 
               {activeTab === "orderIntelligence" ? (
                 <Card>
-                  <CardHeader>
+                  <CardHeader className="flex items-center justify-between">
                     <CardTitle className="text-sm">Order Intelligence</CardTitle>
+                    <Button size="sm" onClick={() => void handleCreateOrder()}>
+                      Create Order
+                    </Button>
                   </CardHeader>
                   <CardContent className="text-sm text-slate-600">
                     Use the backend endpoint <code>/clinical/orders/recommendations</code> to generate
@@ -317,9 +440,14 @@ export default function ClinicalPage() {
                 <Card>
                   <CardHeader className="flex items-center justify-between">
                     <CardTitle className="text-sm">Vitals Trending</CardTitle>
-                    <Button size="sm" variant="outline" onClick={() => void vitalsQuery.refetch()}>
-                      Refresh
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" onClick={() => void handleRunVitalsAnalysis()}>
+                        Run Vitals Analysis
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => void vitalsQuery.refetch()}>
+                        Refresh
+                      </Button>
+                    </div>
                   </CardHeader>
                   <CardContent className="space-y-2 text-sm text-slate-700">
                     {(vitalsQuery.data ?? []).flatMap((result) => result.trends).map((trend) => (
