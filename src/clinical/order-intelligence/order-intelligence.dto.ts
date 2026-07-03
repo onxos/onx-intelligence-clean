@@ -3,9 +3,6 @@ import { IsArray, IsOptional, IsString } from 'class-validator';
 
 export class ClinicalOrderRecommendationDto {
   @IsString()
-  workspaceId!: string;
-
-  @IsString()
   patientId!: string;
 
   @IsOptional()

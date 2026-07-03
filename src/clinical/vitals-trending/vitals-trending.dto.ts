@@ -21,9 +21,6 @@ export class ClinicalVitalReadingDto {
 
 export class AnalyzeVitalsDto {
   @IsString()
-  workspaceId!: string;
-
-  @IsString()
   patientId!: string;
 
   @IsArray()

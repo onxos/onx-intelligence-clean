@@ -9,7 +9,7 @@ export class DiagnosisSupportController {
   constructor(private readonly service: DiagnosisSupportService) {}
 
   @Post('differentials')
-  support(@Body() dto: ClinicalDiagnosisSupportDto, @Req() req: { user: { userId: string } }) {
-    return this.service.support(dto.workspaceId, req.user.userId, dto);
+  support(@Body() dto: ClinicalDiagnosisSupportDto, @Req() req: { user: { userId: string; workspaceId: string } }) {
+    return this.service.support(req.user.workspaceId, req.user.userId, dto);
   }
 }

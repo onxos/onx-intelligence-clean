@@ -1,5 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
+import { WebhookEmitter } from '../../common/webhook.emitter';
+import { QueueService } from '../../queue/queue.service';
 import { PatientLifecycleService } from '../patient-lifecycle/patient-lifecycle.service';
 import { AddToWaitlistDto, BuildScheduleDto } from './appointment-intelligence.dto';
 
@@ -16,13 +18,17 @@ type WaitlistEntry = {
 export class AppointmentIntelligenceService {
   private readonly waitlists = new Map<string, WaitlistEntry[]>();
 
-  constructor(private readonly patients: PatientLifecycleService) {}
+  constructor(
+    private readonly patients: PatientLifecycleService,
+    @Optional() private readonly webhooks?: WebhookEmitter,
+    @Optional() private readonly queue?: QueueService,
+  ) {}
 
-  async addToWaitlist(dto: AddToWaitlistDto) {
-    const bucket = this.waitlists.get(dto.workspaceId) ?? [];
+  async addToWaitlist(workspaceId: string, dto: AddToWaitlistDto) {
+    const bucket = this.waitlists.get(workspaceId) ?? [];
     const entry: WaitlistEntry = {
       id: randomUUID(),
-      workspaceId: dto.workspaceId,
+      workspaceId,
       patientId: dto.patientId,
       reason: dto.reason,
       priority: dto.priority ?? 1,
@@ -30,7 +36,7 @@ export class AppointmentIntelligenceService {
     };
     bucket.push(entry);
     bucket.sort((left, right) => right.priority - left.priority || left.createdAt.localeCompare(right.createdAt));
-    this.waitlists.set(dto.workspaceId, bucket);
+    this.waitlists.set(workspaceId, bucket);
     return { ...entry, position: bucket.findIndex((item) => item.id === entry.id) + 1 };
   }
 
@@ -38,9 +44,9 @@ export class AppointmentIntelligenceService {
     return this.waitlists.get(workspaceId) ?? [];
   }
 
-  async buildSchedule(dto: BuildScheduleDto) {
-    const patients = await this.patients.listPatients(dto.workspaceId);
-    const waitlist = await this.listWaitlist(dto.workspaceId);
+  async buildSchedule(workspaceId: string, dto: BuildScheduleDto) {
+    const patients = await this.patients.listPatients(workspaceId);
+    const waitlist = await this.listWaitlist(workspaceId);
     const limit = dto.maxPatients ?? 10;
 
     const scored = patients
@@ -59,6 +65,15 @@ export class AppointmentIntelligenceService {
         priority: item.priority,
         reason: item.patient.presentingSigns.join(', ') || 'routine follow-up',
       }));
+
+    const payload = {
+      workspaceId,
+      scheduledCount: scored.length,
+      topAppointments: scored.slice(0, 3),
+    };
+    this.webhooks?.emitCapabilityEvent('appointment', 'appointment.scheduled', payload);
+    void this.queue?.addReminder('appointment.schedule', payload);
+    void this.queue?.addNotify('whatsapp.reminder', payload);
 
     return { schedule: scored, waitlist };
   }

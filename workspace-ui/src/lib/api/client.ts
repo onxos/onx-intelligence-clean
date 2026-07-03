@@ -89,6 +89,22 @@ export const api = {
     clinicalProtocol: (body: { condition: string; context?: string }) =>
       workspaceFetch("/ai/clinical/protocol", { method: "POST", body }),
   },
+  clinical: {
+    patients: () => workspaceFetch<Array<Record<string, unknown>>>("/clinical/patients"),
+    patientById: (patientId: string) =>
+      workspaceFetch<Record<string, unknown>>(`/clinical/patients/${patientId}`),
+    createPatient: (body: Record<string, unknown>) =>
+      workspaceFetch("/clinical/patients", { method: "POST", body }),
+    appointments: () => workspaceFetch<Record<string, unknown>>("/clinical/appointments"),
+    soapNotes: (patientId: string) =>
+      workspaceFetch<Array<Record<string, unknown>>>("/clinical/soap", {
+        query: { patientId },
+      }),
+    vitalsHistory: (patientId: string) =>
+      workspaceFetch<Array<Record<string, unknown>>>("/clinical/vitals", {
+        query: { patientId },
+      }),
+  },
   sech: {
     gates: () => workspaceFetch("/sech/gates"),
     pending: (query?: Record<string, QueryValue>) => workspaceFetch("/sech/pending", { query }),

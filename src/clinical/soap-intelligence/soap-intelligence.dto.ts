@@ -2,9 +2,6 @@ import { Type } from 'class-transformer';
 import { IsArray, IsOptional, IsString } from 'class-validator';
 
 export class BuildSoapNoteDto {
-  @IsString()
-  workspaceId!: string;
-
   @IsOptional()
   @IsString()
   patientId?: string;

@@ -3,9 +3,6 @@ import { IsInt, IsOptional, IsPositive, IsString, Min } from 'class-validator';
 
 export class AddToWaitlistDto {
   @IsString()
-  workspaceId!: string;
-
-  @IsString()
   patientId!: string;
 
   @IsOptional()
@@ -20,9 +17,6 @@ export class AddToWaitlistDto {
 }
 
 export class BuildScheduleDto {
-  @IsString()
-  workspaceId!: string;
-
   @IsOptional()
   @Type(() => Number)
   @IsInt()

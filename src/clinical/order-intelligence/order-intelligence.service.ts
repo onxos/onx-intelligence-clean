@@ -3,7 +3,7 @@ import { ClinicalOrderRecommendationDto } from './order-intelligence.dto';
 
 @Injectable()
 export class OrderIntelligenceService {
-  recommend(dto: ClinicalOrderRecommendationDto) {
+  recommend(workspaceId: string, dto: ClinicalOrderRecommendationDto) {
     const symptoms = dto.symptoms ?? [];
     const shouldImage = symptoms.some((symptom) => /pain|lameness|limb|x-ray|fracture|injury/i.test(symptom));
     const shouldLab = symptoms.some((symptom) => /fever|vomit|diarrhea|infection|anemia/i.test(symptom));
@@ -11,7 +11,7 @@ export class OrderIntelligenceService {
     const complaint = dto.chiefComplaint ?? symptoms.join(', ');
 
     return {
-      workspaceId: dto.workspaceId,
+      workspaceId,
       patientId: dto.patientId,
       routing: {
         lab: shouldLab ? ['CBC', 'Chemistry Panel'] : [],

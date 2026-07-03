@@ -1,4 +1,4 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt.guard';
 import { ClinicalOrderRecommendationDto } from './order-intelligence.dto';
 import { OrderIntelligenceService } from './order-intelligence.service';
@@ -9,7 +9,7 @@ export class OrderIntelligenceController {
   constructor(private readonly service: OrderIntelligenceService) {}
 
   @Post('recommendations')
-  recommend(@Body() dto: ClinicalOrderRecommendationDto) {
-    return this.service.recommend(dto);
+  recommend(@Body() dto: ClinicalOrderRecommendationDto, @Req() req: { user: { workspaceId: string } }) {
+    return this.service.recommend(req.user.workspaceId, dto);
   }
 }

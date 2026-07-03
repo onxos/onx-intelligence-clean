@@ -50,15 +50,18 @@ describe('PatientLifecycleService', () => {
   });
 
   it('creates a patient and records the registration event', async () => {
-    const result = await service.createPatient('user-1', {
-      workspaceId: 'ws-1',
-      name: 'Max',
-      species: 'dog',
-      breed: 'labrador',
-      ageYears: 5,
-      weightKg: 32,
-      presentingSigns: ['cough'],
-    });
+    const result = await service.createPatient(
+      'ws-1',
+      'user-1',
+      {
+        name: 'Max',
+        species: 'dog',
+        breed: 'labrador',
+        ageYears: 5,
+        weightKg: 32,
+        presentingSigns: ['cough'],
+      },
+    );
 
     expect(result.patientId).toBe('patient-1');
     expect(audit.log).toHaveBeenCalledWith(

@@ -51,8 +51,6 @@ export class CreateClinicalPatientDto {
   @IsObject()
   metadata?: Record<string, unknown>;
 
-  @IsString()
-  workspaceId!: string;
 }
 
 export class UpdateClinicalPatientStatusDto {

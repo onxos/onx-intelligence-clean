@@ -1,6 +1,7 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { Patient } from "@/types/onx";
 
@@ -14,16 +15,27 @@ export function PatientList({
   patients,
   selectedId,
   onSelect,
+  onRefresh,
+  loading,
 }: {
   patients: Patient[];
   selectedId?: string;
   onSelect: (patient: Patient) => void;
+  onRefresh?: () => void;
+  loading?: boolean;
 }) {
   return (
     <Card>
       <CardHeader className="flex items-center justify-between">
         <CardTitle className="text-sm">Patients</CardTitle>
-        <span className="text-xs text-slate-500">{patients.length}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-500">{patients.length}</span>
+          {onRefresh ? (
+            <Button size="sm" variant="outline" onClick={onRefresh} disabled={loading}>
+              {loading ? "…" : "Refresh"}
+            </Button>
+          ) : null}
+        </div>
       </CardHeader>
       <CardContent className="space-y-1">
         {patients.map((p) => (
@@ -49,6 +61,9 @@ export function PatientList({
             </span>
           </button>
         ))}
+        {patients.length === 0 ? (
+          <p className="text-xs text-slate-500">No patients available in this workspace.</p>
+        ) : null}
       </CardContent>
     </Card>
   );

@@ -96,6 +96,7 @@ export interface IurgViolation {
 
 export interface Patient {
   id: string;
+  patientId?: string;
   name: string;
   species: string;
   breed: string;
@@ -103,4 +104,49 @@ export interface Patient {
   weightKg: number;
   status: "stable" | "monitoring" | "critical";
   presenting: string[];
+}
+
+export interface ClinicalAppointmentItem {
+  patientId: string;
+  name: string;
+  status: "stable" | "monitoring" | "critical";
+  recommendedWindow: string;
+  priority: number;
+  reason: string;
+}
+
+export interface ClinicalAppointmentSchedule {
+  schedule: ClinicalAppointmentItem[];
+  waitlist: Array<{ id: string; patientId: string; priority: number; reason?: string }>;
+}
+
+export interface SoapNoteRecord {
+  id: string;
+  patientId: string | null;
+  template: "SOAP";
+  createdAt: string;
+  note: {
+    subjective: string;
+    objective: string;
+    assessment: string;
+    plan: string;
+  };
+  tags: string[];
+  transcriptSummary: string | null;
+}
+
+export interface VitalsTrendRow {
+  kind: string;
+  count: number;
+  average: number;
+  latest: number;
+  change: number;
+  anomaly: boolean;
+}
+
+export interface VitalsTrendResult {
+  workspaceId: string;
+  patientId: string;
+  trends: VitalsTrendRow[];
+  alerts: string[];
 }

@@ -1,8 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { AuditService } from '../../common/audit.service';
 import { PrismaService } from '../../common/prisma.service';
+import { WebhookEmitter } from '../../common/webhook.emitter';
+import { QueueService } from '../../queue/queue.service';
 import {
   AddClinicalLifecycleEventDto,
   ClinicalPatientListQueryDto,
@@ -21,9 +23,11 @@ export class PatientLifecycleService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    @Optional() private readonly webhooks?: WebhookEmitter,
+    @Optional() private readonly queue?: QueueService,
   ) {}
 
-  async createPatient(userId: string, dto: CreateClinicalPatientDto, ctx?: AuditContext) {
+  async createPatient(workspaceId: string, userId: string, dto: CreateClinicalPatientDto, ctx?: AuditContext) {
     const status = dto.status ?? 'stable';
     const created = await this.prisma.$transaction(async (tx) => {
       const patient = await tx.clinicalPatient.create({
@@ -36,7 +40,7 @@ export class PatientLifecycleService {
           status,
           presentingSigns: dto.presentingSigns ?? [],
           metadata: (dto.metadata ?? {}) as Prisma.InputJsonValue,
-          workspaceId: dto.workspaceId,
+          workspaceId,
           ownerId: userId,
         },
       });
@@ -45,7 +49,7 @@ export class PatientLifecycleService {
         data: {
           eventId: randomUUID(),
           patientId: patient.id,
-          workspaceId: dto.workspaceId,
+          workspaceId,
           actorId: userId,
           eventType: 'REGISTERED',
           previousStatus: null,
@@ -63,12 +67,21 @@ export class PatientLifecycleService {
       action: 'CLINICAL_PATIENT_CREATED',
       resourceType: 'clinical_patient',
       resourceId: created.patientId,
-      workspaceId: dto.workspaceId,
+      workspaceId,
       metadata: { status },
       requestId: ctx?.requestId,
       ip: ctx?.ip,
       userAgent: ctx?.userAgent,
     });
+
+    const payload = {
+      workspaceId,
+      patientId: created.patientId,
+      name: created.name,
+      status: created.status,
+    };
+    this.webhooks?.emitCapabilityEvent('patient', 'patient.created', payload);
+    void this.queue?.addNotify('patient.created', payload);
 
     return created;
   }
@@ -145,6 +158,15 @@ export class PatientLifecycleService {
       ip: ctx?.ip,
       userAgent: ctx?.userAgent,
     });
+
+    const payload = {
+      workspaceId,
+      patientId: updated.patientId,
+      status: dto.status,
+      note: dto.note ?? null,
+    };
+    this.webhooks?.emitCapabilityEvent('patient', 'patient.statusChanged', payload);
+    void this.queue?.addNotify('patient.statusChanged', payload);
 
     return updated;
   }
