@@ -47,6 +47,8 @@ import { ConnectorsModule } from './connectors/connectors.module';
 import { MonitoringModule } from './monitoring/monitoring.module';
 import { RbacModule } from './rbac/rbac.module';
 import { AiAgentModule } from './ai-agent/ai-agent.module';
+import { PluginSystemModule } from './plugin-system/plugin-system.module';
+import { QueueModule } from './queue/queue.module';
 
 @Module({
   imports: [
@@ -99,6 +101,8 @@ import { AiAgentModule } from './ai-agent/ai-agent.module';
     MonitoringModule,
     RbacModule,
     AiAgentModule,
+    PluginSystemModule,
+    QueueModule,
     CommitModule,
   ],
   controllers: [AppController],

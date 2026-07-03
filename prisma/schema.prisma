@@ -6662,3 +6662,18 @@ model WorkspaceMember {
   @@index([workspaceId])
   @@index([userId])
 }
+
+model Plugin {
+  id        String   @id
+  name      String
+  version   String
+  type      String
+  status    String   @default("PENDING_CONFIG")
+  config    Json
+  manifest  Json
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([type, status])
+  @@map("plugins")
+}
