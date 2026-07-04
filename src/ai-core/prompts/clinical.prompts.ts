@@ -3,7 +3,7 @@ Provide evidence-based differential diagnoses and treatment protocols.
 Always recommend consulting a licensed veterinarian for final decisions.`;
 
 export function diagnosisPrompt(symptoms: string[], history?: string): string {
-  return `Differential diagnosis request:
+  return `DIFFERENTIAL DIAGNOSIS REQUEST:
 Symptoms: ${symptoms.join(', ')}
 History: ${history ?? 'N/A'}
 Provide ranked differential diagnoses with confidence levels.`;

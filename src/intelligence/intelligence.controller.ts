@@ -16,12 +16,7 @@ export class IntelligenceController {
   @RequirePermissions(Permission.AI_CHAT)
   @ApiOperation({ summary: 'Create intelligence object' })
   async create(@Body() body: any, @Req() req: any) {
-    return this.svc.create({
-      ...body,
-      ownerId: req.user.userId,
-      creatorId: req.user.userId,
-      workspaceId: req.user.workspaceId,
-    });
+    return this.svc.create(body);
   }
 
   @Get()
@@ -42,6 +37,6 @@ export class IntelligenceController {
   @RequirePermissions(Permission.AI_CHAT)
   @ApiOperation({ summary: 'Get single intelligence object' })
   async get(@Param('id') id: string, @Req() req: any) {
-    return this.svc.findOne(id, req.user.workspaceId);
+    return this.svc.findOne(id, req.user.workspaceId, req.user.userId);
   }
 }

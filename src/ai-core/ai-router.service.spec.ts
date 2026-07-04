@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { AiRouterService, AICompletionContext } from './ai-router.service';
 
 describe('AiRouterService', () => {
@@ -6,7 +7,7 @@ describe('AiRouterService', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [AiRouterService],
+      providers: [AiRouterService, { provide: ConfigService, useValue: {} }],
     }).compile();
 
     service = module.get<AiRouterService>(AiRouterService);

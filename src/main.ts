@@ -1,64 +1,33 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { execSync } from 'node:child_process';
 import { AppModule } from './app.module';
-import { buildCorsOptions } from './security/cors.config';
-import { securityHeadersMiddleware } from './security/helmet.config';
-
-function bootstrapDatabaseSchema() {
-  if (process.env.NODE_ENV !== 'production') {
-    return;
-  }
-
-  console.log('Bootstrapping Prisma schema for production startup');
-  execSync('npx prisma generate', { stdio: 'inherit' });
-  execSync('npx prisma db push --accept-data-loss', { stdio: 'inherit' });
-  // `db push` above already syncs the full schema. `migrate deploy` is
-  // best-effort: hand-authored migrations can hit P3009 on a db-push-populated
-  // database, which must NOT crash startup since the schema is already correct.
-  try {
-    execSync('npx prisma migrate deploy', { stdio: 'inherit' });
-  } catch {
-    console.warn('migrate deploy skipped (schema already synced via db push)');
-  }
-}
 
 async function bootstrap() {
-  try {
-    bootstrapDatabaseSchema();
-    const app = await NestFactory.create(AppModule, { rawBody: true });
-    app.enableShutdownHooks();
+  const app = await NestFactory.create(AppModule);
 
-    app.use(securityHeadersMiddleware);
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: false,
+      transform: true,
+    }),
+  );
+  app.enableCors();
 
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        forbidNonWhitelisted: false,
-        transform: true,
-        transformOptions: { enableImplicitConversion: true },
-      }),
-    );
-    app.enableCors(buildCorsOptions());
+  const config = new DocumentBuilder()
+    .setTitle('ONX Intelligence API')
+    .setDescription('Sovereign Operational Intelligence System')
+    .setVersion('1.0.0')
+    .addBearerAuth()
+    .build();
 
-    const config = new DocumentBuilder()
-      .setTitle('ONX Intelligence API')
-      .setDescription('Sovereign Operational Intelligence System')
-      .setVersion('1.0.0')
-      .addBearerAuth()
-      .build();
+  const document = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup('api/docs', app, document);
 
-    const document = SwaggerModule.createDocument(app, config);
-    SwaggerModule.setup('api/docs', app, document);
+  const port = process.env.PORT || 3000;
+  await app.listen(port, '0.0.0.0');
 
-    const port = Number(process.env.PORT || 3000);
-    await app.listen(port, '0.0.0.0');
-
-    console.log(`ONX Intelligence running on port ${port}`);
-  } catch (error) {
-    console.error('Failed to start application:', error);
-    process.exit(1);
-  }
+  console.log(`ONX Intelligence running on port ${port}`);
 }
 bootstrap();

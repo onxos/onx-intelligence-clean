@@ -22,7 +22,7 @@ export class ProviderController {
   @Post('evaluate')
   @RequirePermissions(Permission.AI_PROVIDER_MANAGE)
   @ApiOperation({ summary: 'Evaluate provider via ISES' })
-  async evaluate(@Body() body: { providerId: string; intent: string; context?: string }) {
-    return this.svc.evaluate(body);
+  async evaluate(@Body() body: { providerId: string; intent: string; context?: string }, @Req() req: any) {
+    return this.svc.evaluate(body, { actorId: req.user.userId });
   }
 }

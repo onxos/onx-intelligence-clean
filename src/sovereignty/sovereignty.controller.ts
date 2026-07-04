@@ -16,7 +16,7 @@ export class SovereigntyController {
   @RequirePermissions(Permission.CONSTITUTION_READ)
   @ApiOperation({ summary: 'Evaluate sovereignty for intent' })
   async evaluate(@Body() body: { intent: string }, @Req() req: any) {
-    return this.svc.evaluate(body.intent, req.user.workspaceId);
+    return this.svc.evaluate(body.intent, req.user.workspaceId, { actorId: req.user.userId });
   }
 
   @Get('report')
