@@ -15,3 +15,18 @@ Condition: ${condition}
 Context: ${context ?? 'N/A'}
 Provide evidence-based treatment protocol with dosages and precautions.`;
 }
+
+export function evidenceQualityPrompt(evidence: string): string {
+  return `Assess the quality and reliability of the following clinical evidence:
+
+Evidence: ${evidence}
+
+Evaluate based on:
+1. Study design and methodology
+2. Sample size and statistical power
+3. Peer review status
+4. Conflict of interest disclosure
+5. Reproducibility of results
+
+Provide a quality score (HIGH/MEDIUM/LOW) with justification.`;
+}

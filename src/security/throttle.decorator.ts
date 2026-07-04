@@ -1,5 +1,15 @@
 import { SetMetadata } from '@nestjs/common';
 
 export const THROTTLE_KEY = 'throttle';
-export const Throttle = (limit: number, ttl: number) =>
-  SetMetadata(THROTTLE_KEY, { limit, ttl });
+
+interface ThrottleOptions {
+  limit: number;
+  ttl: number;
+}
+
+export const Throttle = (limitOrOptions: number | ThrottleOptions, ttl?: number) => {
+  if (typeof limitOrOptions === 'object') {
+    return SetMetadata(THROTTLE_KEY, limitOrOptions);
+  }
+  return SetMetadata(THROTTLE_KEY, { limit: limitOrOptions, ttl: ttl ?? 60 });
+};

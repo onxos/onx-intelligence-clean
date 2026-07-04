@@ -11,7 +11,7 @@ describe('AiCoreService', () => {
     tokensUsed: 42,
     latencyMs: 7,
     evidenceTier: '4',
-    timestamp: new Date(),
+    // timestamp removed — not in AIResponse
     ...overrides,
   });
 

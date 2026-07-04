@@ -19,4 +19,6 @@ export interface AIResponse {
   tokensUsed: number;
   latencyMs: number;
   evidenceTier: string;
+  mock?: boolean;
+  timestamp?: Date;
 }
