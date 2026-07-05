@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, Param, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Param, Req, UseGuards, HttpCode } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { IntelligenceService } from './intelligence.service';
 import { IntelligenceSchedulerService } from './intelligence-scheduler.service';
@@ -8,7 +8,7 @@ import { Permission } from '../rbac/permissions.enum';
 
 @ApiTags('Intelligence')
 @Controller('intelligence')
-@UseGuards(JwtAuthGuard, RbacGuard)
+@UseGuards(RbacGuard, JwtAuthGuard)
 @ApiBearerAuth()
 export class IntelligenceController {
   constructor(
@@ -59,6 +59,7 @@ export class IntelligenceController {
   }
 
   @Post('answer-from-knowledge')
+  @HttpCode(200)
   @RequirePermissions(Permission.AI_CHAT)
   @ApiOperation({ summary: 'Search internal knowledge first, then fallback external' })
   async answerFromKnowledge(@Req() req: any, @Body() body: { question: string }) {
@@ -66,6 +67,7 @@ export class IntelligenceController {
   }
 
   @Post('ingest-knowledge-asset')
+  @HttpCode(200)
   @RequirePermissions(Permission.AI_CHAT)
   @ApiOperation({ summary: 'Ingest a canonical Q&A knowledge asset' })
   async ingestKnowledgeAsset(
