@@ -191,6 +191,10 @@ export const api = {
     list: (query?: Record<string, QueryValue>) =>
       workspaceFetch("/intelligence", { query }),
     stats: () => workspaceFetch("/intelligence/stats"),
+    qualityIndices: () => workspaceFetch("/intelligence/quality-indices"),
+    governanceLog: (query?: Record<string, QueryValue>) =>
+      workspaceFetch("/intelligence/governance-log", { query }),
+    schedulerStatus: () => workspaceFetch("/intelligence/scheduler/status"),
     create: (body: Record<string, unknown>) =>
       workspaceFetch("/intelligence", { method: "POST", body }),
     update: (id: string, body: Record<string, unknown>) =>
@@ -222,6 +226,8 @@ export const api = {
     update: (id: string, body: Record<string, unknown>) =>
       workspaceFetch(`/tools/${id}`, { method: "PUT", body }),
     remove: (id: string) => workspaceFetch(`/tools/${id}`, { method: "DELETE" }),
+    invoke: (id: string, body: { method: string; params?: Record<string, unknown> }) =>
+      workspaceFetch(`/tools/${id}/invoke`, { method: "POST", body }),
   },
   sovereignty: {
     report: SovereigntyService.sovereigntyControllerReport,

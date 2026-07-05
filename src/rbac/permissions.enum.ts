@@ -38,8 +38,49 @@ export enum Permission {
   BILLING_READ = 'billing:read',
   BILLING_CREATE = 'billing:create',
   BILLING_UPDATE = 'billing:update',
+  BILLING_DELETE = 'billing:delete',
   BILLING_REFUND = 'billing:refund',
   BILLING_EXPORT = 'billing:export',
+
+  // Medical Records
+  MEDICAL_RECORD_READ = 'medical_record:read',
+  MEDICAL_RECORD_CREATE = 'medical_record:create',
+  MEDICAL_RECORD_UPDATE = 'medical_record:update',
+  MEDICAL_RECORD_DELETE = 'medical_record:delete',
+
+  // Vaccinations
+  VACCINATION_READ = 'vaccination:read',
+  VACCINATION_CREATE = 'vaccination:create',
+  VACCINATION_UPDATE = 'vaccination:update',
+  VACCINATION_DELETE = 'vaccination:delete',
+
+  // Clinical Documents
+  DOCUMENT_READ = 'document:read',
+  DOCUMENT_CREATE = 'document:create',
+  DOCUMENT_UPDATE = 'document:update',
+  DOCUMENT_DELETE = 'document:delete',
+
+  // Inventory
+  INVENTORY_READ = 'inventory:read',
+  INVENTORY_CREATE = 'inventory:create',
+  INVENTORY_UPDATE = 'inventory:update',
+  INVENTORY_DELETE = 'inventory:delete',
+
+  // Notifications
+  NOTIFICATION_READ = 'notification:read',
+  NOTIFICATION_CREATE = 'notification:create',
+  NOTIFICATION_UPDATE = 'notification:update',
+  NOTIFICATION_DELETE = 'notification:delete',
+
+  // Analytics
+  ANALYTICS_READ = 'analytics:read',
+
+  // AI Overlay
+  AI_DIAGNOSTIC = 'ai:diagnostic',
+
+  // Connector Management
+  CONNECTOR_MANAGE = 'connector:manage',
+  CONNECTOR_READ = 'connector:read',
 
   // AI
   AI_CHAT = 'ai:chat',
@@ -78,4 +119,14 @@ export enum Permission {
   // Settings
   SETTINGS_READ = 'settings:read',
   SETTINGS_UPDATE = 'settings:update',
+
+  // Atlas V7 — Continuous Evolution
+  ATLAS_TITAN_TRAIN = 'atlas:titan:train',
+  ATLAS_TITAN_INFER = 'atlas:titan:infer',
+  ATLAS_CORPUS_INGEST = 'atlas:corpus:ingest',
+  ATLAS_CROSS_DOMAIN_READ = 'atlas:cross_domain:read',
+  ATLAS_OPTIMIZER_READ = 'atlas:optimizer:read',
+  ATLAS_OPTIMIZER_APPLY = 'atlas:optimizer:apply',
+  ATLAS_EVOLUTION_READ = 'atlas:evolution:read',
+  ATLAS_EVOLUTION_WRITE = 'atlas:evolution:write',
 }

@@ -16,8 +16,10 @@ import { ReportCommandHandler } from './handlers/report.handler';
 import { ReminderCommandHandler } from './handlers/reminder.handler';
 import { RbacCommandHandler } from './handlers/rbac.handler';
 import { AnalyticsCommandHandler } from './handlers/analytics.handler';
+import { AiCoreModule } from '../ai-core/ai-core.module';
 
 @Module({
+  imports: [AiCoreModule],
   controllers: [AiAgentController],
   providers: [
     AiAgentService,

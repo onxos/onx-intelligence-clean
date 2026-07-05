@@ -2,6 +2,9 @@ import { KpiCards } from "@/components/dashboard/kpi-cards";
 import { ActivityChart } from "@/components/dashboard/activity-chart";
 import { RecentAlerts } from "@/components/dashboard/recent-alerts";
 import { QuickActions } from "@/components/dashboard/quick-actions";
+import { SchedulerStatus } from "@/components/dashboard/scheduler-status";
+import { QualityIndices } from "@/components/dashboard/quality-indices";
+import { GovernanceLog } from "@/components/dashboard/governance-log";
 
 // TODO(activity): derive from /ai/logs aggregated by day once an aggregation
 // endpoint exists; static 7-day series for now.
@@ -33,6 +36,13 @@ export default function DashboardPage() {
         <RecentAlerts />
         <QuickActions />
       </div>
+
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <QualityIndices />
+        <SchedulerStatus />
+      </div>
+
+      <GovernanceLog />
     </div>
   );
 }

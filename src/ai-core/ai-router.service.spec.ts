@@ -30,6 +30,22 @@ describe('AiRouterService', () => {
       const result = await service.route('Hello', ctx, 'openai');
       expect(result.provider).toBe('openai');
     });
+
+    it('should compute a deterministic, non-random confidence score', async () => {
+      const ctx: AICompletionContext = { domain: 'clinical' };
+      const first = await service.route('diagnose this patient', ctx, 'anthropic');
+      const second = await service.route('diagnose this patient', ctx, 'anthropic');
+      expect(first.confidence).toBe(second.confidence);
+      expect(first.confidence).toBeGreaterThanOrEqual(0);
+      expect(first.confidence).toBeLessThanOrEqual(1);
+    });
+
+    it('should force local routing for sensitive queries', async () => {
+      const ctx: AICompletionContext = { domain: 'clinical' };
+      const result = await service.route('what is this patient SSN', ctx);
+      expect(result.provider).toBe('ollama_local');
+      expect(result.routingReason).toBe('PRIVACY_FORCED_LOCAL');
+    });
   });
 
   describe('consensus', () => {
@@ -51,9 +67,10 @@ describe('AiRouterService', () => {
   });
 
   describe('listProviderInfo', () => {
-    it('should return 6 providers', () => {
+    it('should return 7 providers including the local LLM', () => {
       const providers = service.listProviderInfo();
-      expect(providers).toHaveLength(6);
+      expect(providers).toHaveLength(7);
+      expect(providers.some((p) => p.name === 'ollama_local')).toBe(true);
     });
   });
 

@@ -80,6 +80,17 @@ export class AuthService {
         },
       });
 
+      await this.prisma.workspaceMember.upsert({
+        where: { workspaceId_userId: { workspaceId: user.workspaceId, userId: user.id } },
+        update: {},
+        create: {
+          workspaceId: user.workspaceId,
+          userId: user.id,
+          role: data.workspaceId ? 'VIEWER' : 'FOUNDER',
+          assignedBy: user.id,
+        },
+      });
+
       await this.audit.log({
         actorId: user.id,
         action: 'AUTH_REGISTERED',
