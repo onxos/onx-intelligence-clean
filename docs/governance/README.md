@@ -8,4 +8,8 @@ ONX Platform is out of scope until Atlas V6 authorization.
 
 CRP-01 artifacts are the official reconstruction baseline.
 
+## Execution Authority Documents
+
+- [ONX UEP 2026-001: Unified Execution Plan](ONX_UEP_2026_001_UNIFIED_EXECUTION_PLAN.md)
+
 Future GitHub Agent missions must reference the governance documents in this directory before implementation.

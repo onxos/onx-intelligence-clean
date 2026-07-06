@@ -13,6 +13,7 @@ Every AI decision is constrained by **69 executable constraints** derived from *
 | Document | Location |
 |----------|----------|
 | MO-039 Closure Report | [`docs/governance/MO-039_CONSTITUTIONAL_EXECUTION_CLOSURE.md`](docs/governance/MO-039_CONSTITUTIONAL_EXECUTION_CLOSURE.md) |
+| UEP 2026 Unified Execution Plan | [`docs/governance/ONX_UEP_2026_001_UNIFIED_EXECUTION_PLAN.md`](docs/governance/ONX_UEP_2026_001_UNIFIED_EXECUTION_PLAN.md) |
 | Governance authority | [`docs/governance/README.md`](docs/governance/README.md) |
 | Operations runbook | [`docs/operations/PRODUCTION_OPERATIONS_RUNBOOK.md`](docs/operations/PRODUCTION_OPERATIONS_RUNBOOK.md) |
 | Constitutional Content Package (authority) | `onxos/onx-constitutional-assets` *(sealed / out-of-band)* |
