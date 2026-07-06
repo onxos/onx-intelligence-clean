@@ -8,7 +8,10 @@ import { createRouter, publicQuery } from "./middleware";
 // --- Knowledge Types ---
 type KnowledgeDomain =
   | "STRATEGY" | "TECHNOLOGY" | "SCIENCE" | "ECONOMICS"
-  | "ISLAMIC" | "HISTORY" | "MEDICINE" | "ENGINEERING";
+  | "ISLAMIC" | "HISTORY" | "MEDICINE" | "ENGINEERING"
+  | "AGRICULTURE" | "ENERGY" | "EDUCATION" | "TRANSPORTATION"
+  | "MANUFACTURING" | "FINANCE" | "LEGAL" | "MEDIA"
+  | "ENVIRONMENT" | "SOCIAL" | "DEFENSE";
 
 type KnowledgeTier = "FOUNDATIONAL" | "INTERMEDIATE" | "ADVANCED" | "EXPERT" | " FRONTIER";
 
@@ -39,6 +42,17 @@ const DOMAINS: Array<{ id: KnowledgeDomain; nameAr: string; nameEn: string; desc
   { id: "HISTORY", nameAr: "تاريخ", nameEn: "History", description: "Civilizational history, Ummah history, world history", recordCount: 1500 },
   { id: "MEDICINE", nameAr: "طب", nameEn: "Medicine", description: "Medical knowledge, veterinary, public health", recordCount: 1500 },
   { id: "ENGINEERING", nameAr: "هندسة", nameEn: "Engineering", description: "Systems engineering, infrastructure, design patterns", recordCount: 1000 },
+  { id: "AGRICULTURE", nameAr: "زراعة", nameEn: "Agriculture", description: "Crop science, livestock, irrigation, sustainable farming", recordCount: 800 },
+  { id: "ENERGY", nameAr: "طاقة", nameEn: "Energy", description: "Renewable energy, fossil fuels, grid systems, nuclear", recordCount: 800 },
+  { id: "EDUCATION", nameAr: "تعليم", nameEn: "Education", description: "Pedagogy, curriculum design, e-learning, assessment", recordCount: 800 },
+  { id: "TRANSPORTATION", nameAr: "نقل", nameEn: "Transportation", description: "Logistics, supply chain, autonomous vehicles, aviation", recordCount: 700 },
+  { id: "MANUFACTURING", nameAr: "تصنيع", nameEn: "Manufacturing", description: "Industry 4.0, lean manufacturing, quality control, automation", recordCount: 700 },
+  { id: "FINANCE", nameAr: "تمويل", nameEn: "Finance", description: "Banking, investment, risk management, fintech", recordCount: 900 },
+  { id: "LEGAL", nameAr: "قانون", nameEn: "Legal", description: "Contract law, IP, compliance, dispute resolution", recordCount: 600 },
+  { id: "MEDIA", nameAr: "إعلام", nameEn: "Media", description: "Journalism, broadcasting, digital media, content creation", recordCount: 600 },
+  { id: "ENVIRONMENT", nameAr: "بيئة", nameEn: "Environment", description: "Climate change, conservation, pollution, sustainability", recordCount: 700 },
+  { id: "SOCIAL", nameAr: "مجتمع", nameEn: "Social Services", description: "NGOs, community development, welfare, public policy", recordCount: 500 },
+  { id: "DEFENSE", nameAr: "دفاع", nameEn: "Defense", description: "Cybersecurity, military strategy, threat intelligence", recordCount: 400 },
 ];
 
 // --- Simulated Vector Generation (8 dimensions) ---
@@ -82,6 +96,17 @@ function seedKnowledge() {
     HISTORY: ["Abbasid Golden Age", "Ottoman Millet System", "Islamic Spain", "Mamluk Sultanate", "Silk Road Networks", "Mongol Invasions", "Crusades Impact", "Rashidun Caliphate", "Umayyad Expansion", "Fatimid Civilization"],
     MEDICINE: ["Evidence-Based Medicine", "Immunology Basics", "Viral Pathogenesis", "Clinical Trials Design", "Public Health Policy", "Genomic Medicine", "Epidemiology Models", "Veterinary Diagnostics", "One Health Approach", "Precision Medicine"],
     ENGINEERING: ["Control Systems", "Signal Processing", "Finite Element Analysis", "Systems Reliability", "Design Patterns", "API Gateway Patterns", "Load Balancing", "Circuit Breakers", "Rate Limiting", "Observability Stack"],
+    AGRICULTURE: ["Precision Farming", "Hydroponics", "Crop Rotation", "Soil Science", "Pest Management", "Irrigation Systems", "Vertical Farming", "Agricultural Drones", "Sustainable Agriculture", "Livestock Genetics"],
+    ENERGY: ["Solar PV", "Wind Turbines", "Battery Storage", "Smart Grid", "Hydrogen Economy", "Nuclear Fission", "Geothermal", "Energy Efficiency", "Carbon Capture", "Offshore Wind"],
+    EDUCATION: ["Bloom's Taxonomy", "Flipped Classroom", "Competency-Based Learning", "Learning Analytics", "MOOC Design", "Gamification", "Formative Assessment", "Differentiated Instruction", "Educational Psychology", "Curriculum Mapping"],
+    TRANSPORTATION: ["Last-Mile Delivery", "Autonomous Vehicles", "Hyperloop", "Electric Aviation", "Port Optimization", "Traffic Modeling", "Cold Chain Logistics", "Mobility as a Service", "Drone Delivery", "Rail Electrification"],
+    MANUFACTURING: ["Six Sigma", "Additive Manufacturing", "Digital Twin", "Predictive Maintenance", "Robotic Process Automation", "Quality Management", "Lean Production", "Supply Chain 4.0", "Computer Vision QC", " Collaborative Robots"],
+    FINANCE: ["Portfolio Theory", "Derivatives Pricing", "Credit Risk Modeling", "Algorithmic Trading", "RegTech", "Open Banking", "Wealth Management", "Microfinance", "Cryptocurrency Markets", "Stress Testing"],
+    LEGAL: ["Smart Contracts", "GDPR Compliance", "Arbitration", "IP Licensing", "Legal NLP", "Due Process", "International Law", "Data Privacy", "Mergers & Acquisitions", "Legal Tech"],
+    MEDIA: ["Audience Analytics", "Content Personalization", "Programmatic Advertising", "OTT Platforms", "Podcasting", "Social Listening", "Brand Safety", "Influencer Metrics", "Streaming Architecture", "News Aggregation"],
+    ENVIRONMENT: ["Life Cycle Assessment", "Biodiversity Metrics", "Carbon Footprint", "Circular Economy", "Water Scarcity", "Renewable Materials", "Ecosystem Services", "Climate Adaptation", "Green Building", "Waste Management"],
+    SOCIAL: ["Community Engagement", "Impact Measurement", "Social Enterprise", "Humanitarian Logistics", "Public Health Policy", "Youth Development", "Gender Equality", "Refugee Support", "Volunteer Management", "Civic Tech"],
+    DEFENSE: ["Cyber Threat Intelligence", "Zero Trust Architecture", "Electronic Warfare", "Surveillance Systems", "Crisis Response", "Defense Economics", "Geopolitical Analysis", "Border Security", "Biometric Authentication", "Critical Infrastructure Protection"],
   };
 
   let idCounter = 0;

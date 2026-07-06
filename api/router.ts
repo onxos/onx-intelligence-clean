@@ -11,6 +11,7 @@ import { knowledgeRouter } from "./knowledge-router";
 import { titanKbRouter } from "./titan-kb-router";
 import { vetIntelligenceRouter } from "./vet-intelligence-router";
 import { institutionalRouter } from "./institutional-router";
+import { skillsRouter } from "./skills-router";
 import { createRouter, publicQuery } from "./middleware";
 
 export const appRouter = createRouter({
@@ -28,6 +29,7 @@ export const appRouter = createRouter({
   titanKb: titanKbRouter,
   vet: vetIntelligenceRouter,
   institutional: institutionalRouter,
+  skills: skillsRouter,
 });
 
 export type AppRouter = typeof appRouter;
