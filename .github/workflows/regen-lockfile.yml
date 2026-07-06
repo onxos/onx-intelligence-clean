@@ -1,0 +1,22 @@
+name: Regenerate package-lock.json
+on:
+  workflow_dispatch:
+jobs:
+  regen:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --package-lock-only
+      - run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Actions"
+          git add package-lock.json
+          git commit -m "chore: regenerate lockfile" || echo "No changes"
+          git push origin main
