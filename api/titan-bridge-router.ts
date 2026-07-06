@@ -8,8 +8,16 @@ import OpenAI from "openai";
 import { createRouter, publicQuery } from "./middleware";
 import { env } from "./lib/env";
 
-// --- Initialize OpenAI client ---
-const openai = new OpenAI({ apiKey: env.openAiApiKey });
+// --- Lazy OpenAI client (server starts even without key) ---
+let openai: OpenAI | null = null;
+function getOpenAI(): OpenAI {
+  if (!openai) {
+    const key = env.openAiApiKey || process.env.OPENAI_API_KEY;
+    if (!key) throw new Error("OPENAI_API_KEY_NOT_CONFIGURED: Set OPENAI_API_KEY in Render Dashboard > Environment");
+    openai = new OpenAI({ apiKey: key });
+  }
+  return openai;
+}
 
 // ============================================================
 // TITAN PERSONAS — System Prompts (Bilingual Arabic + English)
@@ -220,7 +228,7 @@ async function callTitan(
   session.messages.push({ role: "user", content: userMessage });
 
   // Call GPT-4o
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model: titan.model,
     messages: session.messages as any,
     temperature: titan.temperature,
