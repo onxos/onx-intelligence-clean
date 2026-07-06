@@ -1,0 +1,7 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ONX Intelligence v2 minimal infrastructure placeholder
+Resources:
+  OnxBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: onx-intelligence-v2-artifacts

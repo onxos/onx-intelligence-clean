@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: onx-intelligence-clean
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: standard
+    autoDeploy: true
+    healthCheckPath: /api/trpc/health.ping
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        value: ./db/onx.sqlite

@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #f6f2e8;
+  --ink: #1f2937;
+  --accent: #b45309;
+  --support: #4d7c0f;
+}
+
+body {
+  margin: 0;
+  background: radial-gradient(circle at 20% 10%, #fffaf0 0%, #f6f2e8 50%, #efe7d7 100%);
+  color: var(--ink);
+  font-family: "Noto Naskh Arabic", "Tajawal", "Segoe UI", sans-serif;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.shell {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 1.25rem;
+}

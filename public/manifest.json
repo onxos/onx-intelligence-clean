@@ -1,0 +1,8 @@
+{
+  "name": "ONX Intelligence v2",
+  "short_name": "ONX v2",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f2e8",
+  "theme_color": "#b45309"
+}
