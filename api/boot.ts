@@ -1,7 +1,6 @@
 import cors from "cors";
 import express from "express";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { appRouter } from "./root";
 
@@ -19,9 +18,7 @@ app.use(
   })
 );
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const webRoot = path.resolve(__dirname, "../..");
-const distDir = path.resolve(webRoot, "dist");
+const distDir = path.resolve(process.cwd(), "dist");
 
 app.use(express.static(distDir));
 app.get("*", (_req, res) => {
