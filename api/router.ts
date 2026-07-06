@@ -18,6 +18,7 @@ import { cevpRouter } from "./cevp-router";
 import { ccopRouter } from "./ccop-router";
 import { cosRouter } from "./cos-router";
 import { ucrRouter } from "./ucr-router";
+import { schedulerRouter } from "./scheduler-router";
 import { createRouter, publicQuery } from "./middleware";
 
 export const appRouter = createRouter({
@@ -42,6 +43,7 @@ export const appRouter = createRouter({
   ccop: ccopRouter,
   cos: cosRouter,
   ucr: ucrRouter,
+  scheduler: schedulerRouter,
 });
 
 export type AppRouter = typeof appRouter;
