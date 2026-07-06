@@ -9,6 +9,8 @@ import { authHardeningRouter } from "./auth-hardening-router";
 import { aiBrainRouter } from "./ai-brain-router";
 import { knowledgeRouter } from "./knowledge-router";
 import { titanKbRouter } from "./titan-kb-router";
+import { vetIntelligenceRouter } from "./vet-intelligence-router";
+import { institutionalRouter } from "./institutional-router";
 import { createRouter, publicQuery } from "./middleware";
 
 export const appRouter = createRouter({
@@ -24,6 +26,8 @@ export const appRouter = createRouter({
   aiBrain: aiBrainRouter,
   knowledge: knowledgeRouter,
   titanKb: titanKbRouter,
+  vet: vetIntelligenceRouter,
+  institutional: institutionalRouter,
 });
 
 export type AppRouter = typeof appRouter;
