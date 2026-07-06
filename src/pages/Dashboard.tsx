@@ -22,7 +22,9 @@ import {
   Lock,
   BarChart3,
   CircleDot,
+  Sparkles,
 } from "lucide-react";
+import { useNavigate } from "react-router";
 
 // ============================================================
 // ONX INTELLIGENCE ADMIN DASHBOARD
@@ -57,6 +59,7 @@ const TYPE_ICONS: Record<string, typeof Brain> = {
 };
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [selectedObject, setSelectedObject] = useState<string | null>(null);
   const [intendForm, setIntendForm] = useState({
     content: "",
@@ -146,6 +149,15 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-indigo-500/50 text-indigo-400 hover:bg-indigo-950"
+              onClick={() => navigate("/ask")}
+            >
+              <Sparkles className="w-4 h-4 mr-1" />
+              Titan Bridge
+            </Button>
             <Badge variant="outline" className="border-emerald-500/50 text-emerald-400">
               <Lock className="w-3 h-3 mr-1" />
               Amanah Floor: 0.50
