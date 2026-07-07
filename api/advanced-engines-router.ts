@@ -313,7 +313,10 @@ export class BehavioralProfiler {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export class AdaptiveDashboard {
-  constructor(private profiler: BehavioralProfiler) {}
+  private profiler: BehavioralProfiler;
+  constructor(profilerInstance: BehavioralProfiler) {
+    this.profiler = profilerInstance;
+  }
 
   generateLayout(userId: string) {
     const profile = this.profiler.getProfile(userId);
@@ -503,7 +506,7 @@ export const profilerRouter = createRouter({
   track: publicQuery
     .input(z.object({
       userId: z.string(),
-      event: z.object({ type: z.string(), target: z.string().optional(), metadata: z.record(z.unknown()).optional() }),
+      event: z.object({ type: z.string(), target: z.string().optional(), metadata: z.record(z.string(), z.unknown()).optional() }),
     }))
     .mutation(({ input }) => {
       behavioralProfiler.trackEvent(input.userId, input.event);

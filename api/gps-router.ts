@@ -45,11 +45,7 @@ interface DelayAlert {
   messageAr: string;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Pilot GPS Data — 5 Mobile Clinic Vehicles
-// ─────────────────────────────────────────────────────────────────────────────
-
-const VEHICLES = ["MC-001", "MC-002", "MC-003", "MC-004", "MC-005"];
 
 const positions: Map<string, GpsPosition> = new Map([
   ["MC-001", { vehicleId: "MC-001", lat: 24.6877, lng: 46.7219, speed: 45, heading: 90, timestamp: new Date(), address: "طريق الملك عبدالعزيز، الرياض" }],

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { trpc } from "../lib/trpc";
 import BackButton from "../components/BackButton";
 
