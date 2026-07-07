@@ -34,12 +34,16 @@ jobs:
       - name: Test runtime startup
         run: |
           echo "=== Starting server ==="
-          node --trace-uncaught dist/boot.js &
+          node dist/boot.js &
           SERVER_PID=$!
           echo "Server PID: $SERVER_PID"
           sleep 4
-          echo "--- health check ---"
-          curl -sv http://127.0.0.1:10000/api/trpc/health.ping 2>&1 || echo "HEALTH_CHECK_FAILED"
+          echo "--- health check IPv4 ---"
+          curl -sf http://127.0.0.1:10000/api/trpc/health.ping 2>&1 || echo "IPv4 FAILED"
+          echo "--- health check localhost ---"
+          curl -sf http://localhost:10000/api/trpc/health.ping 2>&1 || echo "localhost FAILED"
+          echo "--- port check ---"
+          ss -tlnp | grep 10000 || echo "Not listening on 10000"
           echo "--- kill server ---"
           kill $SERVER_PID 2>/dev/null
         env:
