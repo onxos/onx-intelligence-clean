@@ -1,0 +1,34 @@
+name: Remove BOM from package.json
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  fix-bom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Remove UTF-8 BOM from package.json
+        run: |
+          python3 - <<'PY'
+          import os
+          path = "package.json"
+          with open(path, "rb") as f:
+              raw = f.read()
+          BOM = b'\xef\xbb\xbf'
+          if raw.startswith(BOM):
+              with open(path, "wb") as f:
+                  f.write(raw[3:])
+              print("BOM removed from package.json")
+          else:
+              print("No BOM found in package.json")
+          PY
+
+      - name: Commit if changed
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+          git diff --quiet package.json || (git add package.json && git commit -m "fix: remove UTF-8 BOM from package.json" && git push)
