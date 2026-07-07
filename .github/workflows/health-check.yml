@@ -9,3 +9,11 @@ jobs:
         run: |
           echo "=== Testing live endpoint ==="
           curl -sf https://onx-intelligence-clean.onrender.com/api/trpc/health.ping && echo " ? LIVE" || echo " ? FAILED"
+
+      - name: Latest deploy status
+        run: |
+          RESP=$(curl -s \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            "https://api.render.com/v1/services/srv-d8vkfs5aeets73d5gkcg/deploys?limit=1")
+          STATUS=$(echo $RESP | python3 -c 'import sys,json; d=json.load(sys.stdin); dep=d[0]["deploy"]; print(dep["status"], dep.get("finishedAt","in-progress"))')
+          echo "Deploy: $STATUS"
