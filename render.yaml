@@ -89,6 +89,11 @@ services:
         value: "true"
       - key: PRESERVE_DB_ON_DEPLOY
         value: "true"
+      # Platform↔Intelligence Bridge (locked by default until V6 gate approval)
+      - key: BRIDGE_ENABLED
+        value: "false"
+      - key: BRIDGE_SHARED_SECRET
+        sync: false
 
   # ---- Staging Environment ----
   - type: web
@@ -133,6 +138,11 @@ services:
         value: "true"
       - key: FEATURE_KNOWLEDGE_BASE
         value: "true"
+      # Platform↔Intelligence Bridge (locked by default until V6 gate approval)
+      - key: BRIDGE_ENABLED
+        value: "false"
+      - key: BRIDGE_SHARED_SECRET
+        sync: false
 
   # ---- Optional: Background Worker (Consciousness Scheduler) ----
   - type: worker
