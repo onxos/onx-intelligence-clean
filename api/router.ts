@@ -29,6 +29,7 @@ import { revenueEngineRouter } from "./revenue-engine-router";
 import { domainServicesRouter } from "./domain-services-router";
 import { corpusQueryRouter } from "./corpus-query-router";
 import { intentEngineRouter } from "./intent-engine-router";
+import { iucRouter } from "./iuc-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -83,6 +84,8 @@ export const appRouter = createRouter({
   test: testRouter,
   // Phase 3: Domain Services (D01/D05/D06/D08/D14/D15/D18)
   domains: domainServicesRouter,
+  // Track I — Intelligence core: IUC engine (I-M4) + IURG object model
+  iuc: iucRouter,
   // Platform contract aliases
   bridge: titanBridgeRouter,
   corpusQuery: corpusQueryRouter,
