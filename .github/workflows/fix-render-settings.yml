@@ -1,37 +1,32 @@
-name: Fix Render Service Settings
+﻿name: Fix Render Service Settings
 on:
   workflow_dispatch:
 jobs:
   fix-render:
     runs-on: ubuntu-latest
     steps:
-      - name: Get current service config
-        id: get_service
+      - name: Show raw service config
         run: |
+          echo "=== Render API v1 raw response ==="
           curl -s -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
-            "https://api.render.com/v1/services/srv-d8vkfs5aeets73d5gkcg" \
-            | jq '{type, runtime: .serviceDetails.runtime, dockerfilePath: .serviceDetails.dockerfilePath, buildCommand: .serviceDetails.buildCommand}'
+            "https://api.render.com/v1/services/srv-d8vkfs5aeets73d5gkcg"
+          echo ""
 
-      - name: Fix Dockerfile path to ./Dockerfile
+      - name: Try PATCH with Render API v1
         run: |
-          RESPONSE=$(curl -s -w "\n%{http_code}" -X PATCH \
+          echo "=== PATCH dockerfilePath ==="
+          curl -s -w "\nHTTP:%{http_code}" -X PATCH \
             -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
             -H "Content-Type: application/json" \
-            -d '{"serviceDetails":{"dockerfilePath":"./Dockerfile"}}' \
-            "https://api.render.com/v1/services/srv-d8vkfs5aeets73d5gkcg")
-          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-          BODY=$(echo "$RESPONSE" | head -1)
-          echo "HTTP $HTTP_CODE"
-          echo "$BODY" | jq '{name, serviceDetails: .serviceDetails}' 2>/dev/null || echo "$BODY"
+            -d '{"dockerfilePath":"./Dockerfile"}' \
+            "https://api.render.com/v1/services/srv-d8vkfs5aeets73d5gkcg"
+          echo ""
 
-      - name: Trigger new deploy
+      - name: Trigger deploy via API
         run: |
-          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+          echo "=== Trigger deploy ==="
+          curl -s -w "\nHTTP:%{http_code}" -X POST \
             -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
             -H "Content-Type: application/json" \
             -d '{"clearCache":"do_not_clear"}' \
-            "https://api.render.com/v1/services/srv-d8vkfs5aeets73d5gkcg/deploys")
-          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-          BODY=$(echo "$RESPONSE" | head -1)
-          echo "Deploy triggered HTTP $HTTP_CODE"
-          echo "$BODY" | jq '{id, status, commit: .commit.message}' 2>/dev/null || echo "$BODY"
+            "https://api.render.com/v1/services/srv-d8vkfs5aeets73d5gkcg/deploys"
