@@ -34,10 +34,14 @@ jobs:
       - name: Test runtime startup
         run: |
           echo "=== Starting server ==="
-          node dist/boot.js &
+          node dist/boot.js > /tmp/server.stdout 2> /tmp/server.stderr &
           SERVER_PID=$!
           echo "Server PID: $SERVER_PID"
-          sleep 5
+          sleep 8
+          echo "--- stdout ---"
+          cat /tmp/server.stdout || echo "(empty)"
+          echo "--- stderr ---"
+          cat /tmp/server.stderr || echo "(empty)"
           echo "--- all listening ports ---"
           ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || echo "no ss/netstat"
           echo "--- process state ---"
