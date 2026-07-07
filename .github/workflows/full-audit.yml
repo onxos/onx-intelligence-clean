@@ -1,0 +1,129 @@
+name: Full System Audit
+on:
+  workflow_dispatch:
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update Render env vars
+        run: |
+          # Get existing env vars
+          EXISTING=$(curl -s \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            "https://api.render.com/v1/services/srv-d8vkfs5aeets73d5gkcg/env-vars")
+
+          python3 << 'PYEOF'
+          import json, subprocess
+
+          existing_raw = """${{ toJSON(fromJSON('[]')) }}"""
+          try:
+              resp = subprocess.run([
+                  "curl", "-s",
+                  "-H", "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}",
+                  "https://api.render.com/v1/services/srv-d8vkfs5aeets73d5gkcg/env-vars"
+              ], capture_output=True, text=True)
+              env_list = json.loads(resp.stdout)
+          except Exception as e:
+              print(f"Error fetching: {e}")
+              env_list = []
+
+          env_dict = {}
+          for item in env_list:
+              ev = item.get("envVar") or item
+              k = ev.get("key", "")
+              v = ev.get("value", "")
+              if k:
+                  env_dict[k] = v
+
+          # Set/override known values
+          updates = {
+              "OPENAI_API_KEY":  "${{ secrets.OPENAI_API_KEY }}",
+              "OWNER_UNION_ID":  "${{ secrets.OWNER_UNION_ID }}",
+              "APP_ID":          "${{ secrets.KIMI_APP_ID }}",
+          }
+          for k, v in updates.items():
+              if v and v != "":
+                  env_dict[k] = v
+
+          payload = [{"key": k, "value": v} for k, v in env_dict.items()]
+          print(f"Setting {len(payload)} vars: {[p['key'] for p in payload]}")
+
+          result = subprocess.run([
+              "curl", "-s", "-w", "\nHTTP:%{http_code}",
+              "-X", "PUT",
+              "-H", "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}",
+              "-H", "Content-Type: application/json",
+              "-d", json.dumps(payload),
+              "https://api.render.com/v1/services/srv-d8vkfs5aeets73d5gkcg/env-vars"
+          ], capture_output=True, text=True)
+          last = result.stdout.split('\n')[-1]
+          print(f"Result: {last}")
+          PYEOF
+
+      - name: Verify env vars in Render
+        run: |
+          echo "=== Current Render env vars ==="
+          curl -s \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            "https://api.render.com/v1/services/srv-d8vkfs5aeets73d5gkcg/env-vars" \
+            | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          keys = []
+          for item in d:
+              ev = item.get('envVar') or item
+              k = ev.get('key','')
+              if k: keys.append(k)
+          required = ['OPENAI_API_KEY','OWNER_UNION_ID','APP_ID','APP_SECRET','DATABASE_URL','JWT_SECRET','NODE_ENV','PORT']
+          print('Set keys:', keys)
+          for r in required:
+              status = '✅' if r in keys else '❌ MISSING'
+              print(f'  {status}  {r}')
+          "
+
+      - name: Test all router endpoints
+        run: |
+          BASE="https://onx-intelligence-clean.onrender.com/api/trpc"
+          pass=0; fail=0
+
+          check() {
+            local name=$1; local url=$2
+            resp=$(curl -sf "$url" 2>/dev/null)
+            if echo "$resp" | grep -q '"result"'; then
+              echo "  ✅ $name"
+              pass=$((pass+1))
+            else
+              echo "  ❌ $name — $resp"
+              fail=$((fail+1))
+            fi
+          }
+
+          echo "=== Router Health Check ==="
+          check "health.ping"              "$BASE/health.ping"
+          check "titan.listTitans"         "$BASE/titan.listTitans"
+          check "constitution.principles"  "$BASE/constitution.principles"
+          check "knowledge.stats"          "$BASE/knowledge.stats"
+          check "skills.list"              "$BASE/skills.list"
+          check "scheduler.status"         "$BASE/scheduler.status"
+          check "scheduler.stats"          "$BASE/scheduler.stats"
+          check "cep.principles"           "$BASE/cep.principles"
+          check "ocpp.status"              "$BASE/ocpp.status"
+          check "cevp.status"              "$BASE/cevp.status"
+          check "ccop.status"              "$BASE/ccop.status"
+          check "cos.status"               "$BASE/cos.status"
+          check "ucr.status"               "$BASE/ucr.status"
+          check "aiBrain.status"           "$BASE/aiBrain.status"
+          check "vet.categories"           "$BASE/vet.categories"
+          check "modelFederation.status"   "$BASE/modelFederation.status"
+          check "modelGateway.status"      "$BASE/modelGateway.status"
+          check "toolGateway.tools"        "$BASE/toolGateway.tools"
+          check "runtime.status"           "$BASE/runtime.status"
+          check "institutional.status"     "$BASE/institutional.status"
+          check "intelligence.status"      "$BASE/intelligence.status"
+          check "authHardening.status"     "$BASE/authHardening.status"
+          check "titanKb.search"           "$BASE/titanKb.search?input=%7B%22json%22%3A%7B%22query%22%3A%22test%22%7D%7D"
+          check "ping (root)"              "$BASE/ping"
+
+          echo ""
+          echo "=== Summary: $pass passed / $((pass+fail)) total ==="
+          [ $fail -eq 0 ] && echo "🎉 ALL ROUTERS OK" || echo "⚠️ $fail routers need attention"
