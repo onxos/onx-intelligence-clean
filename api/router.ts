@@ -32,6 +32,7 @@ import { intentEngineRouter } from "./intent-engine-router";
 import { iucRouter } from "./iuc-router";
 import { measurementRouter } from "./measurement-router";
 import { ficRouter } from "./fic-router";
+import { conflictRouter } from "./conflict-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -90,6 +91,7 @@ export const appRouter = createRouter({
   iuc: iucRouter,
   measurement: measurementRouter,
   fic: ficRouter,
+  conflict: conflictRouter,
   // Platform contract aliases
   bridge: titanBridgeRouter,
   corpusQuery: corpusQueryRouter,
