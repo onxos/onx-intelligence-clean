@@ -3,8 +3,6 @@ import BackButton from '../components/BackButton'
 
 export default function ConstitutionalDashboard() {
   const principlesQ = trpc.constitution.principles.useQuery()
-  const guardianQ = trpc.constitution.guardianStatus?.useQuery?.() ?? { data: null }
-  const statsQ = trpc.constitution.stats?.useQuery?.() ?? { data: null }
   const testMut = trpc.test.intelligence.useMutation()
   const civilMut = trpc.test.civilization.useMutation()
   const gherkinQ = trpc.test.gherkin.useQuery()
