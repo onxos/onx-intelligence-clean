@@ -1,0 +1,11 @@
+name: Health Check
+on:
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Live health check
+        run: |
+          echo "=== Testing live endpoint ==="
+          curl -sf https://onx-intelligence-clean.onrender.com/api/trpc/health.ping && echo " ? LIVE" || echo " ? FAILED"
