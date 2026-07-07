@@ -1,5 +1,7 @@
 # ONX Intelligence — وثيقة التنفيذ الرئيسية الموحدة (MED v1.0)
 
+> ⚠️ **SUPERSEDED BY v2.0** — هذه النسخة محفوظة للسجل (HC-04: append-only). النسخة النافذة: `ONX_MASTER_EXECUTION_DOCUMENT_v2.0.md`
+
 ## Master Execution Document — التغطية الكاملة 100%
 
 **الإصدار:** 1.0 — وثيقة تنفيذ نهائية
