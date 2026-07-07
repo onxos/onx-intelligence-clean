@@ -39,6 +39,11 @@ jobs:
         continue-on-error: true
         id: build_backend
 
+      - name: Unit Tests (vitest)
+        run: npx vitest run
+        continue-on-error: true
+        id: unit_tests
+
       - name: Summary
         run: |
           echo "## Build & TypeCheck Results" >> $GITHUB_STEP_SUMMARY
@@ -49,6 +54,7 @@ jobs:
           echo "| TypeScript App | ${{ steps.ts_app.outcome }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Frontend Build | ${{ steps.build_frontend.outcome }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Backend Build | ${{ steps.build_backend.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Unit Tests (vitest) | ${{ steps.unit_tests.outcome }} |" >> $GITHUB_STEP_SUMMARY
 
   live-evidence-check:
     runs-on: ubuntu-latest
