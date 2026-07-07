@@ -33,6 +33,7 @@ import { iucRouter } from "./iuc-router";
 import { measurementRouter } from "./measurement-router";
 import { ficRouter } from "./fic-router";
 import { conflictRouter } from "./conflict-router";
+import { purposeRouter } from "./purpose-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -92,6 +93,7 @@ export const appRouter = createRouter({
   measurement: measurementRouter,
   fic: ficRouter,
   conflict: conflictRouter,
+  purpose: purposeRouter,
   // Platform contract aliases
   bridge: titanBridgeRouter,
   corpusQuery: corpusQueryRouter,
