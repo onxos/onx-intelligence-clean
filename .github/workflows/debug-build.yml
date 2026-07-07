@@ -1,0 +1,32 @@
+name: Debug Build
+on:
+  workflow_dispatch:
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: npm ci
+        run: npm ci
+
+      - name: vite build
+        run: npx vite build
+
+      - name: esbuild api/boot.ts
+        run: |
+          npx esbuild api/boot.ts \
+            --platform=node \
+            --bundle \
+            --format=esm \
+            --outdir=dist \
+            --tsconfig=tsconfig.server.json \
+            --banner:js="import{createRequire}from'module';const require=createRequire(import.meta.url);"
+
+      - name: Check dist output
+        run: ls -lh dist/
