@@ -24,6 +24,9 @@
       ],
       "@db/*": [
         "./db/*"
+      ],
+      "@onx/intelligence-runtime": [
+        "./packages/intelligence-runtime/index.ts"
       ]
     },
     "moduleResolution": "bundler",
@@ -40,6 +43,7 @@
     "noUncheckedSideEffectImports": true
   },
   "include": [
-    "src"
+    "src",
+    "packages"
   ]
 }
