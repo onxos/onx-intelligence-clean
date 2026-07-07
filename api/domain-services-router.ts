@@ -4,7 +4,7 @@
 // Covers: Call Center, Inventory, CRM, Analytics, BI, Branches, Notifications
 // =============================================================================
 import { z } from "zod";
-import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { createRouter, publicQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import {
@@ -231,7 +231,7 @@ const analyticsRouter = createRouter({
       type: z.enum(["DAILY", "WEEKLY", "MONTHLY", "QUARTERLY", "ANNUAL", "MOA_GOVERNMENT", "CLINICAL", "FINANCIAL", "OPERATIONAL"]),
       title: z.string(),
       period: z.string(),
-      data: z.record(z.unknown()),
+      data: z.record(z.string(), z.unknown()),
       moaFormat: z.boolean().default(false),
     }))
     .mutation(async ({ input }) => {
@@ -448,7 +448,7 @@ const labRouter = createRouter({
       sessionId: z.string().optional(),
       testType: z.enum(["CBC", "BIOCHEMISTRY", "URINALYSIS", "MICROBIOLOGY", "PARASITOLOGY", "SEROLOGY", "PATHOLOGY", "IMAGING"]),
       testName: z.string(),
-      results: z.record(z.unknown()),
+      results: z.record(z.string(), z.unknown()),
     }))
     .mutation(async ({ input }) => {
       const db = getDb();
