@@ -1,0 +1,24 @@
+name: Debug Docker Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  docker-build-debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Build Docker image (verbose)
+        run: |
+          echo "=== Starting Docker build ==="
+          docker build -f Node -t onx-test . 2>&1 | tee /tmp/build.log
+          echo "=== Build exit code: $? ==="
+
+      - name: Upload build log
+        if: always()
+        run: |
+          echo "=== Build log (last 100 lines) ==="
+          tail -100 /tmp/build.log
