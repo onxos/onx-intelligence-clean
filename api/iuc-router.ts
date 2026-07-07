@@ -85,6 +85,11 @@ function seedGraph(): IurgContinuityGraph {
 let graph = seedGraph();
 const tucHistory: number[] = [];
 
+/** Live IURG objects — shared with the D17 measurement engine. */
+export function listLiveObjects() {
+  return graph.list();
+}
+
 export const iucRouter = createRouter({
   // --- The 16 IURG object types (§2.1) ---
   objectTypes: publicQuery.query(() => ({

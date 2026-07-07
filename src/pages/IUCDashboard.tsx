@@ -7,6 +7,18 @@ const STATUS_STYLE: Record<string, string> = {
   RED: "text-red-400 border-red-700 bg-red-950/40",
 }
 
+const PROGRESS_STYLE: Record<string, string> = {
+  ACCUMULATING: "text-green-400",
+  STABILIZING: "text-gray-400",
+  DECLINING: "text-red-400",
+}
+
+const PROGRESS_ICON: Record<string, string> = {
+  ACCUMULATING: "↑ تراكم",
+  STABILIZING: "→ استقرار",
+  DECLINING: "↓ تراجع",
+}
+
 const CATEGORY_STYLE: Record<string, string> = {
   CORE: "text-cyan-300 border-cyan-800",
   CONSTRAINT: "text-amber-300 border-amber-800",
@@ -33,12 +45,14 @@ export default function IUCDashboard() {
   const graphQ = trpc.iuc.graph.useQuery()
   const statsQ = trpc.iuc.stats.useQuery()
   const pendingQ = trpc.iuc.pending.useQuery()
+  const measurementQ = trpc.measurement.snapshot.useQuery()
 
   const refetchAll = () => {
-    snapshotQ.refetch(); graphQ.refetch(); statsQ.refetch(); pendingQ.refetch()
+    snapshotQ.refetch(); graphQ.refetch(); statsQ.refetch(); pendingQ.refetch(); measurementQ.refetch()
   }
 
   const commitMut = trpc.iuc.commit.useMutation({ onSuccess: () => { snapshotQ.refetch() } })
+  const measCommitMut = trpc.measurement.commit.useMutation({ onSuccess: () => { measurementQ.refetch() } })
   const applyMut = trpc.iuc.applyPromotion.useMutation({ onSuccess: refetchAll })
   const approveMut = trpc.iuc.approveGate.useMutation({ onSuccess: refetchAll })
 
@@ -52,11 +66,11 @@ export default function IUCDashboard() {
           <div>
             <h1 className="text-3xl font-bold text-emerald-400">🧠 لوحة رأس مال الفهم (IUC)</h1>
             <p className="text-gray-400 mt-1">
-              Intelligence Understanding Capital — 11 مؤشراً حياً فوق رسم الواقع IURG (I-M4)
+              Intelligence Understanding Capital — 11 مؤشراً + 6 مؤشرات جودة D17 فوق رسم الواقع IURG (I-M4/I-M5)
             </p>
           </div>
           <button
-            onClick={() => commitMut.mutate()}
+            onClick={() => { commitMut.mutate(); measCommitMut.mutate() }}
             disabled={commitMut.isPending}
             className="bg-emerald-800 hover:bg-emerald-700 disabled:opacity-50 px-4 py-2 rounded-lg text-sm font-bold"
           >
@@ -119,6 +133,36 @@ export default function IUCDashboard() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* D17 — 6 quality indices (measurement engine) */}
+        {measurementQ.data && (
+          <div className="bg-gray-900 border border-indigo-800 rounded-xl p-6 mb-6">
+            <h2 className="text-xl font-bold mb-1 text-indigo-300">📐 مؤشرات الجودة الست — D17</h2>
+            <p className="text-gray-500 text-xs mb-4">
+              محرك القياس فوق نفس رسم IURG الحي · {measurementQ.data.objectCount} كائناً (I-M5)
+            </p>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {measurementQ.data.indices.map((ix) => (
+                <div
+                  key={ix.key}
+                  className={`rounded-xl p-4 border ${STATUS_STYLE[ix.status] ?? "border-gray-700"}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-sm">{ix.key}</span>
+                    <span className={`text-[10px] font-bold ${PROGRESS_STYLE[ix.progress] ?? "text-gray-400"}`}>
+                      {PROGRESS_ICON[ix.progress] ?? ix.progress}
+                    </span>
+                  </div>
+                  <div className="text-2xl font-bold mt-2">{(ix.value * 100).toFixed(1)}%</div>
+                  <div className="text-gray-400 text-[11px] mt-1 leading-tight">{ix.label}</div>
+                  <div className="text-gray-500 text-[10px] mt-1">
+                    الهدف {ix.direction === "min" ? "≥" : "≤"} {(ix.target * 100).toFixed(0)}%
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
