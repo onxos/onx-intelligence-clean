@@ -33,7 +33,16 @@ jobs:
 
       - name: Test runtime startup
         run: |
-          echo "=== Starting server for 5 seconds ==="
-          timeout 5 env NODE_ENV=production PORT=10000 DATABASE_URL="sqlite:///tmp/test.db" APP_ID=test APP_SECRET=test KIMI_AUTH_URL=https://auth.kimi.com KIMI_OPEN_URL=https://open.kimi.com node dist/boot.js 2>&1 || true
-          echo "=== Checking health endpoint ==="
-          timeout 3 curl -sf http://localhost:10000/api/trpc/health.ping || echo "Health check: server not running or unhealthy"
+          echo "=== Starting server in background ==="
+          NODE_ENV=production PORT=10000 DATABASE_URL="sqlite:///tmp/test.db" APP_ID=test APP_SECRET=test KIMI_AUTH_URL=https://auth.kimi.com KIMI_OPEN_URL=https://open.kimi.com node dist/boot.js > /tmp/server.log 2>&1 &
+          SERVER_PID=$!
+          echo "Server PID: $SERVER_PID"
+          sleep 3
+          echo "=== Server stdout/stderr so far ==="
+          cat /tmp/server.log || echo "(no output)"
+          echo "=== Health check ==="
+          curl -sf http://localhost:10000/api/trpc/health.ping 2>&1 || echo "HEALTH CHECK FAILED"
+          echo "=== Killing server ==="
+          kill $SERVER_PID 2>/dev/null || echo "Server already exited"
+          echo "=== Full server log ==="
+          cat /tmp/server.log || echo "(no output)"
