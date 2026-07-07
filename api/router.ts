@@ -47,6 +47,7 @@ export const appRouter = createRouter({
   toolGateway: toolGatewayRouter,
   runtime: runtimeRouter,
   titan: titanBridgeRouter,
+  titanBridge: titanBridgeRouter,
   constitution: constitutionRouter,
   authHardening: authHardeningRouter,
   aiBrain: aiBrainRouter,
@@ -80,6 +81,10 @@ export const appRouter = createRouter({
   test: testRouter,
   // Phase 3: Domain Services (D01/D05/D06/D08/D14/D15/D18)
   domains: domainServicesRouter,
+  // Platform contract aliases
+  bridge: titanBridgeRouter,
+  corpusQuery: knowledgeRouter,
+  intentEngine: intelligenceRouter,
 });
 
 export type AppRouter = typeof appRouter;

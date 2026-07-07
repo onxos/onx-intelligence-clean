@@ -8,6 +8,15 @@ import { appRouter } from "../router";
 const caller = appRouter.createCaller({} as any);
 
 describe("Titan Bridge Router", () => {
+  describe("bridgeStatus", () => {
+    it("should expose bridge gate state", async () => {
+      const result = await caller.titan.bridgeStatus();
+      expect(typeof result.enabled).toBe("boolean");
+      expect(result.bridge).toBe("titanBridge");
+      expect(["ACTIVE", "SAFE_DISABLED"]).toContain(result.mode);
+    });
+  });
+
   describe("listTitans", () => {
     it("should return all 5 Titans", async () => {
       const result = await caller.titan.listTitans();
@@ -110,6 +119,20 @@ describe("Titan Bridge Router", () => {
       expect(result.titans).toBe(5);
       expect(result.providers).toHaveLength(1);
       expect(result.providers[0].name).toBe("OpenAI");
+    });
+  });
+
+  describe("consult bridge contract", () => {
+    it("should block consult when bridge gate is disabled", async () => {
+      const status = await caller.titan.bridgeStatus();
+      if (status.enabled) return;
+
+      await expect(
+        caller.titan.consult({
+          titanId: "prometheus",
+          message: "bridge dry-run",
+        }),
+      ).rejects.toThrow(/BRIDGE_DISABLED/);
     });
   });
 
