@@ -1,0 +1,37 @@
+name: Fix Render Service Settings
+on:
+  workflow_dispatch:
+jobs:
+  fix-render:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get current service config
+        id: get_service
+        run: |
+          curl -s -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            "https://api.render.com/v1/services/srv-d8vkfs5aeets73d5gkcg" \
+            | jq '{type, runtime: .serviceDetails.runtime, dockerfilePath: .serviceDetails.dockerfilePath, buildCommand: .serviceDetails.buildCommand}'
+
+      - name: Fix Dockerfile path to ./Dockerfile
+        run: |
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X PATCH \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"serviceDetails":{"dockerfilePath":"./Dockerfile"}}' \
+            "https://api.render.com/v1/services/srv-d8vkfs5aeets73d5gkcg")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -1)
+          echo "HTTP $HTTP_CODE"
+          echo "$BODY" | jq '{name, serviceDetails: .serviceDetails}' 2>/dev/null || echo "$BODY"
+
+      - name: Trigger new deploy
+        run: |
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"clearCache":"do_not_clear"}' \
+            "https://api.render.com/v1/services/srv-d8vkfs5aeets73d5gkcg/deploys")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -1)
+          echo "Deploy triggered HTTP $HTTP_CODE"
+          echo "$BODY" | jq '{id, status, commit: .commit.message}' 2>/dev/null || echo "$BODY"
