@@ -93,40 +93,69 @@ jobs:
               results="$results\n  ✅ $name"
               pass=$((pass+1))
             else
-              short=$(echo "$resp" | cut -c1-80)
+              short=$(echo "$resp" | python3 -c "import sys; d=sys.stdin.read(); print(d[:100])" 2>/dev/null || echo "$resp" | cut -c1-100)
               results="$results\n  ❌ $name — $short"
               fail=$((fail+1))
             fi
           }
 
+          I='%7B%22json%22%3A%7B%7D%7D'  # URL-encoded {"json":{}}
+
           echo "=== Router Health Check ==="
-          check "health.ping"              "$BASE/health.ping"
-          check "ping (root)"              "$BASE/ping"
-          check "titan.listTitans"         "$BASE/titan.listTitans"
-          check "titan.stats"              "$BASE/titan.stats"
-          check "constitution.principles"  "$BASE/constitution.principles"
-          check "knowledge.stats"          "$BASE/knowledge.stats"
-          check "skills.list"              "$BASE/skills.list"
-          check "scheduler.status"         "$BASE/scheduler.status"
-          check "scheduler.stats"          "$BASE/scheduler.stats"
-          check "cep.status"               "$BASE/cep.status"
-          check "ocpp.status"              "$BASE/ocpp.status"
-          check "cevp.status"              "$BASE/cevp.status"
-          check "ccop.status"              "$BASE/ccop.status"
-          check "cos.status"               "$BASE/cos.status"
-          check "ucr.status"               "$BASE/ucr.status"
-          check "aiBrain.status"           "$BASE/aiBrain.status"
-          check "vet.categories"           "$BASE/vet.categories"
-          check "modelFederation.status"   "$BASE/modelFederation.status"
-          check "modelGateway.status"      "$BASE/modelGateway.status"
-          check "toolGateway.tools"        "$BASE/toolGateway.tools"
-          check "runtime.status"           "$BASE/runtime.status"
-          check "institutional.status"     "$BASE/institutional.status"
-          check "intelligence.status"      "$BASE/intelligence.status"
-          check "authHardening.status"     "$BASE/authHardening.status"
-          check "titanKb.search"           "$BASE/titanKb.search?input=%7B%22json%22%3A%7B%22query%22%3A%22test%22%7D%7D"
+          # Core
+          check "01 health.ping"               "$BASE/health.ping"
+          check "02 health.live"               "$BASE/health.live"
+          check "03 ping"                      "$BASE/ping"
+          # Titan
+          check "04 titan.listTitans"          "$BASE/titan.listTitans"
+          check "05 titan.stats"               "$BASE/titan.stats"
+          # Constitution
+          check "06 constitution.principles"   "$BASE/constitution.principles"
+          # Knowledge
+          check "07 knowledge.stats"           "$BASE/knowledge.stats"
+          # Skills
+          check "08 skills.list"               "$BASE/skills.list"
+          # Scheduler
+          check "09 scheduler.status"          "$BASE/scheduler.status"
+          check "10 scheduler.stats"           "$BASE/scheduler.stats"
+          # CEP (Civilizational Excellence)
+          check "11 cep.report"                "$BASE/cep.report"
+          # OCPP
+          check "12 ocpp.measure"              "$BASE/ocpp.measure"
+          # CEVP
+          check "13 cevp.evolve"               "$BASE/cevp.evolve"
+          # CCOP
+          check "14 ccop.chain"                "$BASE/ccop.chain"
+          # COS
+          check "15 cos.status"                "$BASE/cos.status"
+          # UCR
+          check "16 ucr.certify"               "$BASE/ucr.certify"
+          # AI Brain
+          check "17 aiBrain.context"           "$BASE/aiBrain.context"
+          # Vet Intelligence
+          check "18 vet.stats"                 "$BASE/vet.stats"
+          # Model Federation
+          check "19 modelFederation.providers" "$BASE/modelFederation.providers"
+          check "20 modelFederation.health"    "$BASE/modelFederation.health"
+          # Model Gateway
+          check "21 modelGateway.listProviders" "$BASE/modelGateway.listProviders"
+          # Tool Gateway
+          check "22 toolGateway.listTools"     "$BASE/toolGateway.listTools"
+          # Runtime (nested)
+          check "23 runtime.usfipv2.status"    "$BASE/runtime.usfipv2.status"
+          check "24 runtime.health.status"     "$BASE/runtime.health.status"
+          # Institutional
+          check "25 institutional.list"        "$BASE/institutional.list"
+          # Intelligence
+          check "26 intelligence.list"         "$BASE/intelligence.list"
+          # Auth Hardening
+          check "27 authHardening.listRoles"   "$BASE/authHardening.listRoles"
+          # Titan KB
+          check "28 titanKb.stats"             "$BASE/titanKb.stats"
+          # Auth
+          check "29 auth.me"                   "$BASE/auth.me"
 
           echo -e "$results"
           echo ""
           echo "=== Summary: $pass passed / $((pass+fail)) total ==="
-          [ $fail -eq 0 ] && echo "ALL ROUTERS OK" || echo "WARN: $fail routers need attention"
+          [ $fail -eq 0 ] && echo "ALL ROUTERS OK" || echo "WARN: $fail need attention"
