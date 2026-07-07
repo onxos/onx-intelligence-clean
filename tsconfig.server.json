@@ -17,7 +17,8 @@
     "paths": {
       "@/*": ["./src/*"],
       "@contracts/*": ["./contracts/*"],
-      "@db/*": ["./db/*"]
+      "@db/*": ["./db/*"],
+      "@onx/intelligence-runtime": ["./packages/intelligence-runtime/index.ts"]
     }
   },
   "include": ["api", "contracts", "db"]
