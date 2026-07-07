@@ -3,7 +3,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 COPY . .
-RUN npx vite build && npx esbuild api/boot.ts --platform=node --bundle --format=esm --outdir=dist --banner:js="import{createRequire}from'module';const require=createRequire(import.meta.url);"
+RUN npx vite build && npx esbuild api/boot.ts --platform=node --bundle --format=esm --outdir=dist --tsconfig=tsconfig.server.json --banner:js="import{createRequire}from'module';const require=createRequire(import.meta.url);"
 
 FROM node:20-alpine
 WORKDIR /app
