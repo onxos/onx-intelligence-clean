@@ -4,6 +4,7 @@
 // ============================================================
 import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
+import { getBridgeState } from "./bridge-guard";
 
 // --- Component Health ---
 interface ComponentHealth {
@@ -106,4 +107,20 @@ export const healthRouter = createRouter({
 
   // HT-05: ping — Simple ping
   ping: publicQuery.query(() => ({ pong: true, ts: Date.now() })),
+
+  // HT-06: bridge — Platform↔Intelligence bridge gate status (observability)
+  bridge: publicQuery.query(() => {
+    const state = getBridgeState();
+    return {
+      ...state,
+      mode: state.enabled ? "ACTIVE" : "SAFE_DISABLED",
+      ready: !state.enabled || state.hasSharedSecret,
+      message: !state.enabled
+        ? "Bridge disabled by default. Set BRIDGE_ENABLED=true after V6 gate approval."
+        : state.hasSharedSecret
+          ? "Bridge enabled and secured with shared secret."
+          : "Bridge enabled but BRIDGE_SHARED_SECRET is missing — all bridge traffic will be rejected.",
+      timestamp: new Date().toISOString(),
+    };
+  }),
 });

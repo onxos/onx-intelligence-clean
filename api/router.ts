@@ -27,6 +27,8 @@ import { voiceRouter } from "./voice-router";
 import { gpsRouter } from "./gps-router";
 import { revenueEngineRouter } from "./revenue-engine-router";
 import { domainServicesRouter } from "./domain-services-router";
+import { corpusQueryRouter } from "./corpus-query-router";
+import { intentEngineRouter } from "./intent-engine-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -47,6 +49,7 @@ export const appRouter = createRouter({
   toolGateway: toolGatewayRouter,
   runtime: runtimeRouter,
   titan: titanBridgeRouter,
+  titanBridge: titanBridgeRouter,
   constitution: constitutionRouter,
   authHardening: authHardeningRouter,
   aiBrain: aiBrainRouter,
@@ -80,6 +83,10 @@ export const appRouter = createRouter({
   test: testRouter,
   // Phase 3: Domain Services (D01/D05/D06/D08/D14/D15/D18)
   domains: domainServicesRouter,
+  // Platform contract aliases
+  bridge: titanBridgeRouter,
+  corpusQuery: corpusQueryRouter,
+  intentEngine: intentEngineRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -8,6 +8,7 @@ import OpenAI from "openai";
 import { createRouter, publicQuery } from "./middleware";
 import { env } from "./lib/env";
 import { rateLimiter, budgetController, costDashboard } from "./advanced-engines-router";
+import { assertBridgeAccess, getBridgeState } from "./bridge-guard";
 
 // --- Lazy OpenAI client (server starts even without key) ---
 let openai: OpenAI | null = null;
@@ -260,6 +261,16 @@ async function callTitan(
 // Titan Bridge Router
 // ============================================================
 export const titanBridgeRouter = createRouter({
+  // --- Bridge status for integration gates ---
+  bridgeStatus: publicQuery.query(() => ({
+    ...getBridgeState(),
+    bridge: "titanBridge",
+    mode: env.bridgeEnabled ? "ACTIVE" : "SAFE_DISABLED",
+    message: env.bridgeEnabled
+      ? "Bridge is enabled for cross-repo integration traffic"
+      : "Bridge is disabled by default. Set BRIDGE_ENABLED=true after V6 gate approval.",
+  })),
+
   // --- List all Titans ---
   listTitans: publicQuery.query(() => ({
     titans: Object.values(TITANS).map((t) => ({
@@ -287,6 +298,58 @@ export const titanBridgeRouter = createRouter({
         model: titan.model,
         temperature: titan.temperature,
         systemPrompt: titan.systemPrompt,
+      };
+    }),
+
+  // --- Platform bridge contract: consult ---
+  consult: publicQuery
+    .input(z.object({
+      titanId: z.enum(["prometheus", "athena", "zeus", "hermes", "apollo"]),
+      message: z.string().min(1).max(10000),
+      sessionId: z.string().optional(),
+      workspaceId: z.string().default("default"),
+      source: z.string().default("platform"),
+      correlationId: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      assertBridgeAccess(ctx);
+
+      const rateCheck = rateLimiter.checkLimit(input.workspaceId);
+      if (!rateCheck.allowed) {
+        throw new Error(`RATE_LIMIT_EXCEEDED: ${rateCheck.remaining} remaining, resets at ${rateCheck.resetAt.toISOString()}`);
+      }
+
+      const budgetCheck = budgetController.spend(input.workspaceId, 0.01);
+      if (!budgetCheck.allowed) {
+        throw new Error(`BUDGET_EXHAUSTED: $${budgetCheck.remaining.toFixed(4)} remaining today`);
+      }
+
+      const startTime = Date.now();
+      const result = await callTitan(input.titanId, input.message, input.sessionId);
+      const latency = Date.now() - startTime;
+      const cost = (result.tokensUsed / 1000) * 0.005;
+
+      costDashboard.record("openai", cost, result.tokensUsed, input.workspaceId);
+      budgetController.spend(input.workspaceId, cost - 0.01);
+
+      return {
+        bridge: "titanBridge",
+        source: input.source,
+        correlationId: input.correlationId ?? null,
+        titan: {
+          id: result.titan.id,
+          name: result.titan.name,
+          nameAr: result.titan.nameAr,
+          domain: result.titan.domain,
+        },
+        response: result.response,
+        sessionId: result.sessionId,
+        tokensUsed: result.tokensUsed,
+        latencyMs: latency,
+        cost: Math.round(cost * 100000) / 100000,
+        rateLimit: { remaining: rateCheck.remaining - 1, resetAt: rateCheck.resetAt },
+        budget: { remaining: budgetCheck.remaining },
+        constitutionalStatus: "COMPLIANT",
       };
     }),
 

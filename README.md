@@ -73,9 +73,14 @@ L0: Civilization Substrate  18 Engines, USFIPv2, Guardian, Continuity
 ### Intelligence Routers
 
 - `titan.*` — 5 AI Titans with GPT-4o
+- `titanBridge.*` / `bridge.*` — Platform-to-Intelligence bridge contract
+- `corpusQuery.*` — Secure corpus bridge (`status`, `domains`, `search`)
+- `intentEngine.*` — Secure intent bridge (`status`, `governance`, `analyze`)
 - `modelFederation.*` — 5 AI providers with fallback
 - `runtime.*` — 18 intelligence engines
 - `aiBrain.*` — 5-layer memory system
+
+> Bridge endpoints (`titan.consult`, `corpusQuery.*`, `intentEngine.*`) require `BRIDGE_ENABLED=true` and header `x-onx-bridge-key` matching `BRIDGE_SHARED_SECRET`.
 
 ### Knowledge Routers
 
@@ -110,6 +115,8 @@ OPENAI_API_KEY=sk-...
 OWNER_UNION_ID=...
 JWT_SECRET=your-secret-key
 APP_URL=http://localhost:3000
+BRIDGE_ENABLED=false
+BRIDGE_SHARED_SECRET=your-long-random-shared-secret
 ```
 
 ## Stack
