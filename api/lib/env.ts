@@ -13,6 +13,7 @@ export const env = {
   appSecret: required("APP_SECRET"),
   isProduction: process.env.NODE_ENV === "production",
   bridgeEnabled: process.env.BRIDGE_ENABLED === "true",
+  bridgeSharedSecret: process.env.BRIDGE_SHARED_SECRET ?? "",
   databaseUrl: process.env.DATABASE_URL ?? "sqlite:///app/db/onx-pilot.db",
   kimiAuthUrl: process.env.KIMI_AUTH_URL ?? "https://auth.kimi.com",
   kimiOpenUrl: process.env.KIMI_OPEN_URL ?? "https://open.kimi.com",

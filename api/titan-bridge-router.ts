@@ -196,6 +196,17 @@ function ensureBridgeEnabled() {
   }
 }
 
+function authorizeBridgeRequest(headers: Headers) {
+  if (!env.bridgeSharedSecret) {
+    throw new Error("BRIDGE_SECRET_NOT_CONFIGURED: Set BRIDGE_SHARED_SECRET before enabling bridge traffic");
+  }
+
+  const key = headers.get("x-onx-bridge-key");
+  if (!key || key !== env.bridgeSharedSecret) {
+    throw new Error("BRIDGE_UNAUTHORIZED: Missing or invalid x-onx-bridge-key");
+  }
+}
+
 // ============================================================
 // Core: Titan GPT-4o Call
 // ============================================================
@@ -269,6 +280,7 @@ export const titanBridgeRouter = createRouter({
   // --- Bridge status for integration gates ---
   bridgeStatus: publicQuery.query(() => ({
     enabled: env.bridgeEnabled,
+    hasSharedSecret: !!env.bridgeSharedSecret,
     bridge: "titanBridge",
     mode: env.bridgeEnabled ? "ACTIVE" : "SAFE_DISABLED",
     message: env.bridgeEnabled
@@ -316,8 +328,9 @@ export const titanBridgeRouter = createRouter({
       source: z.string().default("platform"),
       correlationId: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       ensureBridgeEnabled();
+      authorizeBridgeRequest(ctx.req.headers);
 
       const rateCheck = rateLimiter.checkLimit(input.workspaceId);
       if (!rateCheck.allowed) {

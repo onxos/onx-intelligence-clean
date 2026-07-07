@@ -12,6 +12,7 @@ describe("Titan Bridge Router", () => {
     it("should expose bridge gate state", async () => {
       const result = await caller.titan.bridgeStatus();
       expect(typeof result.enabled).toBe("boolean");
+      expect(typeof result.hasSharedSecret).toBe("boolean");
       expect(result.bridge).toBe("titanBridge");
       expect(["ACTIVE", "SAFE_DISABLED"]).toContain(result.mode);
     });

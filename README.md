@@ -80,6 +80,8 @@ L0: Civilization Substrate  18 Engines, USFIPv2, Guardian, Continuity
 - `runtime.*` — 18 intelligence engines
 - `aiBrain.*` — 5-layer memory system
 
+> `titan.consult` requires bridge gate enabled (`BRIDGE_ENABLED=true`) and header `x-onx-bridge-key` matching `BRIDGE_SHARED_SECRET`.
+
 ### Knowledge Routers
 
 - `knowledge.*` — 25K records, vector search
@@ -114,6 +116,7 @@ OWNER_UNION_ID=...
 JWT_SECRET=your-secret-key
 APP_URL=http://localhost:3000
 BRIDGE_ENABLED=false
+BRIDGE_SHARED_SECRET=your-long-random-shared-secret
 ```
 
 ## Stack
