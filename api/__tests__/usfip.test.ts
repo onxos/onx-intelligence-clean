@@ -57,7 +57,9 @@ describe("USFIP — ISES source scoring", () => {
   });
 
   it("identifies the weakest dimension", () => {
-    const r = scoreSource({ domainFitness: 0.9, risk: 0.1, evidenceQuality: 0.8 });
+    const dims = Object.fromEntries(ISES_DIMENSIONS.map((d) => [d, 0.8]));
+    dims.risk = 0.1;
+    const r = scoreSource(dims);
     expect(r.weakest).toBe("risk");
   });
 });
