@@ -36,6 +36,7 @@ import { conflictRouter } from "./conflict-router";
 import { purposeRouter } from "./purpose-router";
 import { allocationRouter } from "./allocation-router";
 import { proofRouter } from "./proof-router";
+import { osRouter } from "./os-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -98,6 +99,7 @@ export const appRouter = createRouter({
   purpose: purposeRouter,
   allocation: allocationRouter,
   proof: proofRouter,
+  os: osRouter,
   // Platform contract aliases
   bridge: titanBridgeRouter,
   corpusQuery: corpusQueryRouter,
