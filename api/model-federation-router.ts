@@ -314,4 +314,23 @@ export const modelFederationRouter = createRouter({
 
       return { message: input.message, results };
     }),
+
+  // MF-08: rankings — Scored provider ranking (weight * successRate / avgLatency * cost)
+  rankings: publicQuery.query(() => {
+    const score = (p: Provider) =>
+      (p.status === "ONLINE" ? 1 : 0.1) *
+      ((1 - p.errorRate) / (p.avgLatency * p.costPer1K + 0.0001));
+    return Array.from(PROVIDERS.values())
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        model: p.model,
+        status: p.status,
+        score: Math.round(score(p) * 1000) / 1000,
+        avgLatency: p.avgLatency,
+        costPer1K: p.costPer1K,
+        errorRate: p.errorRate,
+      }))
+      .sort((a, b) => b.score - a.score);
+  }),
 });
