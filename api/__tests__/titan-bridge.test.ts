@@ -10,10 +10,13 @@ vi.mock("openai", () => {
   class MockOpenAI {
     chat = {
       completions: {
-        create: async () => ({
-          choices: [{ message: { content: "ONX_TEST_OK — استجابة اختبارية من تيتان" } }],
-          usage: { total_tokens: 42 },
-        }),
+        create: async () => {
+          await new Promise((r) => setTimeout(r, 5)); // simulate network latency (latencyMs > 0)
+          return {
+            choices: [{ message: { content: "ONX_TEST_OK — استجابة اختبارية من تيتان" } }],
+            usage: { total_tokens: 42 },
+          };
+        },
       },
     };
   }

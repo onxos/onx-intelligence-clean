@@ -41,10 +41,10 @@ jobs:
 
       - name: Unit Tests (vitest)
         run: npx vitest run
-        continue-on-error: true
         id: unit_tests
 
       - name: Summary
+        if: always()
         run: |
           echo "## Build & TypeCheck Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
