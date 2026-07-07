@@ -1,0 +1,65 @@
+name: Set Render Env Vars
+on:
+  workflow_dispatch:
+jobs:
+  set-env:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get existing env vars
+        id: existing
+        run: |
+          EXISTING=$(curl -s \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            "https://api.render.com/v1/services/srv-d8vkfs5aeets73d5gkcg/env-vars")
+          echo "Existing vars count: $(echo $EXISTING | python3 -c 'import sys,json; d=json.load(sys.stdin); print(len(d))')"
+          echo "EXISTING_JSON<<EOF" >> $GITHUB_OUTPUT
+          echo "$EXISTING" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Merge and set OPENAI_API_KEY
+        run: |
+          python3 << 'PYEOF'
+          import json, os, subprocess, sys
+
+          existing_raw = """${{ steps.existing.outputs.EXISTING_JSON }}"""
+          try:
+              env_list = json.loads(existing_raw)
+          except Exception:
+              env_list = []
+
+          # Build dict from existing, filtering out OPENAI_API_KEY if present
+          env_dict = {}
+          for item in env_list:
+              ev = item.get("envVar") or item  # Render wraps in {"envVar": {...}}
+              k = ev.get("key", "")
+              v = ev.get("value", "")
+              if k and k != "OPENAI_API_KEY":
+                  env_dict[k] = v
+
+          # Add the new key
+          env_dict["OPENAI_API_KEY"] = "${{ secrets.OPENAI_API_KEY }}"
+
+          payload = [{"key": k, "value": v} for k, v in env_dict.items()]
+          print(f"Setting {len(payload)} env vars (keys: {[p['key'] for p in payload]})")
+
+          import subprocess
+          result = subprocess.run([
+              "curl", "-s", "-w", "\nHTTP:%{http_code}",
+              "-X", "PUT",
+              "-H", "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}",
+              "-H", "Content-Type: application/json",
+              "-d", json.dumps(payload),
+              "https://api.render.com/v1/services/srv-d8vkfs5aeets73d5gkcg/env-vars"
+          ], capture_output=True, text=True)
+          print(result.stdout[-200:])
+          PYEOF
+
+      - name: Trigger redeploy
+        run: |
+          RESP=$(curl -s -w "\nHTTP:%{http_code}" -X POST \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"clearCache":"do_not_clear"}' \
+            "https://api.render.com/v1/services/srv-d8vkfs5aeets73d5gkcg/deploys")
+          echo "$RESP"
+          echo "Deploy triggered ✅"
