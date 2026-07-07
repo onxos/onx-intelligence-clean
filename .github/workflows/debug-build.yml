@@ -37,14 +37,15 @@ jobs:
           node dist/boot.js &
           SERVER_PID=$!
           echo "Server PID: $SERVER_PID"
-          sleep 4
-          echo "--- health check IPv4 ---"
+          sleep 5
+          echo "--- all listening ports ---"
+          ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || echo "no ss/netstat"
+          echo "--- process state ---"
+          ps -p $SERVER_PID -o pid,stat,comm 2>/dev/null || echo "process gone"
+          echo "--- health check ---"
           curl -sf http://127.0.0.1:10000/api/trpc/health.ping 2>&1 || echo "IPv4 FAILED"
-          echo "--- health check localhost ---"
           curl -sf http://localhost:10000/api/trpc/health.ping 2>&1 || echo "localhost FAILED"
-          echo "--- port check ---"
-          ss -tlnp | grep 10000 || echo "Not listening on 10000"
-          echo "--- kill server ---"
+          echo "--- kill ---"
           kill $SERVER_PID 2>/dev/null
         env:
           NODE_ENV: production
