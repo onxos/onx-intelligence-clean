@@ -31,6 +31,7 @@ import { corpusQueryRouter } from "./corpus-query-router";
 import { intentEngineRouter } from "./intent-engine-router";
 import { iucRouter } from "./iuc-router";
 import { measurementRouter } from "./measurement-router";
+import { ficRouter } from "./fic-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -88,6 +89,7 @@ export const appRouter = createRouter({
   // Track I — Intelligence core: IUC engine (I-M4) + IURG object model
   iuc: iucRouter,
   measurement: measurementRouter,
+  fic: ficRouter,
   // Platform contract aliases
   bridge: titanBridgeRouter,
   corpusQuery: corpusQueryRouter,
