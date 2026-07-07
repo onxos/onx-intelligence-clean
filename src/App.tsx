@@ -12,6 +12,7 @@ import Geo from "./pages/Geo"
 import Knowledge from "./pages/Knowledge"
 import Consciousness from "./pages/Consciousness"
 import ConstitutionalDashboard from "./pages/ConstitutionalDashboard"
+import AdminPilot from "./pages/AdminPilot"
 import Navigation from "./components/Navigation"
 
 function Layout({ children }: { children: React.ReactNode }) {
@@ -39,6 +40,7 @@ export default function App() {
       <Route path="/knowledge" element={<Layout><Knowledge /></Layout>} />
       <Route path="/consciousness" element={<Layout><Consciousness /></Layout>} />
       <Route path="/constitution" element={<Layout><ConstitutionalDashboard /></Layout>} />
+      <Route path="/admin/pilot" element={<Layout><AdminPilot /></Layout>} />
       <Route path="/login" element={<Login />} />
       <Route path="*" element={<Layout><NotFound /></Layout>} />
     </Routes>

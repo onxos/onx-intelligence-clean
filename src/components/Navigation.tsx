@@ -21,6 +21,7 @@ const NAV_LINKS = [
   { href: "/consciousness", label: "الوعي الذاتي", labelEn: "Consciousness" },
   { href: "/constitution", label: "الدستور", labelEn: "Constitution" },
   { href: "/evidence", label: "سجل الأدلة", labelEn: "Evidence" },
+  { href: "/admin/pilot", label: "مراقبة التجريب", labelEn: "Pilot Monitor" },
 ];
 
 export default function Navigation() {

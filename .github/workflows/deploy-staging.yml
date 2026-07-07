@@ -1,0 +1,169 @@
+# =============================================================================
+# ONX Intelligence — Auto-Deploy to Staging
+# Triggers on pushes to feature branches (not main)
+# Uses RENDER_STAGING_SERVICE_ID secret if set; otherwise prints setup guide
+# =============================================================================
+name: Deploy Staging
+
+on:
+  push:
+    branches-ignore:
+      - main
+  workflow_dispatch:
+    inputs:
+      force_create:
+        description: 'Force create staging service via Render API'
+        required: false
+        default: 'false'
+
+jobs:
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_STAGING_ID: ${{ secrets.RENDER_STAGING_SERVICE_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check staging service
+        id: staging_check
+        run: |
+          if [ -z "$RENDER_STAGING_ID" ]; then
+            echo "has_staging=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_staging=true" >> $GITHUB_OUTPUT
+          fi
+
+      # ── Path A: staging service already configured ─────────────────────────
+      - name: Trigger staging deploy
+        if: steps.staging_check.outputs.has_staging == 'true'
+        run: |
+          echo "🚀 Deploying branch '${{ github.ref_name }}' to staging..."
+          RESP=$(curl -s -w "\nHTTP:%{http_code}" -X POST \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"clearCache":"do_not_clear"}' \
+            "https://api.render.com/v1/services/${RENDER_STAGING_ID}/deploys")
+          echo "$RESP"
+          HTTP_CODE=$(echo "$RESP" | tail -n1 | cut -d: -f2)
+          if [ "$HTTP_CODE" != "201" ]; then
+            echo "❌ Deploy failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+          echo "✅ Staging deploy triggered successfully!"
+
+      - name: Set staging env vars
+        if: steps.staging_check.outputs.has_staging == 'true'
+        run: |
+          python3 << 'PY'
+          import json, os, subprocess
+          payload = [
+            {"key": "OPENAI_API_KEY",  "value": os.environ.get("OPENAI_API_KEY", "")},
+            {"key": "NODE_ENV",        "value": "staging"},
+            {"key": "STAGING",         "value": "true"},
+            {"key": "BRANCH",          "value": os.environ.get("GITHUB_REF_NAME", "")},
+          ]
+          payload = [p for p in payload if p["value"]]
+          result = subprocess.run([
+            "curl", "-s", "-X", "PUT",
+            "-H", f"Authorization: Bearer {os.environ.get('RENDER_API_KEY','')}",
+            "-H", "Content-Type: application/json",
+            "-d", json.dumps(payload),
+            f"https://api.render.com/v1/services/{os.environ.get('RENDER_STAGING_ID','')}/env-vars"
+          ], capture_output=True, text=True)
+          print(result.stdout[-200:])
+          PY
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      # ── Path B: no staging service yet — create via blueprint ──────────────
+      - name: Create staging service (first time)
+        if: steps.staging_check.outputs.has_staging == 'false' && github.event.inputs.force_create == 'true'
+        run: |
+          echo "🔧 Creating new staging service via Render API..."
+          OWNER_RESP=$(curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+            "https://api.render.com/v1/owners?limit=1")
+          OWNER_ID=$(echo $OWNER_RESP | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d[0]["owner"]["id"])')
+          echo "Owner ID: $OWNER_ID"
+
+          PAYLOAD=$(python3 -c "
+          import json
+          print(json.dumps({
+            'type': 'web_service',
+            'name': 'onx-intelligence-staging',
+            'ownerId': '$OWNER_ID',
+            'repo': 'https://github.com/${{ github.repository }}',
+            'branch': '${{ github.ref_name }}',
+            'serviceDetails': {
+              'runtime': 'node',
+              'buildCommand': 'npm ci && npm run build',
+              'startCommand': 'NODE_ENV=staging npm start',
+              'plan': 'starter',
+              'region': 'frankfurt',
+              'numInstances': 1,
+              'healthCheckPath': '/api/trpc/health.ping',
+              'envVars': [
+                {'key': 'NODE_ENV',     'value': 'staging'},
+                {'key': 'PORT',         'value': '10000'},
+                {'key': 'STAGING',      'value': 'true'},
+                {'key': 'DATABASE_URL', 'value': 'sqlite:///app/db/onx-staging.db'},
+                {'key': 'OPENAI_API_KEY', 'value': '${{ secrets.OPENAI_API_KEY }}'}
+              ]
+            }
+          }))
+          ")
+
+          RESULT=$(curl -s -w "\nHTTP:%{http_code}" -X POST \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "https://api.render.com/v1/services")
+          echo "$RESULT"
+          NEW_ID=$(echo "$RESULT" | head -n1 | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d["service"]["id"])' 2>/dev/null || echo "")
+          if [ -n "$NEW_ID" ]; then
+            echo "✅ Staging service created: $NEW_ID"
+            echo "⚠️  Add RENDER_STAGING_SERVICE_ID=$NEW_ID to GitHub Secrets"
+          fi
+
+      - name: Staging setup guide (no service configured)
+        if: steps.staging_check.outputs.has_staging == 'false' && github.event.inputs.force_create != 'true'
+        run: |
+          echo "ℹ️  Staging service not configured yet."
+          echo ""
+          echo "To set up staging:"
+          echo "1. Go to Render Dashboard → New → Blueprint"
+          echo "2. Connect this repo — it will read render.yaml"
+          echo "3. Render will create 'onx-intelligence-staging' automatically"
+          echo "4. Copy the service ID (srv-xxxx...)"
+          echo "5. Add to GitHub Secrets: RENDER_STAGING_SERVICE_ID=<id>"
+          echo ""
+          echo "OR re-run this workflow with force_create=true to auto-create"
+          echo ""
+          echo "Branch '${{ github.ref_name }}' is ready for staging deployment ✅"
+
+  # ── Health check after deploy ─────────────────────────────────────────────
+  verify-staging:
+    name: Verify Staging Health
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    if: ${{ secrets.RENDER_STAGING_SERVICE_ID != '' }}
+    steps:
+      - name: Wait for deploy
+        run: sleep 90
+
+      - name: Health check
+        run: |
+          URL="https://onx-intelligence-staging.onrender.com/api/trpc/health.ping"
+          echo "Testing: $URL"
+          for i in 1 2 3; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL" 2>/dev/null || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Staging is live! (attempt $i)"
+              exit 0
+            fi
+            echo "  Attempt $i: HTTP $STATUS — waiting 30s..."
+            sleep 30
+          done
+          echo "⚠️  Staging health check inconclusive (may still be deploying)"
