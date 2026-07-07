@@ -37,6 +37,7 @@ import { purposeRouter } from "./purpose-router";
 import { allocationRouter } from "./allocation-router";
 import { proofRouter } from "./proof-router";
 import { osRouter } from "./os-router";
+import { livingLoopRouter } from "./living-loop-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -100,6 +101,7 @@ export const appRouter = createRouter({
   allocation: allocationRouter,
   proof: proofRouter,
   os: osRouter,
+  livingLoop: livingLoopRouter,
   // Platform contract aliases
   bridge: titanBridgeRouter,
   corpusQuery: corpusQueryRouter,
