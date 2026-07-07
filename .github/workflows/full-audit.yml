@@ -84,29 +84,32 @@ jobs:
       - name: Test all router endpoints
         run: |
           BASE="https://onx-intelligence-clean.onrender.com/api/trpc"
-          pass=0; fail=0
+          pass=0; fail=0; results=""
 
           check() {
             local name=$1; local url=$2
-            resp=$(curl -sf "$url" 2>/dev/null)
+            resp=$(curl -s --max-time 10 "$url" 2>/dev/null) || resp=""
             if echo "$resp" | grep -q '"result"'; then
-              echo "  ✅ $name"
+              results="$results\n  ✅ $name"
               pass=$((pass+1))
             else
-              echo "  ❌ $name — $resp"
+              short=$(echo "$resp" | cut -c1-80)
+              results="$results\n  ❌ $name — $short"
               fail=$((fail+1))
             fi
           }
 
           echo "=== Router Health Check ==="
           check "health.ping"              "$BASE/health.ping"
+          check "ping (root)"              "$BASE/ping"
           check "titan.listTitans"         "$BASE/titan.listTitans"
+          check "titan.stats"              "$BASE/titan.stats"
           check "constitution.principles"  "$BASE/constitution.principles"
           check "knowledge.stats"          "$BASE/knowledge.stats"
           check "skills.list"              "$BASE/skills.list"
           check "scheduler.status"         "$BASE/scheduler.status"
           check "scheduler.stats"          "$BASE/scheduler.stats"
-          check "cep.principles"           "$BASE/cep.principles"
+          check "cep.status"               "$BASE/cep.status"
           check "ocpp.status"              "$BASE/ocpp.status"
           check "cevp.status"              "$BASE/cevp.status"
           check "ccop.status"              "$BASE/ccop.status"
@@ -122,8 +125,8 @@ jobs:
           check "intelligence.status"      "$BASE/intelligence.status"
           check "authHardening.status"     "$BASE/authHardening.status"
           check "titanKb.search"           "$BASE/titanKb.search?input=%7B%22json%22%3A%7B%22query%22%3A%22test%22%7D%7D"
-          check "ping (root)"              "$BASE/ping"
 
+          echo -e "$results"
           echo ""
           echo "=== Summary: $pass passed / $((pass+fail)) total ==="
-          [ $fail -eq 0 ] && echo "🎉 ALL ROUTERS OK" || echo "⚠️ $fail routers need attention"
+          [ $fail -eq 0 ] && echo "ALL ROUTERS OK" || echo "WARN: $fail routers need attention"
