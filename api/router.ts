@@ -24,6 +24,8 @@ import { modelFederationRouter } from "./model-federation-router";
 import { healthRouter } from "./health-router";
 import { evidenceRegistryRouter } from "./evidence-registry-router";
 import { voiceRouter } from "./voice-router";
+import { gpsRouter } from "./gps-router";
+import { revenueEngineRouter } from "./revenue-engine-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -64,7 +66,9 @@ export const appRouter = createRouter({
   health: healthRouter,
   evidenceRegistry: evidenceRegistryRouter,
   voice: voiceRouter,
-  // Phase 2: Advanced Engines (Rate Limiting, Budget, Cost, Queue, Security, Profiler, Dashboard, Tests)
+  gps: gpsRouter,
+  revenueEngine: revenueEngineRouter,
+  // Phase 2: Advanced Engines
   rateLimit: rateLimitRouter,
   budget: budgetRouter,
   cost: costRouter,

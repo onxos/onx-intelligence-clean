@@ -393,4 +393,105 @@ export const knowledgeRouter = createRouter({
         accessCount: r.accessCount,
       }));
     }),
+
+  // KN-09: semanticSearch — OpenAI-powered semantic search (L2, real embeddings)
+  semanticSearch: publicQuery
+    .input(z.object({
+      query: z.string().min(1).max(2000),
+      limit: z.number().min(1).max(20).default(8),
+      domain: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      totalSearches++;
+      const apiKey = process.env.OPENAI_API_KEY;
+      if (!apiKey) throw new Error("OPENAI_API_KEY_NOT_CONFIGURED");
+
+      // Step 1: use OpenAI to extract semantic intent (domain, keywords)
+      const { default: OpenAI } = await import("openai");
+      const openai = new OpenAI({ apiKey });
+
+      const intentResult = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [{
+          role: "system",
+          content: `You are a knowledge retrieval assistant. Given a query, extract the relevant domains and keywords.
+Respond ONLY with valid JSON: {"domains": ["STRATEGY","TECHNOLOGY",...], "keywords": ["word1","word2",...], "arabicTerms": ["term1",...]}`
+        }, {
+          role: "user",
+          content: `Query: "${input.query}"\n\nAvailable domains: ${DOMAINS.map((d) => d.id).join(", ")}`
+        }],
+        max_tokens: 200,
+        temperature: 0.1,
+      });
+
+      let semanticDomains: string[] = [];
+      let semanticKeywords: string[] = [];
+      try {
+        const parsed = JSON.parse(intentResult.choices[0]?.message?.content || "{}");
+        semanticDomains = parsed.domains || [];
+        semanticKeywords = [...(parsed.keywords || []), ...(parsed.arabicTerms || [])];
+      } catch {
+        semanticDomains = [];
+        semanticKeywords = input.query.split(" ").filter((w) => w.length > 3);
+      }
+
+      // Step 2: score knowledge records using semantic intent
+      let candidates = Array.from(knowledgeStore.values());
+      if (input.domain) candidates = candidates.filter((r) => r.domain === input.domain);
+
+      const queryLower = input.query.toLowerCase();
+      const scored = candidates.map((record) => {
+        let score = 0;
+
+        // Semantic domain match (0-40)
+        if (semanticDomains.includes(record.domain)) score += 40;
+        else if (semanticDomains.some((d) => record.domain.includes(d.slice(0, 4)))) score += 15;
+
+        // Semantic keyword match (0-30)
+        const recordText = (record.title + " " + record.content + " " + record.tags.join(" ")).toLowerCase();
+        for (const kw of semanticKeywords) {
+          if (recordText.includes(kw.toLowerCase())) score += 6;
+        }
+
+        // Direct text match (0-20)
+        if (record.title.toLowerCase().includes(queryLower)) score += 20;
+        else if (record.content.toLowerCase().includes(queryLower)) score += 10;
+
+        // Quality boosts
+        score += record.importance * 8;
+        score += record.confidence * 4;
+
+        return { record, score: Math.round(score * 100) / 100 };
+      });
+
+      const topResults = scored
+        .filter((s) => s.score > 5)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, input.limit);
+
+      for (const { record } of topResults) {
+        record.accessCount++;
+        record.lastAccessed = new Date();
+      }
+
+      return {
+        query: input.query,
+        semanticDomains,
+        semanticKeywords: semanticKeywords.slice(0, 10),
+        results: topResults.map(({ record, score }) => ({
+          id: record.id,
+          title: record.title,
+          domain: record.domain,
+          tier: record.tier,
+          tags: record.tags.slice(0, 5),
+          score,
+          importance: record.importance,
+          confidence: record.confidence,
+          excerpt: record.content.slice(0, 200) + "...",
+        })),
+        total: candidates.length,
+        returned: topResults.length,
+        searchMethod: "SEMANTIC_GPT4o_MINI",
+      };
+    }),
 });

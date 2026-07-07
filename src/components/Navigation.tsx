@@ -12,10 +12,14 @@ import {
 
 const NAV_LINKS = [
   { href: "/", label: "الرئيسية", labelEn: "Home" },
-  { href: "/dashboard", label: "لوحة التحكم", labelEn: "Dashboard" },
   { href: "/v2", label: "مركز القيادة", labelEn: "Command Center" },
   { href: "/ask", label: "اسأل الأبطال", labelEn: "Ask Titans" },
   { href: "/clinic", label: "العيادة الذكية", labelEn: "Smart Clinic" },
+  { href: "/revenue", label: "الإيرادات", labelEn: "Revenue" },
+  { href: "/geo", label: "الذكاء الجغرافي", labelEn: "Geo" },
+  { href: "/knowledge", label: "قاعدة المعرفة", labelEn: "Knowledge" },
+  { href: "/consciousness", label: "الوعي الذاتي", labelEn: "Consciousness" },
+  { href: "/constitution", label: "الدستور", labelEn: "Constitution" },
   { href: "/evidence", label: "سجل الأدلة", labelEn: "Evidence" },
 ];
 

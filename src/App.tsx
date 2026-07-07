@@ -7,6 +7,11 @@ import Login from "./pages/Login"
 import NotFound from "./pages/NotFound"
 import Clinic from "./pages/Clinic"
 import EvidenceRegistry from "./pages/EvidenceRegistry"
+import Revenue from "./pages/Revenue"
+import Geo from "./pages/Geo"
+import Knowledge from "./pages/Knowledge"
+import Consciousness from "./pages/Consciousness"
+import ConstitutionalDashboard from "./pages/ConstitutionalDashboard"
 import Navigation from "./components/Navigation"
 
 function Layout({ children }: { children: React.ReactNode }) {
@@ -29,6 +34,11 @@ export default function App() {
       <Route path="/ask" element={<Layout><Ask /></Layout>} />
       <Route path="/clinic" element={<Layout><Clinic /></Layout>} />
       <Route path="/evidence" element={<Layout><EvidenceRegistry /></Layout>} />
+      <Route path="/revenue" element={<Layout><Revenue /></Layout>} />
+      <Route path="/geo" element={<Layout><Geo /></Layout>} />
+      <Route path="/knowledge" element={<Layout><Knowledge /></Layout>} />
+      <Route path="/consciousness" element={<Layout><Consciousness /></Layout>} />
+      <Route path="/constitution" element={<Layout><ConstitutionalDashboard /></Layout>} />
       <Route path="/login" element={<Login />} />
       <Route path="*" element={<Layout><NotFound /></Layout>} />
     </Routes>
