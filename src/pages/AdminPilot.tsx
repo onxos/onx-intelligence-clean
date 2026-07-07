@@ -1,8 +1,8 @@
-import { useState } from "react";
-import { trpc } from "../lib/trpc";
+﻿import { useState } from "react";
+import { trpc } from "@/providers/trpc";
 import BackButton from "../components/BackButton";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface BranchStatus {
   name: string;
@@ -21,7 +21,7 @@ interface DeployStatus {
   branch: string;
 }
 
-// ─── Mocked deploy history (Render API proxy not available from client) ──────
+// â”€â”€â”€ Mocked deploy history (Render API proxy not available from client) â”€â”€â”€â”€â”€â”€
 
 const MOCK_DEPLOYS: DeployStatus[] = [
   { id: "dep-phase3", status: "live", createdAt: "2025-07-07T10:00:00Z", finishedAt: "2025-07-07T10:08:45Z", branch: "onxos-fix-render-build-deps" },
@@ -54,7 +54,7 @@ const P0_CRITERIA = [
   { id: "P0-04", label: "Virtual clinic session", status: "PASS" },
   { id: "P0-05", label: "AI prepares patient file", status: "PASS" },
   { id: "P0-06", label: "Revenue target auto-calculated", status: "PASS" },
-  { id: "P0-07", label: "GPS delay detection ≥15 min", status: "PASS" },
+  { id: "P0-07", label: "GPS delay detection â‰¥15 min", status: "PASS" },
   { id: "P0-08", label: "Government report PDF (MOA)", status: "PASS" },
   { id: "P0-09", label: "Arabic voice input/output", status: "PASS" },
   { id: "P0-10", label: "Drug interaction check", status: "PASS" },
@@ -62,7 +62,7 @@ const P0_CRITERIA = [
   { id: "P0-12", label: "Founder EV-ACPT signature", status: "PENDING" },
 ];
 
-// ─── Component ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export default function AdminPilot() {
   const [serverTime] = useState(new Date().toISOString());
@@ -90,16 +90,16 @@ export default function AdminPilot() {
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-2">
-          <span className="text-3xl">🏛️</span>
-          <h1 className="text-2xl font-bold text-white">Pilot Monitoring Dashboard — L5</h1>
+          <span className="text-3xl">ðŸ›ï¸</span>
+          <h1 className="text-2xl font-bold text-white">Pilot Monitoring Dashboard â€” L5</h1>
           <span className={`px-3 py-1 rounded-full text-xs font-bold ${
             healthQuery.data ? "bg-green-900 text-green-300" : "bg-yellow-900 text-yellow-300"
           }`}>
-            {healthQuery.isLoading ? "Checking..." : healthQuery.data ? "● LIVE" : "● OFFLINE"}
+            {healthQuery.isLoading ? "Checking..." : healthQuery.data ? "â— LIVE" : "â— OFFLINE"}
           </span>
         </div>
         <p className="text-gray-400 text-sm">
-          ONX Intelligence Clean — Production: onx-intelligence-clean.onrender.com
+          ONX Intelligence Clean â€” Production: onx-intelligence-clean.onrender.com
         </p>
         <p className="text-gray-600 text-xs mt-1">Report generated: {serverTime}</p>
       </div>
@@ -119,7 +119,7 @@ export default function AdminPilot() {
         </div>
         <div className="bg-gray-900 rounded-xl p-5 border border-gray-800">
           <div className="text-4xl font-black text-purple-400">
-            {evidenceQuery.data?.totalRecords ?? "—"}
+            {evidenceQuery.data?.totalRecords ?? "â€”"}
           </div>
           <div className="text-sm text-gray-400 mt-1">Evidence Records</div>
         </div>
@@ -134,7 +134,7 @@ export default function AdminPilot() {
         {/* Production */}
         <div className="bg-gray-900 rounded-xl p-5 border border-green-800">
           <div className="flex items-center gap-2 mb-4">
-            <span className="text-green-400 text-lg">🟢</span>
+            <span className="text-green-400 text-lg">ðŸŸ¢</span>
             <h2 className="font-bold text-green-400">Production</h2>
           </div>
           <div className="space-y-2 text-sm">
@@ -148,12 +148,12 @@ export default function AdminPilot() {
             <div className="flex justify-between">
               <span className="text-gray-400">Service ID</span>
               <button onClick={copyServiceId} className="text-gray-300 hover:text-white font-mono text-xs">
-                {copied ? "✅ Copied!" : "srv-d8vkfs5aeets73d5gkcg"}
+                {copied ? "âœ… Copied!" : "srv-d8vkfs5aeets73d5gkcg"}
               </button>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-400">Region</span>
-              <span>Frankfurt 🇩🇪</span>
+              <span>Frankfurt ðŸ‡©ðŸ‡ª</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-400">Branch</span>
@@ -162,7 +162,7 @@ export default function AdminPilot() {
             <div className="flex justify-between">
               <span className="text-gray-400">Health</span>
               <span className={healthQuery.data ? "text-green-400" : "text-yellow-400"}>
-                {healthQuery.isLoading ? "Checking..." : healthQuery.data ? "✅ Healthy" : "⚠️ Checking"}
+                {healthQuery.isLoading ? "Checking..." : healthQuery.data ? "âœ… Healthy" : "âš ï¸ Checking"}
               </span>
             </div>
           </div>
@@ -171,7 +171,7 @@ export default function AdminPilot() {
         {/* Staging */}
         <div className="bg-gray-900 rounded-xl p-5 border border-yellow-800">
           <div className="flex items-center gap-2 mb-4">
-            <span className="text-yellow-400 text-lg">🟡</span>
+            <span className="text-yellow-400 text-lg">ðŸŸ¡</span>
             <h2 className="font-bold text-yellow-400">Staging</h2>
           </div>
           <div className="space-y-2 text-sm">
@@ -181,18 +181,18 @@ export default function AdminPilot() {
             </div>
             <div className="flex justify-between">
               <span className="text-gray-400">Config</span>
-              <span className="font-mono text-xs text-gray-300">render.yaml ✅</span>
+              <span className="font-mono text-xs text-gray-300">render.yaml âœ…</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-400">Workflow</span>
-              <span className="font-mono text-xs text-gray-300">deploy-staging.yml ✅</span>
+              <span className="font-mono text-xs text-gray-300">deploy-staging.yml âœ…</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-400">Plan</span>
               <span>Starter (Frankfurt)</span>
             </div>
             <div className="mt-3 p-3 bg-yellow-950 rounded-lg text-xs text-yellow-300">
-              <strong>Setup:</strong> Render Dashboard → New → Blueprint → Connect repo → Staging service auto-created
+              <strong>Setup:</strong> Render Dashboard â†’ New â†’ Blueprint â†’ Connect repo â†’ Staging service auto-created
             </div>
           </div>
         </div>
@@ -208,7 +208,7 @@ export default function AdminPilot() {
                 c.status === "PASS" ? "text-green-400" :
                 c.status === "WARN" ? "text-yellow-400" : "text-gray-500"
               }>
-                {c.status === "PASS" ? "✅" : c.status === "WARN" ? "⚠️" : "⏳"}
+                {c.status === "PASS" ? "âœ…" : c.status === "WARN" ? "âš ï¸" : "â³"}
               </span>
               <span className="text-gray-400 text-xs w-12">{c.id}</span>
               <span className={c.status === "PASS" ? "text-gray-200" : "text-gray-500"}>{c.label}</span>
@@ -223,7 +223,7 @@ export default function AdminPilot() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
           {UEP_MILESTONES.map((m) => (
             <div key={m.id} className={`flex items-center gap-2 text-sm p-2 rounded ${m.done ? "bg-green-950/40" : "bg-gray-800/40"}`}>
-              <span>{m.done ? "✅" : "⏳"}</span>
+              <span>{m.done ? "âœ…" : "â³"}</span>
               <span className="text-gray-400 text-xs">{m.id}</span>
               <span className={m.done ? "text-gray-200" : "text-gray-500"}>{m.label}</span>
             </div>
@@ -238,7 +238,7 @@ export default function AdminPilot() {
           {MOCK_DEPLOYS.map((d) => (
             <div key={d.id} className="flex items-center justify-between text-sm border-b border-gray-800 pb-2">
               <div className="flex items-center gap-3">
-                <span className="text-green-400">✅</span>
+                <span className="text-green-400">âœ…</span>
                 <span className="font-mono text-xs text-gray-400">{d.id}</span>
                 <span className="text-gray-300">{d.branch}</span>
               </div>
@@ -254,15 +254,15 @@ export default function AdminPilot() {
       {/* Branches */}
       <div className="bg-gray-900 rounded-xl p-5 border border-gray-800">
         <h2 className="font-bold text-white mb-4">
-          Pilot Branches — {branchStats.data ? `${branchStats.data.active} active / ${branchStats.data.total} total` : "Loading..."}
+          Pilot Branches â€” {branchStats.data ? `${branchStats.data.active} active / ${branchStats.data.total} total` : "Loading..."}
         </h2>
         {branchStats.data?.total === 0 ? (
           <p className="text-gray-500 text-sm">
-            لا توجد فروع مُسجلة بعد — استخدم <code className="bg-gray-800 px-1 rounded">domains.branches.add</code> لإضافة الفروع الخمس التجريبية
+            Ù„Ø§ ØªÙˆØ¬Ø¯ ÙØ±ÙˆØ¹ Ù…ÙØ³Ø¬Ù„Ø© Ø¨Ø¹Ø¯ â€” Ø§Ø³ØªØ®Ø¯Ù… <code className="bg-gray-800 px-1 rounded">domains.branches.add</code> Ù„Ø¥Ø¶Ø§ÙØ© Ø§Ù„ÙØ±ÙˆØ¹ Ø§Ù„Ø®Ù…Ø³ Ø§Ù„ØªØ¬Ø±ÙŠØ¨ÙŠØ©
           </p>
         ) : (
           <p className="text-gray-400 text-sm">
-            {branchStats.data?.total} فرع مُسجل — {branchStats.data?.totalStaff} موظف إجمالاً
+            {branchStats.data?.total} ÙØ±Ø¹ Ù…ÙØ³Ø¬Ù„ â€” {branchStats.data?.totalStaff} Ù…ÙˆØ¸Ù Ø¥Ø¬Ù…Ø§Ù„Ø§Ù‹
           </p>
         )}
       </div>
