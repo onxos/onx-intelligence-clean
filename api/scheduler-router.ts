@@ -5,6 +5,8 @@
 // ============================================================
 import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
+import { getDb } from "./queries/connection";
+import { consciousnessCycles } from "../db/schema";
 
 // --- Rhythm Definitions ---
 interface Rhythm {
@@ -195,6 +197,25 @@ function executeRhythm(rhythmId: string): { actions: number; duration: number; s
   };
   executionLogs.push(log);
   if (executionLogs.length > 10000) executionLogs.splice(0, executionLogs.length - 5000);
+
+  // Persist to DB (fire-and-forget — don't block rhythm execution)
+  try {
+    const db = getDb();
+    db.insert(consciousnessCycles).values({
+      rhythmId,
+      rhythmName: rhythm.name,
+      cycleNumber: rhythm.runCount,
+      status: log.status === "SUCCESS" ? "COMPLETED" : log.status === "PARTIAL" ? "COMPLETED" : "FAILED",
+      actionsExecuted: JSON.stringify(rhythm.actions),
+      metricsSnapshot: JSON.stringify({ actions: Object.keys(results).length, duration }),
+      healthScore: String(rhythm.status === "HEALTHY" ? "0.95" : rhythm.status === "DEGRADED" ? "0.70" : "0.40"),
+      anomaliesDetected: rhythm.status === "FAILING" ? 1 : 0,
+      completedAt: new Date(),
+      durationMs: duration,
+    }).execute().catch(() => { /* DB not configured — continue in-memory */ });
+  } catch {
+    // DB not ready — in-memory only
+  }
 
   return { actions: rhythm.actions.length, duration, status: log.status };
 }

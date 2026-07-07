@@ -90,6 +90,50 @@ services:
       - key: PRESERVE_DB_ON_DEPLOY
         value: "true"
 
+  # ---- Staging Environment ----
+  - type: web
+    name: onx-intelligence-staging
+    runtime: node
+    plan: starter
+    region: frankfurt
+    branch: onxos-fix-render-build-deps
+    rootDir: .
+    buildCommand: npm ci && npm run build
+    startCommand: NODE_ENV=staging npm start
+    numInstances: 1
+    healthCheckPath: /api/trpc/health.ping
+    disk:
+      name: onx-staging-data
+      mountPath: /app/db
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: staging
+      - key: PORT
+        value: "10000"
+      - key: STAGING
+        value: "true"
+      - key: DATABASE_URL
+        value: sqlite:///app/db/onx-staging.db
+      - key: DATABASE_PROVIDER
+        value: sqlite
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: APP_URL
+        value: https://onx-intelligence-staging.onrender.com
+      - key: FEATURE_TITAN_BRIDGE
+        value: "true"
+      - key: FEATURE_CONSTITUTION_GUARDIAN
+        value: "true"
+      - key: FEATURE_CONSCIOUSNESS_SCHEDULER
+        value: "true"
+      - key: FEATURE_VET_INTELLIGENCE
+        value: "true"
+      - key: FEATURE_KNOWLEDGE_BASE
+        value: "true"
+
   # ---- Optional: Background Worker (Consciousness Scheduler) ----
   - type: worker
     name: onx-scheduler

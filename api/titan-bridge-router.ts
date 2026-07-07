@@ -7,6 +7,7 @@ import { z } from "zod";
 import OpenAI from "openai";
 import { createRouter, publicQuery } from "./middleware";
 import { env } from "./lib/env";
+import { rateLimiter, budgetController, costDashboard } from "./advanced-engines-router";
 
 // --- Lazy OpenAI client (server starts even without key) ---
 let openai: OpenAI | null = null;
@@ -289,17 +290,35 @@ export const titanBridgeRouter = createRouter({
       };
     }),
 
-  // --- Core: Ask a Titan (GPT-4o) ---
+  // --- Core: Ask a Titan (GPT-4o + Rate Limit + Budget + Cost Tracking) ---
   ask: publicQuery
     .input(z.object({
       titanId: z.enum(["prometheus", "athena", "zeus", "hermes", "apollo"]),
       message: z.string().min(1).max(10000),
       sessionId: z.string().optional(),
+      workspaceId: z.string().default("default"),
     }))
     .mutation(async ({ input }) => {
+      // Rate limiting (100 RPM)
+      const rateCheck = rateLimiter.checkLimit(input.workspaceId);
+      if (!rateCheck.allowed) {
+        throw new Error(`RATE_LIMIT_EXCEEDED: ${rateCheck.remaining} remaining, resets at ${rateCheck.resetAt.toISOString()}`);
+      }
+
+      // Budget control ($10/day)
+      const budgetCheck = budgetController.spend(input.workspaceId, 0.01);
+      if (!budgetCheck.allowed) {
+        throw new Error(`BUDGET_EXHAUSTED: $${budgetCheck.remaining.toFixed(4)} remaining today`);
+      }
+
       const startTime = Date.now();
       const result = await callTitan(input.titanId, input.message, input.sessionId);
       const latency = Date.now() - startTime;
+      const cost = (result.tokensUsed / 1000) * 0.005; // GPT-4o $0.005/1K tokens
+
+      // Record cost
+      costDashboard.record("openai", cost, result.tokensUsed, input.workspaceId);
+      budgetController.spend(input.workspaceId, cost - 0.01); // Adjust for actual cost
 
       return {
         titan: {
@@ -312,7 +331,10 @@ export const titanBridgeRouter = createRouter({
         sessionId: result.sessionId,
         tokensUsed: result.tokensUsed,
         latencyMs: latency,
-        constitutionalStatus: "COMPLIANT", // Apollo reviews all responses
+        cost: Math.round(cost * 100000) / 100000,
+        rateLimit: { remaining: rateCheck.remaining - 1, resetAt: rateCheck.resetAt },
+        budget: { remaining: budgetCheck.remaining },
+        constitutionalStatus: "COMPLIANT",
       };
     }),
 

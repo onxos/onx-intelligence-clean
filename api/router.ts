@@ -24,6 +24,19 @@ import { modelFederationRouter } from "./model-federation-router";
 import { healthRouter } from "./health-router";
 import { evidenceRegistryRouter } from "./evidence-registry-router";
 import { voiceRouter } from "./voice-router";
+import { gpsRouter } from "./gps-router";
+import { revenueEngineRouter } from "./revenue-engine-router";
+import { domainServicesRouter } from "./domain-services-router";
+import {
+  rateLimitRouter,
+  budgetRouter,
+  costRouter,
+  queueRouter,
+  securityRouter,
+  profilerRouter,
+  dashboardRouter,
+  testRouter,
+} from "./advanced-engines-router";
 import { createRouter, publicQuery } from "./middleware";
 
 export const appRouter = createRouter({
@@ -54,6 +67,19 @@ export const appRouter = createRouter({
   health: healthRouter,
   evidenceRegistry: evidenceRegistryRouter,
   voice: voiceRouter,
+  gps: gpsRouter,
+  revenueEngine: revenueEngineRouter,
+  // Phase 2: Advanced Engines
+  rateLimit: rateLimitRouter,
+  budget: budgetRouter,
+  cost: costRouter,
+  queue: queueRouter,
+  security: securityRouter,
+  profiler: profilerRouter,
+  dashboard: dashboardRouter,
+  test: testRouter,
+  // Phase 3: Domain Services (D01/D05/D06/D08/D14/D15/D18)
+  domains: domainServicesRouter,
 });
 
 export type AppRouter = typeof appRouter;
