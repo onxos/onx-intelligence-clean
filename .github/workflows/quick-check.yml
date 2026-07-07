@@ -1,0 +1,30 @@
+name: Quick Router Check
+on:
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test corrected endpoints
+        run: |
+          BASE="https://onx-intelligence-clean.onrender.com/api/trpc"
+          pass=0; fail=0; results=""
+          check() {
+            local name=$1; local url=$2
+            resp=$(curl -s --max-time 10 "$url" 2>/dev/null) || resp=""
+            if echo "$resp" | grep -q '"result"'; then
+              results="$results  ? $name\n"
+              pass=$((pass+1))
+            else
+              results="$results  ? $name\n"
+              fail=$((fail+1))
+            fi
+          }
+          check "cos.stats"            "$BASE/cos.stats"
+          check "cos.audit"            "$BASE/cos.audit"
+          check "intelligence.stats"   "$BASE/intelligence.stats"
+          check "intelligence.governance" "$BASE/intelligence.governance"
+          check "cevp.stats"           "$BASE/cevp.stats"
+          check "toolGateway.discover" "$BASE/toolGateway.discoverTools"
+          echo -e "$results"
+          echo "PASS=$pass FAIL=$fail"
