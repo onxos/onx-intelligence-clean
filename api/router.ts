@@ -26,6 +26,7 @@ import { evidenceRegistryRouter } from "./evidence-registry-router";
 import { voiceRouter } from "./voice-router";
 import { gpsRouter } from "./gps-router";
 import { revenueEngineRouter } from "./revenue-engine-router";
+import { domainServicesRouter } from "./domain-services-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -77,6 +78,8 @@ export const appRouter = createRouter({
   profiler: profilerRouter,
   dashboard: dashboardRouter,
   test: testRouter,
+  // Phase 3: Domain Services (D01/D05/D06/D08/D14/D15/D18)
+  domains: domainServicesRouter,
 });
 
 export type AppRouter = typeof appRouter;
