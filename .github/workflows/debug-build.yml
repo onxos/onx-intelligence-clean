@@ -30,3 +30,10 @@ jobs:
 
       - name: Check dist output
         run: ls -lh dist/
+
+      - name: Test runtime startup
+        run: |
+          echo "=== Starting server for 5 seconds ==="
+          timeout 5 env NODE_ENV=production PORT=10000 DATABASE_URL="sqlite:///tmp/test.db" APP_ID=test APP_SECRET=test KIMI_AUTH_URL=https://auth.kimi.com KIMI_OPEN_URL=https://open.kimi.com node dist/boot.js 2>&1 || true
+          echo "=== Checking health endpoint ==="
+          timeout 3 curl -sf http://localhost:10000/api/trpc/health.ping || echo "Health check: server not running or unhealthy"
