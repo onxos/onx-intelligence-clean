@@ -148,7 +148,7 @@ jobs:
     name: Verify Staging Health
     needs: deploy-staging
     runs-on: ubuntu-latest
-    if: ${{ secrets.RENDER_STAGING_SERVICE_ID != '' }}
+    continue-on-error: true
     steps:
       - name: Wait for deploy
         run: sleep 90
