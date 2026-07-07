@@ -3,6 +3,7 @@
 // Real-time stats from all 28 routers
 // ============================================================
 import { trpc } from "@/providers/trpc";
+import BackButton from "@/components/BackButton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -54,6 +55,7 @@ export default function DashboardV2() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <BackButton href="/dashboard" label="رجوع" />
             <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 gap-1">
               <Activity className="w-3 h-3" />
               System Online

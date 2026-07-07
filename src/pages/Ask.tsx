@@ -4,6 +4,7 @@
 // ============================================================
 import { useState, useRef, useEffect } from "react";
 import { trpc } from "@/providers/trpc";
+import BackButton from "@/components/BackButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -230,9 +231,12 @@ export default function Ask() {
       <aside className="w-72 bg-white border-l border-gray-200 flex flex-col shadow-sm">
         {/* Header */}
         <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center gap-2 mb-1">
-            <Sparkles className="w-5 h-5 text-indigo-600" />
-            <h1 className="text-lg font-bold text-gray-900">جسر الأقمار</h1>
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-indigo-600" />
+              <h1 className="text-lg font-bold text-gray-900">جسر الأقمار</h1>
+            </div>
+            <BackButton href="/dashboard" label="رجوع" />
           </div>
           <p className="text-xs text-gray-500">Titan Bridge — GPT-4o</p>
         </div>
