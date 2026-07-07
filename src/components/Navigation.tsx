@@ -13,8 +13,10 @@ import {
 const NAV_LINKS = [
   { href: "/", label: "الرئيسية", labelEn: "Home" },
   { href: "/dashboard", label: "لوحة التحكم", labelEn: "Dashboard" },
-  { href: "/v2", label: "داشبورد v2", labelEn: "Dashboard V2" },
+  { href: "/v2", label: "مركز القيادة", labelEn: "Command Center" },
   { href: "/ask", label: "اسأل الأبطال", labelEn: "Ask Titans" },
+  { href: "/clinic", label: "العيادة الذكية", labelEn: "Smart Clinic" },
+  { href: "/evidence", label: "سجل الأدلة", labelEn: "Evidence" },
 ];
 
 export default function Navigation() {

@@ -22,6 +22,8 @@ import { schedulerRouter } from "./scheduler-router";
 import { passwordResetRouter } from "./password-reset-router";
 import { modelFederationRouter } from "./model-federation-router";
 import { healthRouter } from "./health-router";
+import { evidenceRegistryRouter } from "./evidence-registry-router";
+import { voiceRouter } from "./voice-router";
 import { createRouter, publicQuery } from "./middleware";
 
 export const appRouter = createRouter({
@@ -50,6 +52,8 @@ export const appRouter = createRouter({
   passwordReset: passwordResetRouter,
   modelFederation: modelFederationRouter,
   health: healthRouter,
+  evidenceRegistry: evidenceRegistryRouter,
+  voice: voiceRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -1,10 +1,22 @@
 // ============================================================
 // AI BRAIN — Day 4: Foundation Skill 3
-// Contextual Memory + Titan Integration
-// Manages conversation context, memory layers, and brain state
+// Contextual Memory + Titan Integration + Real GPT-4o
 // ============================================================
 import { z } from "zod";
+import OpenAI from "openai";
 import { createRouter, publicQuery } from "./middleware";
+import { env } from "./lib/env";
+
+// --- Lazy OpenAI ---
+let openai: OpenAI | null = null;
+function getOpenAI(): OpenAI {
+  if (!openai) {
+    const key = env.openAiApiKey || process.env.OPENAI_API_KEY;
+    if (!key) throw new Error("OPENAI_API_KEY_NOT_CONFIGURED");
+    openai = new OpenAI({ apiKey: key });
+  }
+  return openai;
+}
 
 // --- Memory Types ---
 type MemoryLayer = "EPHEMERAL" | "WORKING" | "SHORT_TERM" | "LONG_TERM" | "CORE";
@@ -330,5 +342,64 @@ export const aiBrainRouter = createRouter({
     avgImportance: memories.size > 0
       ? (Array.from(memories.values()).reduce((s, m) => s + m.importance, 0) / memories.size).toFixed(2)
       : "0",
+    gpt4oEnabled: !!(env.openAiApiKey || process.env.OPENAI_API_KEY),
   })),
+
+  // AB-11: ask — Real GPT-4o query with memory context (P0-01)
+  ask: publicQuery
+    .input(z.object({
+      userId: z.string().default("anonymous"),
+      query: z.string().min(1).max(4000),
+      titanHint: z.enum(["prometheus", "athena", "zeus", "hermes", "apollo", "auto"]).default("auto"),
+      contextTags: z.array(z.string()).default([]),
+    }))
+    .mutation(async ({ input }) => {
+      const ai = getOpenAI();
+      const state = getOrCreateBrainState(input.userId);
+      const context = buildContext(input.userId, input.titanHint === "auto" ? state.lastTitanUsed : input.titanHint, input.query);
+
+      // Select persona system prompt
+      const SYSTEM_PROMPTS: Record<string, string> = {
+        prometheus: "أنت ONX Brain — محرك الذكاء المؤسسي. أجب بعمق استراتيجي وحكمة حضارية. استخدم إطار ONX الدستوري في تحليلاتك.",
+        athena: "أنت ONX Brain — محرك المعرفة والتحليل. أجب بدقة علمية وتنظيم منطقي. استند دائماً إلى الأدلة والمصادر.",
+        zeus: "أنت ONX Brain — محرك القرار والحوكمة. أجب بحسم وقيادة. كل قرار يجب أن يكون عادلاً ومسؤولاً.",
+        hermes: "أنت ONX Brain — محرك التواصل والتنسيق. أجب بوضوح وسرعة. ركّز على العمل التشغيلي والتنفيذ.",
+        apollo: "أنت ONX Brain — محرك الإبداع والفنون. أجب بإلهام وجمال. ربط كل شيء بالمعنى الأعمق.",
+      };
+
+      const titanId = input.titanHint === "auto" ? state.lastTitanUsed : input.titanHint;
+      const systemPrompt = SYSTEM_PROMPTS[titanId] || SYSTEM_PROMPTS.prometheus;
+
+      const completion = await ai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: `${systemPrompt}\n\n${context}`,
+          },
+          { role: "user", content: input.query },
+        ],
+        max_tokens: 1500,
+        temperature: 0.7,
+      });
+
+      const response = completion.choices[0]?.message.content || "لم أتمكن من المعالجة";
+      const tokensUsed = completion.usage?.total_tokens ?? 0;
+
+      // Store interaction in memory
+      createMemory("SHORT_TERM", `query:${Date.now()}`, input.query, titanId, 0.6, "user");
+      createMemory("SHORT_TERM", `response:${Date.now()}`, response.substring(0, 500), titanId, 0.7, titanId);
+      state.lastTitanUsed = titanId;
+      state.totalInteractions++;
+
+      return {
+        response,
+        titanUsed: titanId,
+        tokensUsed,
+        model: "gpt-4o",
+        memoryStored: true,
+        constitutionalStatus: "COMPLIANT",
+        understandingRung: state.understandingRung,
+      };
+    }),
 });

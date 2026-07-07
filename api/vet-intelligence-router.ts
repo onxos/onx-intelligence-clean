@@ -1,9 +1,23 @@
 // ============================================================
 // VETERINARY INTELLIGENCE — Day 6: Core Domain Skill
 // Specialized AI assistance for veterinary medicine
+// P0-04, P0-05, P0-10: Clinical sessions + AI diagnosis + Drug checks
 // ============================================================
 import { z } from "zod";
+import OpenAI from "openai";
 import { createRouter, publicQuery } from "./middleware";
+import { env } from "./lib/env";
+
+// --- Lazy OpenAI ---
+let openai: OpenAI | null = null;
+function getOpenAI(): OpenAI {
+  if (!openai) {
+    const key = env.openAiApiKey || process.env.OPENAI_API_KEY;
+    if (!key) throw new Error("OPENAI_API_KEY_NOT_CONFIGURED");
+    openai = new OpenAI({ apiKey: key });
+  }
+  return openai;
+}
 
 // --- Types ---
 interface VetCase {
@@ -269,6 +283,177 @@ export const vetIntelligenceRouter = createRouter({
       byStatus,
       avgConfidence: cases.length > 0 ? (cases.reduce((s, c) => s + c.confidence, 0) / cases.length).toFixed(1) : "0",
       breedProfiles: breedProfiles.length,
+      gpt4oEnabled: !!(env.openAiApiKey || process.env.OPENAI_API_KEY),
     };
   }),
+
+  // VI-09: createSession — Full clinical session with AI diagnosis (P0-04, P0-05)
+  createSession: publicQuery
+    .input(z.object({
+      patientName: z.string(),
+      species: z.string(),
+      breed: z.string().optional(),
+      age: z.number().optional(),
+      weight: z.number().optional(),
+      ownerName: z.string().optional(),
+      chiefComplaint: z.string(),
+      symptoms: z.array(z.string()),
+      vitals: z.object({
+        temperature: z.number().optional(),
+        heartRate: z.number().optional(),
+        respiratoryRate: z.number().optional(),
+      }).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const ai = getOpenAI();
+      const sessionId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+
+      // Rule-based pre-diagnosis
+      const ruleResult = diagnose(input.symptoms);
+
+      // GPT-4o comprehensive clinical analysis (P0-05)
+      const aiPrompt = `أنت طبيب بيطري خبير. قم بتحليل الحالة التالية وتقديم:
+1. التشخيص الأولي (مع مستوى الثقة)
+2. التشخيصات التفاضلية (3-5 احتمالات)
+3. خطة العلاج المقترحة
+4. الأدوية الموصى بها (بالجرعات إن أمكن)
+5. متى يجب إحالة الحالة
+
+معلومات الحالة:
+- الحيوان: ${input.species} (${input.breed || "سلالة غير محددة"})
+- العمر: ${input.age || "غير محدد"} سنة
+- الوزن: ${input.weight || "غير محدد"} كجم
+- المشكلة الرئيسية: ${input.chiefComplaint}
+- الأعراض: ${input.symptoms.join("، ")}
+${input.vitals ? `- العلامات الحيوية: حرارة ${input.vitals.temperature || "؟"}، نبض ${input.vitals.heartRate || "؟"}، تنفس ${input.vitals.respiratoryRate || "؟"}` : ""}
+
+قدّم إجابتك بالعربية بتنسيق منظم.`;
+
+      const completion = await ai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{ role: "user", content: aiPrompt }],
+        max_tokens: 1500,
+        temperature: 0.3,
+      });
+
+      const aiDiagnosis = completion.choices[0]?.message.content || ruleResult.diagnosis;
+
+      return {
+        sessionId,
+        patientName: input.patientName,
+        species: input.species,
+        breed: input.breed,
+        chiefComplaint: input.chiefComplaint,
+        symptoms: input.symptoms,
+        ruleDiagnosis: ruleResult.diagnosis,
+        aiDiagnosis,
+        severity: ruleResult.severity,
+        confidence: ruleResult.confidence,
+        tokensUsed: completion.usage?.total_tokens ?? 0,
+        model: "gpt-4o",
+        status: "DIAGNOSED",
+        createdAt: new Date().toISOString(),
+      };
+    }),
+
+  // VI-10: checkDrugInteractions — Drug interaction check (P0-10)
+  checkDrugInteractions: publicQuery
+    .input(z.object({
+      drugs: z.array(z.string()).min(1).max(10),
+      species: z.string(),
+      weight: z.number().optional(),
+      conditions: z.array(z.string()).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const ai = getOpenAI();
+
+      const prompt = `أنت صيدلاني بيطري متخصص. افحص التداخلات الدوائية التالية:
+
+الحيوان: ${input.species} (${input.weight ? `${input.weight} كجم` : "وزن غير محدد"})
+الأدوية: ${input.drugs.join("، ")}
+${input.conditions?.length ? `الحالات الصحية: ${input.conditions.join("، ")}` : ""}
+
+قدّم:
+1. هل يوجد تداخل خطير؟ (نعم/لا)
+2. التداخلات الموجودة (إن وجدت) مع درجة خطورتها (منخفض/متوسط/عالي/حرج)
+3. التوصيات والبدائل
+4. الجرعات الآمنة إن أمكن
+
+الإجابة بالعربية.`;
+
+      const completion = await ai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 800,
+        temperature: 0.1,
+      });
+
+      const analysis = completion.choices[0]?.message.content || "تعذر التحليل";
+      const hasInteraction = analysis.includes("تداخل خطير") || analysis.includes("نعم");
+
+      return {
+        drugs: input.drugs,
+        species: input.species,
+        hasInteraction,
+        analysis,
+        severity: hasInteraction ? "HIGH" : "SAFE",
+        model: "gpt-4o",
+        checkedAt: new Date().toISOString(),
+      };
+    }),
+
+  // VI-11: generateGovReport — MOA Government report (P0-08)
+  generateGovReport: publicQuery
+    .input(z.object({
+      period: z.string(), // "2025-Q2"
+      branchId: z.string().optional(),
+      includeStatistics: z.boolean().default(true),
+    }))
+    .mutation(async ({ input }) => {
+      const ai = getOpenAI();
+      const cases = Array.from(vetCases.values());
+
+      const stats = {
+        totalCases: cases.length,
+        resolved: cases.filter(c => c.status === "RESOLVED").length,
+        critical: cases.filter(c => c.severity === "CRITICAL").length,
+        speciesBreakdown: cases.reduce((acc, c) => {
+          acc[c.animalType] = (acc[c.animalType] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>),
+      };
+
+      const prompt = `أنت خبير في إعداد التقارير الحكومية البيطرية. أعدّ تقريراً بصيغة وزارة الزراعة السعودية (MOA) للفترة ${input.period}.
+
+الإحصاءات:
+- إجمالي الحالات: ${stats.totalCases}
+- الحالات المحسومة: ${stats.resolved}
+- الحالات الحرجة: ${stats.critical}
+- توزيع الأنواع: ${JSON.stringify(stats.speciesBreakdown)}
+
+أعدّ التقرير بالعناصر التالية:
+1. الملخص التنفيذي
+2. إحصاءات الحالات والأمراض
+3. التدخلات البيطرية
+4. التوصيات
+5. المؤشرات الصحية
+استخدم اللغة الرسمية للوزارة.`;
+
+      const completion = await ai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 2000,
+        temperature: 0.2,
+      });
+
+      return {
+        reportId: `MOA-${input.period}-${Date.now()}`,
+        period: input.period,
+        format: "MOA_GOVERNMENT",
+        content: completion.choices[0]?.message.content || "",
+        statistics: stats,
+        generatedAt: new Date().toISOString(),
+        model: "gpt-4o",
+      };
+    }),
 });

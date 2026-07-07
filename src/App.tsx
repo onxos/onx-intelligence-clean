@@ -5,6 +5,8 @@ import DashboardV2 from './pages/DashboardV2'
 import Ask from './pages/Ask'
 import Login from "./pages/Login"
 import NotFound from "./pages/NotFound"
+import Clinic from "./pages/Clinic"
+import EvidenceRegistry from "./pages/EvidenceRegistry"
 import Navigation from "./components/Navigation"
 
 function Layout({ children }: { children: React.ReactNode }) {
@@ -25,6 +27,8 @@ export default function App() {
       <Route path="/dashboard" element={<Layout><Dashboard /></Layout>} />
       <Route path="/v2" element={<Layout><DashboardV2 /></Layout>} />
       <Route path="/ask" element={<Layout><Ask /></Layout>} />
+      <Route path="/clinic" element={<Layout><Clinic /></Layout>} />
+      <Route path="/evidence" element={<Layout><EvidenceRegistry /></Layout>} />
       <Route path="/login" element={<Login />} />
       <Route path="*" element={<Layout><NotFound /></Layout>} />
     </Routes>

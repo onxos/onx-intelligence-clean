@@ -396,3 +396,325 @@ export const exchangeRecords = mysqlTable("exchange_records", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   completedAt: timestamp("completedAt"),
 });
+
+// ============================================================
+// EVIDENCE REGISTRY — 69 Acceptance Criteria Records
+// Tracks all UEP acceptance criteria: P0, P1, Milestones, Domains
+// ============================================================
+export const evidenceRegistry = mysqlTable("evidence_registry", {
+  id: serial("id").primaryKey(),
+  evidenceId: varchar("evidenceId", { length: 20 }).notNull().unique(), // EV-P0-01, EV-M01, etc.
+  category: mysqlEnum("category", [
+    "P0_CRITICAL", "P1_HIGH", "P2_MEDIUM",
+    "MILESTONE", "DOMAIN", "LAYER", "LAUNCH",
+  ]).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description").notNull(),
+  status: mysqlEnum("status", [
+    "PENDING", "IN_PROGRESS", "PASSED", "FAILED", "WAIVED",
+  ]).default("PENDING").notNull(),
+  verificationMethod: varchar("verificationMethod", { length: 255 }),
+  actualResult: text("actualResult"),
+  expectedResult: text("expectedResult"),
+  layer: mysqlEnum("layer", ["L0", "L1", "L2", "L3", "L4", "L5"]),
+  priority: int("priority").default(99).notNull(),
+  founderSigned: int("founderSigned").default(0).notNull(), // 0=false, 1=true
+  verifiedAt: timestamp("verifiedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull().$onUpdate(() => new Date()),
+}, (table) => [
+  index("ev_cat_idx").on(table.category),
+  index("ev_status_idx").on(table.status),
+]);
+
+export type EvidenceRecord = typeof evidenceRegistry.$inferSelect;
+export type InsertEvidenceRecord = typeof evidenceRegistry.$inferInsert;
+
+// ============================================================
+// CONSCIOUSNESS CYCLES — Scheduler execution log
+// ============================================================
+export const consciousnessCycles = mysqlTable("consciousness_cycles", {
+  id: serial("id").primaryKey(),
+  rhythmId: varchar("rhythmId", { length: 50 }).notNull(),
+  rhythmName: varchar("rhythmName", { length: 100 }).notNull(),
+  cycleNumber: int("cycleNumber").default(1).notNull(),
+  status: mysqlEnum("status", ["RUNNING", "COMPLETED", "FAILED", "SKIPPED"]).default("RUNNING").notNull(),
+  actionsExecuted: text("actionsExecuted"), // JSON array
+  metricsSnapshot: text("metricsSnapshot"), // JSON
+  healthScore: decimal("healthScore", { precision: 4, scale: 2 }),
+  anomaliesDetected: int("anomaliesDetected").default(0).notNull(),
+  startedAt: timestamp("startedAt").defaultNow().notNull(),
+  completedAt: timestamp("completedAt"),
+  durationMs: int("durationMs"),
+}, (table) => [
+  index("cc_rhythm_idx").on(table.rhythmId),
+  index("cc_status_idx").on(table.status),
+  index("cc_started_idx").on(table.startedAt),
+]);
+
+export type ConsciousnessCycle = typeof consciousnessCycles.$inferSelect;
+
+// ============================================================
+// VOICE SESSIONS — Arabic STT/TTS records
+// ============================================================
+export const voiceSessions = mysqlTable("voice_sessions", {
+  id: serial("id").primaryKey(),
+  sessionId: varchar("sessionId", { length: 36 }).notNull().unique(),
+  userId: varchar("userId", { length: 255 }),
+  direction: mysqlEnum("direction", ["STT", "TTS"]).notNull(),
+  language: varchar("language", { length: 10 }).default("ar").notNull(),
+  inputText: text("inputText"),
+  outputText: text("outputText"),
+  audioDurationMs: int("audioDurationMs"),
+  model: varchar("model", { length: 100 }),
+  tokensUsed: int("tokensUsed"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+// ============================================================
+// DOMAIN TABLES — D01-D19 Skill Layer
+// ============================================================
+
+// D01: Call Center Operations
+export const callCenterTickets = mysqlTable("call_center_tickets", {
+  id: serial("id").primaryKey(),
+  ticketId: varchar("ticketId", { length: 36 }).notNull().unique(),
+  customerId: varchar("customerId", { length: 255 }),
+  agentId: varchar("agentId", { length: 255 }),
+  category: mysqlEnum("category", [
+    "APPOINTMENT", "BILLING", "COMPLAINT", "INQUIRY", "EMERGENCY", "FOLLOWUP",
+  ]).notNull(),
+  priority: mysqlEnum("priority", ["LOW", "MEDIUM", "HIGH", "CRITICAL"]).default("MEDIUM").notNull(),
+  status: mysqlEnum("status", ["OPEN", "IN_PROGRESS", "RESOLVED", "ESCALATED", "CLOSED"]).default("OPEN").notNull(),
+  subject: varchar("subject", { length: 255 }).notNull(),
+  description: text("description"),
+  resolution: text("resolution"),
+  aiFeedback: text("aiFeedback"), // GPT-4o analysis
+  satisfactionScore: decimal("satisfactionScore", { precision: 3, scale: 1 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  resolvedAt: timestamp("resolvedAt"),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull().$onUpdate(() => new Date()),
+}, (table) => [
+  index("cc_status_idx").on(table.status),
+  index("cc_priority_idx").on(table.priority),
+]);
+
+// D04: Veterinary Clinical Records
+export const clinicalSessions = mysqlTable("clinical_sessions", {
+  id: serial("id").primaryKey(),
+  sessionId: varchar("sessionId", { length: 36 }).notNull().unique(),
+  patientId: varchar("patientId", { length: 36 }).notNull(),
+  patientName: varchar("patientName", { length: 255 }).notNull(),
+  species: varchar("species", { length: 100 }).notNull(),
+  breed: varchar("breed", { length: 100 }),
+  age: decimal("age", { precision: 4, scale: 1 }),
+  weight: decimal("weight", { precision: 6, scale: 2 }),
+  ownerId: varchar("ownerId", { length: 36 }),
+  ownerName: varchar("ownerName", { length: 255 }),
+  chiefComplaint: text("chiefComplaint").notNull(),
+  symptoms: text("symptoms"), // JSON array
+  vitals: text("vitals"), // JSON: temp, hr, rr, weight
+  aiDiagnosis: text("aiDiagnosis"), // GPT-4o generated
+  differentialDiagnoses: text("differentialDiagnoses"), // JSON
+  treatment: text("treatment"),
+  medications: text("medications"), // JSON array
+  followUpDate: timestamp("followUpDate"),
+  severity: mysqlEnum("severity", ["LOW", "MEDIUM", "HIGH", "CRITICAL", "EMERGENCY"]).default("MEDIUM").notNull(),
+  status: mysqlEnum("status", ["OPEN", "DIAGNOSED", "TREATING", "RESOLVED", "REFERRED"]).default("OPEN").notNull(),
+  drugInteractionCheck: text("drugInteractionCheck"), // GPT-4o drug check result
+  govReportIncluded: int("govReportIncluded").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull().$onUpdate(() => new Date()),
+}, (table) => [
+  index("cs_patient_idx").on(table.patientId),
+  index("cs_status_idx").on(table.status),
+  index("cs_severity_idx").on(table.severity),
+]);
+
+// D05: Inventory & Pharmacy
+export const inventoryItems = mysqlTable("inventory_items", {
+  id: serial("id").primaryKey(),
+  itemCode: varchar("itemCode", { length: 50 }).notNull().unique(),
+  name: varchar("name", { length: 255 }).notNull(),
+  nameAr: varchar("nameAr", { length: 255 }),
+  category: mysqlEnum("category", [
+    "MEDICINE", "VACCINE", "EQUIPMENT", "CONSUMABLE", "FEED", "SUPPLEMENT",
+  ]).notNull(),
+  unit: varchar("unit", { length: 50 }).notNull(),
+  currentStock: decimal("currentStock", { precision: 10, scale: 2 }).notNull(),
+  minStock: decimal("minStock", { precision: 10, scale: 2 }).notNull(),
+  maxStock: decimal("maxStock", { precision: 10, scale: 2 }),
+  costPrice: decimal("costPrice", { precision: 10, scale: 2 }),
+  sellingPrice: decimal("sellingPrice", { precision: 10, scale: 2 }),
+  expiryDate: timestamp("expiryDate"),
+  supplier: varchar("supplier", { length: 255 }),
+  drugInteractions: text("drugInteractions"), // JSON list
+  requiresPrescription: int("requiresPrescription").default(0).notNull(),
+  isActive: int("isActive").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull().$onUpdate(() => new Date()),
+}, (table) => [
+  index("inv_cat_idx").on(table.category),
+  index("inv_stock_idx").on(table.currentStock),
+]);
+
+// D06: Marketing & CRM
+export const crmContacts = mysqlTable("crm_contacts", {
+  id: serial("id").primaryKey(),
+  contactId: varchar("contactId", { length: 36 }).notNull().unique(),
+  name: varchar("name", { length: 255 }).notNull(),
+  email: varchar("email", { length: 320 }),
+  phone: varchar("phone", { length: 50 }),
+  type: mysqlEnum("type", ["LEAD", "PROSPECT", "CUSTOMER", "VIP", "PARTNER"]).default("LEAD").notNull(),
+  stage: mysqlEnum("stage", ["AWARENESS", "INTEREST", "CONSIDERATION", "INTENT", "PURCHASE", "RETENTION"]).default("AWARENESS").notNull(),
+  score: int("score").default(0).notNull(),
+  source: varchar("source", { length: 100 }),
+  assignedTo: varchar("assignedTo", { length: 255 }),
+  notes: text("notes"),
+  aiInsight: text("aiInsight"), // GPT-4o analysis
+  lastContactedAt: timestamp("lastContactedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull().$onUpdate(() => new Date()),
+}, (table) => [
+  index("crm_type_idx").on(table.type),
+  index("crm_stage_idx").on(table.stage),
+]);
+
+// D08: Reporting & Analytics
+export const analyticsReports = mysqlTable("analytics_reports", {
+  id: serial("id").primaryKey(),
+  reportId: varchar("reportId", { length: 36 }).notNull().unique(),
+  type: mysqlEnum("type", [
+    "DAILY", "WEEKLY", "MONTHLY", "QUARTERLY", "ANNUAL",
+    "MOA_GOVERNMENT", "CLINICAL", "FINANCIAL", "OPERATIONAL",
+  ]).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  period: varchar("period", { length: 50 }).notNull(), // "2025-Q1", "2025-07"
+  data: text("data").notNull(), // JSON report data
+  aiSummary: text("aiSummary"), // GPT-4o generated summary
+  moaFormat: int("moaFormat").default(0).notNull(), // Is MOA government format
+  generatedBy: varchar("generatedBy", { length: 100 }),
+  status: mysqlEnum("status", ["DRAFT", "REVIEWING", "APPROVED", "PUBLISHED"]).default("DRAFT").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("ar_type_idx").on(table.type),
+  index("ar_period_idx").on(table.period),
+]);
+
+// D10: Laboratory & Diagnostics
+export const labResults = mysqlTable("lab_results", {
+  id: serial("id").primaryKey(),
+  labId: varchar("labId", { length: 36 }).notNull().unique(),
+  patientId: varchar("patientId", { length: 36 }).notNull(),
+  sessionId: varchar("sessionId", { length: 36 }),
+  testType: mysqlEnum("testType", [
+    "CBC", "BIOCHEMISTRY", "URINALYSIS", "MICROBIOLOGY",
+    "PARASITOLOGY", "SEROLOGY", "PATHOLOGY", "IMAGING",
+  ]).notNull(),
+  testName: varchar("testName", { length: 255 }).notNull(),
+  results: text("results").notNull(), // JSON
+  referenceRange: text("referenceRange"), // JSON
+  aiInterpretation: text("aiInterpretation"), // GPT-4o analysis
+  status: mysqlEnum("status", ["PENDING", "PROCESSING", "COMPLETED", "REVIEWED"]).default("PENDING").notNull(),
+  flagged: int("flagged").default(0).notNull(),
+  collectedAt: timestamp("collectedAt"),
+  completedAt: timestamp("completedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("lab_patient_idx").on(table.patientId),
+  index("lab_type_idx").on(table.testType),
+]);
+
+// D14: Business Intelligence
+export const biMetrics = mysqlTable("bi_metrics", {
+  id: serial("id").primaryKey(),
+  metricId: varchar("metricId", { length: 36 }).notNull().unique(),
+  name: varchar("name", { length: 255 }).notNull(),
+  category: mysqlEnum("category", [
+    "REVENUE", "PATIENTS", "EFFICIENCY", "SATISFACTION",
+    "GROWTH", "COMPLIANCE", "AI_PERFORMANCE",
+  ]).notNull(),
+  value: decimal("value", { precision: 15, scale: 4 }).notNull(),
+  unit: varchar("unit", { length: 50 }),
+  period: varchar("period", { length: 50 }).notNull(),
+  target: decimal("target", { precision: 15, scale: 4 }),
+  benchmark: decimal("benchmark", { precision: 15, scale: 4 }),
+  trend: mysqlEnum("trend", ["UP", "DOWN", "STABLE", "VOLATILE"]).default("STABLE"),
+  aiAnalysis: text("aiAnalysis"),
+  recordedAt: timestamp("recordedAt").defaultNow().notNull(),
+}, (table) => [
+  index("bi_cat_idx").on(table.category),
+  index("bi_period_idx").on(table.period),
+]);
+
+// D15: Organization & Branches
+export const branches = mysqlTable("branches", {
+  id: serial("id").primaryKey(),
+  branchId: varchar("branchId", { length: 36 }).notNull().unique(),
+  name: varchar("name", { length: 255 }).notNull(),
+  nameAr: varchar("nameAr", { length: 255 }),
+  type: mysqlEnum("type", ["PILOT", "MAIN", "SATELLITE", "MOBILE"]).default("PILOT").notNull(),
+  status: mysqlEnum("status", ["PLANNING", "ACTIVE", "PAUSED", "CLOSED"]).default("PLANNING").notNull(),
+  city: varchar("city", { length: 100 }),
+  region: varchar("region", { length: 100 }),
+  country: varchar("country", { length: 100 }).default("SA"),
+  latitude: decimal("latitude", { precision: 10, scale: 8 }),
+  longitude: decimal("longitude", { precision: 11, scale: 8 }),
+  managerName: varchar("managerName", { length: 255 }),
+  staffCount: int("staffCount").default(0).notNull(),
+  patientsPerDay: int("patientsPerDay").default(0).notNull(),
+  revenueTarget: decimal("revenueTarget", { precision: 15, scale: 2 }),
+  aiHealthScore: decimal("aiHealthScore", { precision: 4, scale: 2 }),
+  launchDate: timestamp("launchDate"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull().$onUpdate(() => new Date()),
+}, (table) => [
+  index("br_status_idx").on(table.status),
+  index("br_region_idx").on(table.region),
+]);
+
+// D18: Communication & Notifications
+export const notifications = mysqlTable("notifications", {
+  id: serial("id").primaryKey(),
+  notificationId: varchar("notificationId", { length: 36 }).notNull().unique(),
+  recipientId: varchar("recipientId", { length: 255 }).notNull(),
+  channel: mysqlEnum("channel", ["PUSH", "SMS", "EMAIL", "WHATSAPP", "IN_APP"]).notNull(),
+  type: mysqlEnum("type", [
+    "APPOINTMENT_REMINDER", "RESULT_READY", "PAYMENT_DUE",
+    "ALERT", "REPORT_READY", "GPS_DELAY", "SYSTEM",
+  ]).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  body: text("body").notNull(),
+  data: text("data"), // JSON payload
+  priority: mysqlEnum("priority", ["LOW", "MEDIUM", "HIGH", "URGENT"]).default("MEDIUM").notNull(),
+  status: mysqlEnum("status", ["PENDING", "SENT", "DELIVERED", "READ", "FAILED"]).default("PENDING").notNull(),
+  scheduledAt: timestamp("scheduledAt"),
+  sentAt: timestamp("sentAt"),
+  readAt: timestamp("readAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("notif_recipient_idx").on(table.recipientId),
+  index("notif_status_idx").on(table.status),
+  index("notif_type_idx").on(table.type),
+]);
+
+// GPS Tracking for D07 (delivery/mobile services)
+export const gpsEvents = mysqlTable("gps_events", {
+  id: serial("id").primaryKey(),
+  eventId: varchar("eventId", { length: 36 }).notNull().unique(),
+  entityId: varchar("entityId", { length: 36 }).notNull(), // vehicle/person ID
+  entityType: mysqlEnum("entityType", ["VEHICLE", "STAFF", "MOBILE_UNIT"]).notNull(),
+  latitude: decimal("latitude", { precision: 10, scale: 8 }).notNull(),
+  longitude: decimal("longitude", { precision: 11, scale: 8 }).notNull(),
+  speed: decimal("speed", { precision: 6, scale: 2 }),
+  heading: int("heading"),
+  appointmentId: varchar("appointmentId", { length: 36 }),
+  expectedArrival: timestamp("expectedArrival"),
+  estimatedDelay: int("estimatedDelay"), // minutes
+  delayAlertSent: int("delayAlertSent").default(0).notNull(),
+  recordedAt: timestamp("recordedAt").defaultNow().notNull(),
+}, (table) => [
+  index("gps_entity_idx").on(table.entityId),
+  index("gps_recorded_idx").on(table.recordedAt),
+]);
+

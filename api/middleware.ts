@@ -2,6 +2,11 @@ import { ErrorMessages } from "@contracts/constants";
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
+import { Guardian, USFIPv2Engine } from "@onx/intelligence-runtime";
+
+// Shared runtime instances
+export const guardian = new Guardian();
+export const usfip = new USFIPv2Engine({ amanahFloor: 0.5, enforce: true });
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -23,6 +28,57 @@ const requireAuth = t.middleware(async (opts) => {
   return next({ ctx: { ...ctx, user: ctx.user } });
 });
 
+// ============================================================
+// CONSTITUTIONAL GUARDIAN MIDDLEWARE
+// Enforces 7 ONX principles on every protected procedure
+// ============================================================
+const constitutionalCheck = t.middleware(async (opts) => {
+  const { ctx, next, path } = opts;
+
+  // Run USFIP v2 audit
+  const audit = usfip.fullAudit({
+    path,
+    userId: ctx.user?.unionId ?? "anonymous",
+    role: ctx.user?.role ?? "user",
+    timestamp: new Date().toISOString(),
+  });
+
+  // Guardian Amanah check
+  const amanahResult = guardian.checkAmanah(audit.score);
+
+  // Log governance decision (non-blocking — best effort)
+  if (!amanahResult.passed) {
+    process.stderr.write(
+      `[Guardian] BLOCKED ${path} — Amanah: ${audit.score} < 0.5 (user: ${ctx.user?.unionId ?? "anon"})\n`
+    );
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `Constitutional violation: Amanah score ${audit.score} below required threshold (0.5). Principle: ${amanahResult.message}`,
+    });
+  }
+
+  // Shadow validation
+  const shadowResult = guardian.validateShadow(
+    ctx.user ? "L1_VERIFIED" : "L8_GENERAL"
+  );
+
+  if (!shadowResult.trusted) {
+    process.stderr.write(`[Guardian] SHADOW WARNING: ${path} — ${shadowResult.message}\n`);
+  }
+
+  return next({
+    ctx: {
+      ...ctx,
+      constitutional: {
+        amanahScore: audit.score,
+        passed: amanahResult.passed,
+        shadowValidated: shadowResult.trusted,
+        auditId: `gov-${Date.now()}`,
+      },
+    },
+  });
+});
+
 function requireRole(role: string) {
   return t.middleware(async (opts) => {
     const { ctx, next } = opts;
@@ -40,3 +96,6 @@ function requireRole(role: string) {
 
 export const authedQuery = t.procedure.use(requireAuth);
 export const adminQuery = authedQuery.use(requireRole("admin"));
+// Protected + Constitutional — all sensitive procedures use this
+export const constitutionalProcedure = authedQuery.use(constitutionalCheck);
+
