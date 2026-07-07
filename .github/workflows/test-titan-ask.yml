@@ -1,0 +1,29 @@
+name: Test Titan Ask
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test OpenAI API key directly
+        run: |
+          echo "=== Testing OpenAI API key ==="
+          RESP=$(curl -s -w "\nHTTP:%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.OPENAI_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"model":"gpt-4o","messages":[{"role":"user","content":"say ok"}],"max_tokens":5}' \
+            "https://api.openai.com/v1/chat/completions")
+          echo "$RESP" | tail -1
+          echo "$RESP" | python3 -c "import sys,json; d=json.loads(sys.stdin.read().split('\nHTTP:')[0]); print('choices:', len(d.get('choices',[])), '| error:', d.get('error',{}).get('message','none'))" 2>/dev/null || echo "Parse error"
+
+      - name: Test titan.ask via live API
+        run: |
+          echo "=== Testing titan.ask endpoint ==="
+          BODY='{"json":{"titanId":"prometheus","message":"say ok in one word"}}'
+          ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$BODY'))")
+          RESP=$(curl -s --max-time 30 \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -d "$BODY" \
+            "https://onx-intelligence-clean.onrender.com/api/trpc/titan.ask")
+          echo "Response: $(echo $RESP | cut -c1-300)"
