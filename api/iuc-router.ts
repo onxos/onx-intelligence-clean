@@ -24,6 +24,7 @@ import {
   type Rank,
   type VerificationLevel,
 } from "./iuc-engine";
+import { IurgContinuityGraph } from "./iuc-continuity";
 
 const zType = z.enum(IURG_TYPES as unknown as [IurgObjectType, ...IurgObjectType[]]);
 const zVerification = z.enum(["UNVERIFIED", "POSSIBLE", "PROBABLE", "CONFIRMED", "PROVEN"]);
@@ -62,23 +63,26 @@ function categoryOf(t: IurgObjectType): "CORE" | "CONSTRAINT" | "SUPPORTING" {
   return "SUPPORTING";
 }
 
-// --- In-memory IURG store, seeded with a realistic mini-graph ---
-function seedStore(): IurgObjectInput[] {
-  return [
+// --- In-memory IURG continuity graph, seeded with a realistic mini-graph ---
+function seedGraph(): IurgContinuityGraph {
+  const g = new IurgContinuityGraph();
+  const seeds: IurgObjectInput[] = [
     { id: "seed-fi", type: "FOUNDER_INTENT", rank: 6, verification: "PROVEN", amanah: 1.0, founderAlignment: 1.0, validated: true, sources: 3, trust: 0.98, transfer: 0.9 },
     { id: "seed-cc", type: "CONSTITUTIONAL_CONSTRAINT", rank: 6, verification: "PROVEN", amanah: 1.0, founderAlignment: 1.0, validated: true, sources: 3, trust: 0.97, transfer: 0.85 },
     { id: "seed-perc", type: "PERCEPTION", rank: 1, verification: "POSSIBLE", amanah: 0.7, founderAlignment: 0.7, sources: 2, trust: 0.62, transfer: 0.55, ageDays: 1 },
     { id: "seed-patt", type: "PATTERN", rank: 2, verification: "PROBABLE", amanah: 0.8, founderAlignment: 0.75, validated: true, sources: 3, trust: 0.78, transfer: 0.7 },
-    { id: "seed-und", type: "UNDERSTANDING", rank: 3, verification: "CONFIRMED", amanah: 0.9, founderAlignment: 0.85, validated: true, sources: 3, trust: 0.82, transfer: 0.75 },
+    { id: "seed-und", type: "UNDERSTANDING", rank: 3, verification: "CONFIRMED", amanah: 0.9, founderAlignment: 0.85, validated: true, sources: 3, trust: 0.87, transfer: 0.75 },
     { id: "seed-judg", type: "JUDGMENT", rank: 4, verification: "CONFIRMED", amanah: 0.95, founderAlignment: 0.9, validated: true, sources: 4, trust: 0.88, transfer: 0.8, yield: 0.9 },
     { id: "seed-dec", type: "DECISION", rank: 3, verification: "PROBABLE", amanah: 0.9, founderAlignment: 0.88, validated: true, sources: 2, trust: 0.8, transfer: 0.72, yield: 0.8 },
     { id: "seed-out", type: "OUTCOME", rank: 4, verification: "PROVEN", amanah: 0.96, founderAlignment: 0.92, validated: true, sources: 3, trust: 0.9, transfer: 0.82, yield: 0.95 },
     { id: "seed-evi", type: "EVIDENCE", rank: 2, verification: "CONFIRMED", amanah: 0.9, founderAlignment: 0.8, validated: true, sources: 3, trust: 0.85, transfer: 0.6 },
     { id: "seed-val", type: "VALIDATION", rank: 3, verification: "PROVEN", amanah: 0.92, founderAlignment: 0.85, validated: true, sources: 3, trust: 0.86, transfer: 0.65 },
   ];
+  for (const s of seeds) g.addObject(s);
+  return g;
 }
 
-let store: IurgObjectInput[] = seedStore();
+let graph = seedGraph();
 const tucHistory: number[] = [];
 
 export const iucRouter = createRouter({
@@ -107,33 +111,34 @@ export const iucRouter = createRouter({
     maturityByRank: MATURITY_BY_RANK,
   })),
 
-  // --- Live IUC snapshot: TUC + 11 indicators over current store (§2.4) ---
+  // --- Live IUC snapshot: TUC + 11 indicators over the live graph (§2.4) ---
   snapshot: publicQuery
     .input(z.object({ previousTUC: z.number().optional() }).optional())
     .query(({ input }) => {
       const previousTUC = input?.previousTUC ?? (tucHistory.length ? tucHistory[tucHistory.length - 1] : undefined);
-      return computeIUC(store, { previousTUC });
+      return computeIUC(graph.list(), { previousTUC });
     }),
 
   // --- Commit a snapshot to history (daily iuc.snapshot event) ---
   commit: publicQuery.mutation(() => {
     const previousTUC = tucHistory.length ? tucHistory[tucHistory.length - 1] : undefined;
-    const snap = computeIUC(store, { previousTUC });
+    const snap = computeIUC(graph.list(), { previousTUC });
     tucHistory.push(snap.tuc);
     return { snapshot: snap, historyLength: tucHistory.length };
   }),
 
-  // --- Ingest an IURG object: contribution + VG + promotion eligibility ---
+  // --- Ingest an IURG object into the graph: contribution + VG + eligibility ---
   ingest: publicQuery.input(zObject).mutation(({ input }) => {
     const obj = toInput(input);
-    store.push(obj);
+    const node = graph.addObject(obj);
     return {
       stored: true,
-      objectCount: store.length,
+      objectId: node.id,
+      objectCount: graph.list().length,
       contribution: Math.round(objectIUC(obj) * 10000) / 10000,
       validation: validationGates(obj),
       promotion: checkPromotion(obj),
-      snapshot: computeIUC(store),
+      snapshot: computeIUC(graph.list()),
     };
   }),
 
@@ -143,23 +148,63 @@ export const iucRouter = createRouter({
   // --- Check ladder promotion eligibility for an object (§2.2) ---
   promote: publicQuery.input(zObject).query(({ input }) => checkPromotion(toInput(input))),
 
-  // --- Store stats ---
+  // --- The live IURG graph (all objects with current ranks) ---
+  graph: publicQuery.query(() =>
+    graph.list().map((n) => ({
+      id: n.id, type: n.type, rank: n.rank,
+      verification: n.verification ?? "UNVERIFIED",
+      trust: n.trust ?? 0, sources: n.sources ?? 0, overrides: n.overrides ?? 0,
+      contribution: Math.round(objectIUC(n) * 10000) / 10000,
+    })),
+  ),
+
+  // --- Apply a promotion attempt (auto rungs promote; human rungs go PENDING) ---
+  applyPromotion: publicQuery.input(z.object({ id: z.string(), actor: z.string().optional() }))
+    .mutation(({ input }) => graph.attemptPromotion(input.id, input.actor ?? "system")),
+
+  // --- Approve a pending human-gated promotion (DG-09 / DG-10 / FOUNDER_CONSENSUS) ---
+  approveGate: publicQuery.input(z.object({ id: z.string(), gate: z.string(), approver: z.string() }))
+    .mutation(({ input }) => graph.approve(input.id, input.gate, input.approver)),
+
+  // --- Reject a pending human-gated promotion ---
+  rejectGate: publicQuery.input(z.object({ id: z.string(), gate: z.string(), approver: z.string(), reason: z.string().optional() }))
+    .mutation(({ input }) => graph.reject(input.id, input.gate, input.approver, input.reason ?? "rejected")),
+
+  // --- Pending human-gated promotions awaiting approval ---
+  pending: publicQuery.query(() => graph.getPending()),
+
+  // --- The content-addressed continuity hash chain (audit trail) ---
+  chain: publicQuery.input(z.object({ limit: z.number().int().min(1).max(500).optional() }).optional())
+    .query(({ input }) => {
+      const all = graph.getChain();
+      const limit = input?.limit ?? 100;
+      return { total: all.length, entries: all.slice(-limit) };
+    }),
+
+  // --- Verify chain integrity (tamper / reorder detection) ---
+  verifyChain: publicQuery.query(() => graph.verifyChain()),
+
+  // --- Graph + chain stats ---
   stats: publicQuery.query(() => {
-    const snap = computeIUC(store);
+    const snap = computeIUC(graph.list());
     const green = snap.indicators.filter((i) => i.status === "GREEN").length;
+    const g = graph.stats();
     return {
-      objectCount: store.length,
+      objectCount: g.objectCount,
       tuc: snap.tuc,
       indicatorsGreen: green,
       indicatorsTotal: snap.indicators.length,
       historyLength: tucHistory.length,
+      chainLength: g.chainLength,
+      pendingCount: g.pendingCount,
+      chainValid: g.chainValid,
     };
   }),
 
-  // --- Reset the store to the seed graph (dev/testing) ---
+  // --- Reset the graph to the seed state (dev/testing) ---
   reset: publicQuery.mutation(() => {
-    store = seedStore();
+    graph = seedGraph();
     tucHistory.length = 0;
-    return { reset: true, objectCount: store.length };
+    return { reset: true, objectCount: graph.list().length };
   }),
 });

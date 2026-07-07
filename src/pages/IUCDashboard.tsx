@@ -30,9 +30,17 @@ export default function IUCDashboard() {
   const snapshotQ = trpc.iuc.snapshot.useQuery()
   const typesQ = trpc.iuc.objectTypes.useQuery()
   const ladderQ = trpc.iuc.ladder.useQuery()
-  const commitMut = trpc.iuc.commit.useMutation({
-    onSuccess: () => { snapshotQ.refetch() },
-  })
+  const graphQ = trpc.iuc.graph.useQuery()
+  const statsQ = trpc.iuc.stats.useQuery()
+  const pendingQ = trpc.iuc.pending.useQuery()
+
+  const refetchAll = () => {
+    snapshotQ.refetch(); graphQ.refetch(); statsQ.refetch(); pendingQ.refetch()
+  }
+
+  const commitMut = trpc.iuc.commit.useMutation({ onSuccess: () => { snapshotQ.refetch() } })
+  const applyMut = trpc.iuc.applyPromotion.useMutation({ onSuccess: refetchAll })
+  const approveMut = trpc.iuc.approveGate.useMutation({ onSuccess: refetchAll })
 
   const tuc = snapshotQ.data?.tuc ?? 0
 
@@ -69,6 +77,29 @@ export default function IUCDashboard() {
           </div>
         </div>
 
+        {/* Continuity + integrity strip */}
+        {statsQ.data && (
+          <div className="grid grid-cols-3 gap-3 mb-6">
+            <div className="bg-gray-900 border border-gray-700 rounded-xl p-4 text-center">
+              <div className="text-gray-400 text-xs">سلسلة الاستمرارية</div>
+              <div className="text-2xl font-bold text-cyan-300 mt-1">{statsQ.data.chainLength}</div>
+              <div className="text-[10px] text-gray-500">سجل مُجزَّأ (hash-chain)</div>
+            </div>
+            <div className={`rounded-xl p-4 text-center border ${statsQ.data.chainValid ? "border-green-700 bg-green-950/40" : "border-red-700 bg-red-950/40"}`}>
+              <div className="text-gray-400 text-xs">سلامة السلسلة</div>
+              <div className={`text-2xl font-bold mt-1 ${statsQ.data.chainValid ? "text-green-400" : "text-red-400"}`}>
+                {statsQ.data.chainValid ? "✔ سليمة" : "✘ مكسورة"}
+              </div>
+              <div className="text-[10px] text-gray-500">تحقق SHA-256</div>
+            </div>
+            <div className="bg-gray-900 border border-gray-700 rounded-xl p-4 text-center">
+              <div className="text-gray-400 text-xs">ترقيات معلّقة</div>
+              <div className="text-2xl font-bold text-amber-300 mt-1">{statsQ.data.pendingCount}</div>
+              <div className="text-[10px] text-gray-500">بوابات بشرية DG</div>
+            </div>
+          </div>
+        )}
+
         {/* 11 indicators */}
         {snapshotQ.data && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
@@ -103,6 +134,55 @@ export default function IUCDashboard() {
                   <span className={`text-xs px-2 py-1 rounded ${r.human ? "bg-amber-900 text-amber-300" : "bg-green-900 text-green-300"}`}>
                     {r.gate}
                   </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Pending human-gated promotions */}
+        {pendingQ.data && pendingQ.data.length > 0 && (
+          <div className="bg-amber-950/30 border border-amber-700 rounded-xl p-6 mb-6">
+            <h2 className="text-xl font-bold mb-4 text-amber-300">🛂 ترقيات تنتظر اعتماداً بشرياً</h2>
+            <div className="space-y-2">
+              {pendingQ.data.map((p) => (
+                <div key={p.objectId} className="flex items-center gap-3 bg-gray-900 rounded-lg p-3 text-sm">
+                  <span className="font-bold text-amber-300 flex-1">{p.objectId}</span>
+                  <span className="text-gray-400">R{p.fromRank} → R{p.toRank}</span>
+                  <span className="text-xs px-2 py-1 rounded bg-amber-900 text-amber-300">{p.gate}</span>
+                  <button
+                    onClick={() => approveMut.mutate({ id: p.objectId, gate: p.gate, approver: "founder" })}
+                    disabled={approveMut.isPending}
+                    className="bg-green-800 hover:bg-green-700 disabled:opacity-50 px-3 py-1 rounded text-xs font-bold"
+                  >
+                    ✅ اعتماد
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Live IURG graph with promotion actions */}
+        {graphQ.data && (
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 mb-6">
+            <h2 className="text-xl font-bold mb-4 text-emerald-300">🌐 الرسم البياني الحيّ ({graphQ.data.length})</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {graphQ.data.map((n) => (
+                <div key={n.id} className="flex items-center gap-2 bg-gray-800 rounded-lg p-3 text-sm">
+                  <span className="font-bold text-gray-200 flex-1">{n.id}</span>
+                  <span className="text-[11px] text-gray-500">{n.type}</span>
+                  <span className="text-xs px-2 py-0.5 rounded bg-purple-900 text-purple-300">R{n.rank}</span>
+                  <span className="text-[11px] text-gray-400">IUC {n.contribution}</span>
+                  {n.rank < 6 && (
+                    <button
+                      onClick={() => applyMut.mutate({ id: n.id })}
+                      disabled={applyMut.isPending}
+                      className="bg-indigo-800 hover:bg-indigo-700 disabled:opacity-50 px-2 py-1 rounded text-xs"
+                    >
+                      ⬆ ترقية
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
