@@ -27,17 +27,25 @@ jobs:
           except Exception:
               env_list = []
 
-          # Build dict from existing, filtering out OPENAI_API_KEY if present
+          # Build dict from existing
           env_dict = {}
           for item in env_list:
-              ev = item.get("envVar") or item  # Render wraps in {"envVar": {...}}
+              ev = item.get("envVar") or item
               k = ev.get("key", "")
               v = ev.get("value", "")
-              if k and k != "OPENAI_API_KEY":
+              if k:
                   env_dict[k] = v
 
-          # Add the new key
-          env_dict["OPENAI_API_KEY"] = "${{ secrets.OPENAI_API_KEY }}"
+          # Set/override all known values
+          updates = {
+              "OPENAI_API_KEY": "${{ secrets.OPENAI_API_KEY }}",
+              "OWNER_UNION_ID": "${{ secrets.OWNER_UNION_ID }}",
+              "APP_ID":         "${{ secrets.KIMI_APP_ID }}",
+              "APP_SECRET":     "${{ secrets.KIMI_APP_SECRET }}",
+          }
+          for k, v in updates.items():
+              if v:
+                  env_dict[k] = v
 
           payload = [{"key": k, "value": v} for k, v in env_dict.items()]
           print(f"Setting {len(payload)} env vars (keys: {[p['key'] for p in payload]})")
