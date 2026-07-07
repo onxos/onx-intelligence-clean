@@ -8,6 +8,7 @@ import OpenAI from "openai";
 import { createRouter, publicQuery } from "./middleware";
 import { env } from "./lib/env";
 import { rateLimiter, budgetController, costDashboard } from "./advanced-engines-router";
+import { assertBridgeAccess, getBridgeState } from "./bridge-guard";
 
 // --- Lazy OpenAI client (server starts even without key) ---
 let openai: OpenAI | null = null;
@@ -190,23 +191,6 @@ const sessions: Map<string, TitanSession> = new Map();
 let totalCalls = 0;
 let totalTokens = 0;
 
-function ensureBridgeEnabled() {
-  if (!env.bridgeEnabled) {
-    throw new Error("BRIDGE_DISABLED: Set BRIDGE_ENABLED=true to allow Platform-to-Intelligence bridge traffic");
-  }
-}
-
-function authorizeBridgeRequest(headers: Headers) {
-  if (!env.bridgeSharedSecret) {
-    throw new Error("BRIDGE_SECRET_NOT_CONFIGURED: Set BRIDGE_SHARED_SECRET before enabling bridge traffic");
-  }
-
-  const key = headers.get("x-onx-bridge-key");
-  if (!key || key !== env.bridgeSharedSecret) {
-    throw new Error("BRIDGE_UNAUTHORIZED: Missing or invalid x-onx-bridge-key");
-  }
-}
-
 // ============================================================
 // Core: Titan GPT-4o Call
 // ============================================================
@@ -279,8 +263,7 @@ async function callTitan(
 export const titanBridgeRouter = createRouter({
   // --- Bridge status for integration gates ---
   bridgeStatus: publicQuery.query(() => ({
-    enabled: env.bridgeEnabled,
-    hasSharedSecret: !!env.bridgeSharedSecret,
+    ...getBridgeState(),
     bridge: "titanBridge",
     mode: env.bridgeEnabled ? "ACTIVE" : "SAFE_DISABLED",
     message: env.bridgeEnabled
@@ -329,8 +312,7 @@ export const titanBridgeRouter = createRouter({
       correlationId: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      ensureBridgeEnabled();
-      authorizeBridgeRequest(ctx.req.headers);
+      assertBridgeAccess(ctx);
 
       const rateCheck = rateLimiter.checkLimit(input.workspaceId);
       if (!rateCheck.allowed) {

@@ -74,13 +74,13 @@ L0: Civilization Substrate  18 Engines, USFIPv2, Guardian, Continuity
 
 - `titan.*` — 5 AI Titans with GPT-4o
 - `titanBridge.*` / `bridge.*` — Platform-to-Intelligence bridge contract
-- `corpusQuery.*` — Alias to knowledge router for Platform integration
-- `intentEngine.*` — Alias to intelligence router for Platform integration
+- `corpusQuery.*` — Secure corpus bridge (`status`, `domains`, `search`)
+- `intentEngine.*` — Secure intent bridge (`status`, `governance`, `analyze`)
 - `modelFederation.*` — 5 AI providers with fallback
 - `runtime.*` — 18 intelligence engines
 - `aiBrain.*` — 5-layer memory system
 
-> `titan.consult` requires bridge gate enabled (`BRIDGE_ENABLED=true`) and header `x-onx-bridge-key` matching `BRIDGE_SHARED_SECRET`.
+> Bridge endpoints (`titan.consult`, `corpusQuery.*`, `intentEngine.*`) require `BRIDGE_ENABLED=true` and header `x-onx-bridge-key` matching `BRIDGE_SHARED_SECRET`.
 
 ### Knowledge Routers
 
