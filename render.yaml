@@ -30,7 +30,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: PORT
-        value: "3000"
+        value: "10000"
       - key: DATABASE_URL
         value: sqlite:///app/db/onx-pilot.db
       - key: DATABASE_PROVIDER
@@ -46,7 +46,7 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: APP_URL
-        value: https://onx-intelligence.onrender.com
+        value: https://onx-intelligence-clean.onrender.com
       - key: VITE_APP_ID
         sync: false
       - key: VITE_KIMI_AUTH_URL
