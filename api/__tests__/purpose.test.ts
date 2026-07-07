@@ -80,7 +80,7 @@ describe("Founder Cognitive Model", () => {
   });
 
   it("rates care-first as aligned", () => {
-    const r = scoreAlignment(["FDP-001", "FDP-002", "FDP-003", "FDP-004", "FDP-005", "FDP-007"]);
+    const r = scoreAlignment(["FDP-001", "FDP-002", "FDP-003", "FDP-004", "FDP-005", "FDP-006", "FDP-007"]);
     expect(r.verdict).toBe("ALIGNED");
     expect(r.matched).toContain("FDP-001");
   });
