@@ -86,6 +86,17 @@ function eventTypeFor(v: FICVerdict): LedgerEventType {
   }
 }
 
+function verifyLedgerChain(): { valid: boolean; brokenAt?: number; length?: number } {
+  let prev = GENESIS;
+  for (const e of ledger) {
+    if (e.prevHash !== prev) return { valid: false, brokenAt: e.seq };
+    const payload = JSON.stringify({ seq: e.seq, eventId: e.eventId, type: e.type, intentId: e.intentId, status: e.status, prevHash: e.prevHash, timestamp: e.timestamp });
+    if (createHash("sha256").update(payload).digest("hex") !== e.hash) return { valid: false, brokenAt: e.seq };
+    prev = e.hash;
+  }
+  return { valid: true, length: ledger.length };
+}
+
 export const ficRouter = createRouter({
   // --- Full constraint registry (68) + family counts ---
   constraints: publicQuery.query(() => ({
@@ -116,17 +127,30 @@ export const ficRouter = createRouter({
   // --- The append-only ledger ---
   ledger: publicQuery.query(() => ({ total: ledger.length, entries: ledger })),
 
-  // --- Verify the ledger hash chain integrity ---
-  verifyLedger: publicQuery.query(() => {
-    let prev = GENESIS;
-    for (const e of ledger) {
-      if (e.prevHash !== prev) return { valid: false, brokenAt: e.seq };
-      const payload = JSON.stringify({ seq: e.seq, eventId: e.eventId, type: e.type, intentId: e.intentId, status: e.status, prevHash: e.prevHash, timestamp: e.timestamp });
-      if (createHash("sha256").update(payload).digest("hex") !== e.hash) return { valid: false, brokenAt: e.seq };
-      prev = e.hash;
+  // --- Governance dashboard summary ---
+  summary: publicQuery.query(() => {
+    const byStatus: Record<string, number> = {};
+    for (const entry of ledger) {
+      byStatus[entry.status] = (byStatus[entry.status] ?? 0) + 1;
     }
-    return { valid: true, length: ledger.length };
+    const latest = ledger.length ? ledger[ledger.length - 1] : null;
+    const chain = verifyLedgerChain();
+
+    return {
+      totalConstraints: CONSTRAINT_COUNTS.total,
+      constraintsByFamily: CONSTRAINT_COUNTS,
+      amanahFloor: AMANAH_FLOOR,
+      ledgerEntries: ledger.length,
+      byStatus,
+      chainValid: chain.valid,
+      brokenAt: chain.valid ? null : chain.brokenAt ?? null,
+      latestEventAt: latest?.timestamp ?? null,
+      latestEventType: latest?.type ?? null,
+    };
   }),
+
+  // --- Verify the ledger hash chain integrity ---
+  verifyLedger: publicQuery.query(() => verifyLedgerChain()),
 
   reset: publicQuery.mutation(() => {
     ledger = [];

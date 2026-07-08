@@ -45,9 +45,36 @@ function formatTimestamp(value: Date | string | null | undefined): string {
   return date.toLocaleString("ar-EG", { dateStyle: "medium", timeStyle: "short" })
 }
 
+function getLivingLoopStatus(cronStatus: "active" | "paused", lastTickAt: Date | string | null | undefined): {
+  level: "GREEN" | "AMBER" | "RED"
+  label: string
+  dotClass: string
+} {
+  if (cronStatus === "paused") {
+    return { level: "RED", label: "متوقف", dotClass: "bg-red-500" }
+  }
+  if (!lastTickAt) {
+    return { level: "AMBER", label: "نشط — بانتظار أول tick", dotClass: "bg-amber-400" }
+  }
+  const date = lastTickAt instanceof Date ? lastTickAt : new Date(lastTickAt)
+  if (Number.isNaN(date.getTime())) {
+    return { level: "AMBER", label: "نشط — وقت tick غير متاح", dotClass: "bg-amber-400" }
+  }
+  const ageMs = Date.now() - date.getTime()
+  if (ageMs <= 10 * 60 * 1000) {
+    return { level: "GREEN", label: "دورة حيّة مستقرة", dotClass: "bg-green-500" }
+  }
+  if (ageMs <= 20 * 60 * 1000) {
+    return { level: "AMBER", label: "تأخير طفيف", dotClass: "bg-amber-400" }
+  }
+  return { level: "RED", label: "متأخر", dotClass: "bg-red-500" }
+}
+
 export default function IUCDashboard() {
   const snapshotQ = trpc.iuc.snapshot.useQuery()
   const corpusQ = trpc.iuc.corpusStatus.useQuery()
+  const healthQ = trpc.iuc.health.useQuery(undefined, { refetchInterval: 30_000 })
+  const ficSummaryQ = trpc.fic.summary.useQuery(undefined, { refetchInterval: 30_000 })
   const typesQ = trpc.iuc.objectTypes.useQuery()
   const ladderQ = trpc.iuc.ladder.useQuery()
   const graphQ = trpc.iuc.graph.useQuery()
@@ -56,7 +83,7 @@ export default function IUCDashboard() {
   const measurementQ = trpc.measurement.snapshot.useQuery()
 
   const refetchAll = () => {
-    snapshotQ.refetch(); corpusQ.refetch(); graphQ.refetch(); statsQ.refetch(); pendingQ.refetch(); measurementQ.refetch()
+    snapshotQ.refetch(); corpusQ.refetch(); healthQ.refetch(); ficSummaryQ.refetch(); graphQ.refetch(); statsQ.refetch(); pendingQ.refetch(); measurementQ.refetch()
   }
 
   const commitMut = trpc.iuc.commit.useMutation({ onSuccess: refetchAll })
@@ -65,6 +92,10 @@ export default function IUCDashboard() {
   const approveMut = trpc.iuc.approveGate.useMutation({ onSuccess: refetchAll })
 
   const tuc = snapshotQ.data?.tuc ?? 0
+  const livingLoopStatus = getLivingLoopStatus(
+    healthQ.data?.cronStatus ?? "paused",
+    healthQ.data?.lastTickAt ?? null,
+  )
 
   return (
     <div dir="rtl" className="min-h-screen bg-gray-950 text-white p-6">
@@ -136,6 +167,57 @@ export default function IUCDashboard() {
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {healthQ.data && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+            <div className="bg-gray-900 border border-emerald-800 rounded-xl p-4">
+              <div className="text-gray-400 text-xs">IUC Live Health</div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-center">
+                <div className="rounded-lg bg-gray-800 p-2">
+                  <div className="text-[10px] text-gray-500">Objects</div>
+                  <div className="text-lg font-bold text-emerald-300">{healthQ.data.objectCount}</div>
+                </div>
+                <div className="rounded-lg bg-gray-800 p-2">
+                  <div className="text-[10px] text-gray-500">Snapshots</div>
+                  <div className="text-lg font-bold text-emerald-300">{healthQ.data.snapshotCount}</div>
+                </div>
+                <div className="rounded-lg bg-gray-800 p-2 col-span-2">
+                  <div className="text-[10px] text-gray-500">Continuity Entries</div>
+                  <div className="text-lg font-bold text-emerald-300">{healthQ.data.continuityLogCount}</div>
+                </div>
+              </div>
+            </div>
+            <div className="bg-gray-900 border border-gray-700 rounded-xl p-4">
+              <div className="text-gray-400 text-xs">Living Loop Status</div>
+              <div className="flex items-center gap-2 mt-3">
+                <span className={`inline-flex h-3 w-3 rounded-full ${livingLoopStatus.dotClass}`} />
+                <span className="text-sm font-bold text-gray-200">{livingLoopStatus.label}</span>
+                <span className={`text-[10px] px-2 py-0.5 rounded border border-current ${STATUS_STYLE[livingLoopStatus.level] ?? "text-gray-400"}`}>
+                  {livingLoopStatus.level}
+                </span>
+              </div>
+              <div className="text-[11px] text-gray-500 mt-3">
+                آخر tick: {formatTimestamp(healthQ.data.lastTickAt)}
+              </div>
+              <div className="text-[11px] text-gray-500 mt-1">
+                Cron: {healthQ.data.cronStatus === "active" ? "active" : "paused"} · Uptime {Math.floor(healthQ.data.uptimeSeconds)}s
+              </div>
+            </div>
+            {ficSummaryQ.data && (
+              <div className="bg-gray-900 border border-purple-800 rounded-xl p-4">
+                <div className="text-gray-400 text-xs">FIC Governance Status</div>
+                <div className="text-2xl font-bold text-purple-300 mt-2">{ficSummaryQ.data.ledgerEntries}</div>
+                <div className="text-[11px] text-gray-500 mt-1">Ledger entries · Constraints {ficSummaryQ.data.totalConstraints}</div>
+                <div className="text-[11px] text-gray-500 mt-2">
+                  Chain: {ficSummaryQ.data.chainValid ? "✔ سليمة" : "✘ مكسورة"} · آخر حدث: {formatTimestamp(ficSummaryQ.data.latestEventAt)}
+                </div>
+                <div className="text-[11px] text-gray-500 mt-2">
+                  APPROVED {ficSummaryQ.data.byStatus.APPROVED ?? 0} · REJECTED {ficSummaryQ.data.byStatus.REJECTED ?? 0} · HARD_BLOCK {ficSummaryQ.data.byStatus.HARD_BLOCK ?? 0}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

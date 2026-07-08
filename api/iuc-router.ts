@@ -29,6 +29,7 @@ import {
   appendContinuityLog,
   clearIucSnapshots,
   clearContinuityLogEntries,
+  getIucHealthStats,
   getIurgObjectCounts,
   getIurgObjects,
   getLatestIucSnapshot,
@@ -36,6 +37,7 @@ import {
   saveIucSnapshot,
   saveIurgObject,
 } from "./lib/iurg-store";
+import { getIucRuntimeStatus } from "./lib/iuc-runtime";
 
 const zType = z.enum(IURG_TYPES as unknown as [IurgObjectType, ...IurgObjectType[]]);
 const zVerification = z.enum(["UNVERIFIED", "POSSIBLE", "PROBABLE", "CONFIRMED", "PROVEN"]);
@@ -218,6 +220,23 @@ export const iucRouter = createRouter({
       ksr: indicatorValue(computed, "UC"),
       krr: indicatorValue(computed, "UVR"),
       latestSnapshotAt: latest?.timestamp ?? null,
+    };
+  }),
+
+  // --- Live health for IUC + Living Loop scheduler ---
+  health: publicQuery.query(async () => {
+    const [stats, runtime] = await Promise.all([
+      getIucHealthStats(),
+      Promise.resolve(getIucRuntimeStatus()),
+    ]);
+
+    return {
+      objectCount: stats.objectCount,
+      snapshotCount: stats.snapshotCount,
+      continuityLogCount: stats.continuityLogCount,
+      lastTickAt: runtime.lastTickAt ?? stats.lastTickAt?.toISOString() ?? null,
+      cronStatus: runtime.cronStatus,
+      uptimeSeconds: process.uptime(),
     };
   }),
 
