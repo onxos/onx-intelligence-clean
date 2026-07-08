@@ -3,8 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import type { HttpBindings } from "@hono/node-server";
 import { serve } from "@hono/node-server";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
-import { fileURLToPath } from "url";
-import { dirname } from "path";
+import { Cron } from "croner";
 import { appRouter } from "./router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
@@ -21,8 +20,6 @@ import {
   saveIurgObject,
 } from "./lib/iurg-store";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 const app = new Hono<{ Bindings: HttpBindings }>();
 
 function toRung(rank?: number): Rung {
@@ -108,7 +105,7 @@ process.stderr.write(`[boot] NODE_ENV=${process.env.NODE_ENV} isProduction=${env
 
 if (env.isProduction) {
   try {
-    cron.schedule("*/5 * * * *", async () => {
+    new Cron("*/5 * * * *", async () => {
       await runLivingLoopTick();
     });
     serveStaticFiles(app);
