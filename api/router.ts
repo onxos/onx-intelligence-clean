@@ -29,6 +29,16 @@ import { revenueEngineRouter } from "./revenue-engine-router";
 import { domainServicesRouter } from "./domain-services-router";
 import { corpusQueryRouter } from "./corpus-query-router";
 import { intentEngineRouter } from "./intent-engine-router";
+import { iucRouter } from "./iuc-router";
+import { measurementRouter } from "./measurement-router";
+import { ficRouter } from "./fic-router";
+import { conflictRouter } from "./conflict-router";
+import { purposeRouter } from "./purpose-router";
+import { allocationRouter } from "./allocation-router";
+import { proofRouter } from "./proof-router";
+import { osRouter } from "./os-router";
+import { livingLoopRouter } from "./living-loop-router";
+import { usfipRouter } from "./usfip-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -83,6 +93,17 @@ export const appRouter = createRouter({
   test: testRouter,
   // Phase 3: Domain Services (D01/D05/D06/D08/D14/D15/D18)
   domains: domainServicesRouter,
+  // Track I — Intelligence core: IUC engine (I-M4) + IURG object model
+  iuc: iucRouter,
+  measurement: measurementRouter,
+  fic: ficRouter,
+  conflict: conflictRouter,
+  purpose: purposeRouter,
+  allocation: allocationRouter,
+  proof: proofRouter,
+  os: osRouter,
+  livingLoop: livingLoopRouter,
+  usfip: usfipRouter,
   // Platform contract aliases
   bridge: titanBridgeRouter,
   corpusQuery: corpusQueryRouter,

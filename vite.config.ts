@@ -18,6 +18,7 @@ export default defineConfig({
       "@contracts": path.resolve(__dirname, "./contracts"),
       "@db": path.resolve(__dirname, "./db"),
       "db": path.resolve(__dirname, "./db"),
+      "@onx/intelligence-runtime": path.resolve(__dirname, "./packages/intelligence-runtime/index.ts"),
     },
   },
   envDir: path.resolve(__dirname),

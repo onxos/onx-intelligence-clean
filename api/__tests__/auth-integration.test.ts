@@ -241,7 +241,8 @@ describe("End-to-End: Full System", () => {
 
     // 4. Validate constitution
     const validation = await caller.constitution.validate({
-      content: "This is a fair and balanced proposal.",
+      content:
+        "This is a fair and just proposal that helps the team because it references clear and reliable sources.",
     });
     expect(validation.passed).toBe(true);
 

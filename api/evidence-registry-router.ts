@@ -193,7 +193,7 @@ export const evidenceRegistryRouter = createRouter({
     }),
 
   // Seed all 69 records into DB
-  seed: publicQuery.query(async () => {
+  seed: publicQuery.mutation(async () => {
     try {
       const db = getDb();
       const existing = await db.select({ evidenceId: evidenceRegistry.evidenceId }).from(evidenceRegistry);

@@ -1,17 +1,8 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import { trpc } from "@/providers/trpc";
 import BackButton from "../components/BackButton";
 
-// â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-interface BranchStatus {
-  name: string;
-  city: string;
-  status: "ACTIVE" | "PLANNING" | "PAUSED" | "CLOSED";
-  patientsPerDay: number;
-  staffCount: number;
-  aiHealthScore: number | null;
-}
 
 interface DeployStatus {
   id: string;
@@ -119,7 +110,7 @@ export default function AdminPilot() {
         </div>
         <div className="bg-gray-900 rounded-xl p-5 border border-gray-800">
           <div className="text-4xl font-black text-purple-400">
-            {evidenceQuery.data?.totalRecords ?? "â€”"}
+            {evidenceQuery.data?.total ?? "â€”"}
           </div>
           <div className="text-sm text-gray-400 mt-1">Evidence Records</div>
         </div>

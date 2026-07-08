@@ -65,8 +65,8 @@ describe("Constitution Router", () => {
       });
 
       expect(result.amanahStatus).toBeDefined();
-      expect(typeof result.amanahStatus.pass).toBe("boolean");
-      expect(["OK", "WARNING", "CRITICAL", "BLOCKER"]).toContain(result.amanahStatus.severity);
+      expect(typeof result.amanahStatus.passed).toBe("boolean");
+      expect(["GREEN", "RED"]).toContain(result.amanahStatus.level);
     });
   });
 
@@ -138,20 +138,20 @@ describe("Constitution Router", () => {
   describe("guardianCheck", () => {
     it("should pass high Amanah score", async () => {
       const result = await caller.constitution.guardianCheck({ score: 0.8 });
-      expect(result.pass).toBe(true);
-      expect(result.severity).toBe("OK");
+      expect(result.passed).toBe(true);
+      expect(result.level).toBe("GREEN");
     });
 
     it("should fail low Amanah score", async () => {
       const result = await caller.constitution.guardianCheck({ score: 0.1 });
-      expect(result.pass).toBe(false);
-      expect(result.severity).toBe("BLOCKER");
+      expect(result.passed).toBe(false);
+      expect(result.level).toBe("RED");
     });
 
     it("should handle borderline score", async () => {
       const result = await caller.constitution.guardianCheck({ score: 0.4 });
-      expect(result.pass).toBe(false);
-      expect(result.severity).toBe("WARNING");
+      expect(result.passed).toBe(false);
+      expect(result.level).toBe("RED");
     });
   });
 

@@ -2,8 +2,29 @@
 // TITAN BRIDGE — UNIT TESTS
 // Tests all 5 Titans, routing, council, stats
 // ============================================================
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { appRouter } from "../router";
+
+// Mock the OpenAI SDK so Titan routing/ask logic is testable in CI without a real key.
+vi.mock("openai", () => {
+  class MockOpenAI {
+    chat = {
+      completions: {
+        create: async () => {
+          await new Promise((r) => setTimeout(r, 5)); // simulate network latency (latencyMs > 0)
+          return {
+            choices: [{ message: { content: "ONX_TEST_OK — استجابة اختبارية من تيتان" } }],
+            usage: { total_tokens: 42 },
+          };
+        },
+      },
+    };
+  }
+  return { default: MockOpenAI };
+});
+
+// getOpenAI() reads OPENAI_API_KEY live; a dummy value lets it build the mocked client.
+process.env.OPENAI_API_KEY = process.env.OPENAI_API_KEY || "sk-onx-test-mock";
 
 const caller = appRouter.createCaller({} as any);
 

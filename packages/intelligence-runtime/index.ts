@@ -79,12 +79,17 @@ export class PrivacyEnforcer {
 // --- BoundaryGuard ---
 export class BoundaryGuard {
   private counts = new Map<string, number>();
-  constructor(private limit: number, private windowMs: number) {}
+  private limit: number;
+  private windowMs: number;
+  constructor(limit: number, windowMs: number) {
+    this.limit = limit;
+    this.windowMs = windowMs;
+  }
   checkLimit(key: string) {
     const count = (this.counts.get(key) || 0) + 1;
     this.counts.set(key, count);
     const allowed = count <= this.limit;
-    return { allowed, remaining: Math.max(0, this.limit - count), key };
+    return { allowed, remaining: Math.max(0, this.limit - count), key, windowMs: this.windowMs };
   }
 }
 

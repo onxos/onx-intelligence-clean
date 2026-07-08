@@ -1,9 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router";
 import {
-  Brain,
-  LayoutDashboard,
-  MessageSquare,
   Menu,
   X,
   ChevronLeft,
@@ -20,6 +17,7 @@ const NAV_LINKS = [
   { href: "/knowledge", label: "قاعدة المعرفة", labelEn: "Knowledge" },
   { href: "/consciousness", label: "الوعي الذاتي", labelEn: "Consciousness" },
   { href: "/constitution", label: "الدستور", labelEn: "Constitution" },
+  { href: "/iuc", label: "رأس مال الفهم", labelEn: "IUC Capital" },
   { href: "/evidence", label: "سجل الأدلة", labelEn: "Evidence" },
   { href: "/admin/pilot", label: "مراقبة التجريب", labelEn: "Pilot Monitor" },
 ];
