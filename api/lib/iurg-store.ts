@@ -301,6 +301,49 @@ export async function listContinuityLog(limit = 100) {
   return db.select().from(continuityLogEntries).orderBy(desc(continuityLogEntries.createdAt)).limit(limit);
 }
 
+export async function getIucHealthStats(): Promise<{
+  objectCount: number;
+  snapshotCount: number;
+  continuityLogCount: number;
+  lastTickAt: Date | null;
+}> {
+  if (useMemoryFallback) {
+    return {
+      objectCount: memoryStore.objects.size,
+      snapshotCount: memoryStore.snapshots.length,
+      continuityLogCount: memoryStore.continuity.length,
+      lastTickAt: memoryStore.continuity.length
+        ? memoryStore.continuity[memoryStore.continuity.length - 1].createdAt
+        : null,
+    };
+  }
+
+  const db = getDb();
+  const [objectsRows, snapshotRows, continuityRows] = await Promise.all([
+    db.select({ count: sql<number>`count(*)` }).from(iurgObjects),
+    db.select({ count: sql<number>`count(*)` }).from(iucSnapshots),
+    db.select({
+      count: sql<number>`count(*)`,
+      lastTickAt: sql<Date | string | null>`max(${continuityLogEntries.createdAt})`,
+    }).from(continuityLogEntries),
+  ]);
+
+  const rawLastTickAt = continuityRows[0]?.lastTickAt ?? null;
+  const parsedLastTickAt =
+    rawLastTickAt instanceof Date
+      ? rawLastTickAt
+      : typeof rawLastTickAt === "string"
+        ? new Date(rawLastTickAt)
+        : null;
+
+  return {
+    objectCount: safeNumber(objectsRows[0]?.count),
+    snapshotCount: safeNumber(snapshotRows[0]?.count),
+    continuityLogCount: safeNumber(continuityRows[0]?.count),
+    lastTickAt: parsedLastTickAt && !Number.isNaN(parsedLastTickAt.getTime()) ? parsedLastTickAt : null,
+  };
+}
+
 export async function replaceIurgObjects(objects: IurgObjectInput[]): Promise<void> {
   if (useMemoryFallback) {
     memoryStore.objects.clear();

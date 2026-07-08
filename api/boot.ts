@@ -18,6 +18,7 @@ import {
   saveIucSnapshot,
   saveIurgObject,
 } from "./lib/iurg-store";
+import { markIucTick, setIucCronStatus } from "./lib/iuc-runtime";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
@@ -104,8 +105,10 @@ process.stderr.write(`[boot] NODE_ENV=${process.env.NODE_ENV} isProduction=${env
 
 if (env.isProduction) {
   try {
+    setIucCronStatus("active");
     new Cron("*/5 * * * *", async () => {
       await runLivingLoopTick();
+      markIucTick();
     });
     serveStaticFiles(app);
     const port = parseInt(process.env.PORT || "3000");
@@ -118,4 +121,6 @@ if (env.isProduction) {
     process.stderr.write(`[boot] FATAL: ${err}\n`);
     process.exit(1);
   }
+} else {
+  setIucCronStatus("paused");
 }
