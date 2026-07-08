@@ -25,6 +25,16 @@ import {
   type VerificationLevel,
 } from "./iuc-engine";
 import { IurgContinuityGraph } from "./iuc-continuity";
+import {
+  appendContinuityLog,
+  clearIucSnapshots,
+  clearContinuityLogEntries,
+  getIurgObjects,
+  getLatestIucSnapshot,
+  replaceIurgObjects,
+  saveIucSnapshot,
+  saveIurgObject,
+} from "./lib/iurg-store";
 
 const zType = z.enum(IURG_TYPES as unknown as [IurgObjectType, ...IurgObjectType[]]);
 const zVerification = z.enum(["UNVERIFIED", "POSSIBLE", "PROBABLE", "CONFIRMED", "PROVEN"]);
@@ -63,22 +73,23 @@ function categoryOf(t: IurgObjectType): "CORE" | "CONSTRAINT" | "SUPPORTING" {
   return "SUPPORTING";
 }
 
+const seedObjects: IurgObjectInput[] = [
+  { id: "seed-fi", type: "FOUNDER_INTENT", rank: 6, verification: "PROVEN", amanah: 1.0, founderAlignment: 1.0, validated: true, sources: 3, trust: 0.98, transfer: 0.9 },
+  { id: "seed-cc", type: "CONSTITUTIONAL_CONSTRAINT", rank: 6, verification: "PROVEN", amanah: 1.0, founderAlignment: 1.0, validated: true, sources: 3, trust: 0.97, transfer: 0.85 },
+  { id: "seed-perc", type: "PERCEPTION", rank: 1, verification: "POSSIBLE", amanah: 0.7, founderAlignment: 0.7, sources: 2, trust: 0.62, transfer: 0.55, ageDays: 1 },
+  { id: "seed-patt", type: "PATTERN", rank: 2, verification: "PROBABLE", amanah: 0.8, founderAlignment: 0.75, validated: true, sources: 3, trust: 0.78, transfer: 0.7 },
+  { id: "seed-und", type: "UNDERSTANDING", rank: 3, verification: "CONFIRMED", amanah: 0.9, founderAlignment: 0.85, validated: true, sources: 3, trust: 0.87, transfer: 0.75 },
+  { id: "seed-judg", type: "JUDGMENT", rank: 4, verification: "CONFIRMED", amanah: 0.95, founderAlignment: 0.9, validated: true, sources: 4, trust: 0.88, transfer: 0.8, yield: 0.9 },
+  { id: "seed-dec", type: "DECISION", rank: 3, verification: "PROBABLE", amanah: 0.9, founderAlignment: 0.88, validated: true, sources: 2, trust: 0.8, transfer: 0.72, yield: 0.8 },
+  { id: "seed-out", type: "OUTCOME", rank: 4, verification: "PROVEN", amanah: 0.96, founderAlignment: 0.92, validated: true, sources: 3, trust: 0.9, transfer: 0.82, yield: 0.95 },
+  { id: "seed-evi", type: "EVIDENCE", rank: 2, verification: "CONFIRMED", amanah: 0.9, founderAlignment: 0.8, validated: true, sources: 3, trust: 0.85, transfer: 0.6 },
+  { id: "seed-val", type: "VALIDATION", rank: 3, verification: "PROVEN", amanah: 0.92, founderAlignment: 0.85, validated: true, sources: 3, trust: 0.86, transfer: 0.65 },
+];
+
 // --- In-memory IURG continuity graph, seeded with a realistic mini-graph ---
 function seedGraph(): IurgContinuityGraph {
   const g = new IurgContinuityGraph();
-  const seeds: IurgObjectInput[] = [
-    { id: "seed-fi", type: "FOUNDER_INTENT", rank: 6, verification: "PROVEN", amanah: 1.0, founderAlignment: 1.0, validated: true, sources: 3, trust: 0.98, transfer: 0.9 },
-    { id: "seed-cc", type: "CONSTITUTIONAL_CONSTRAINT", rank: 6, verification: "PROVEN", amanah: 1.0, founderAlignment: 1.0, validated: true, sources: 3, trust: 0.97, transfer: 0.85 },
-    { id: "seed-perc", type: "PERCEPTION", rank: 1, verification: "POSSIBLE", amanah: 0.7, founderAlignment: 0.7, sources: 2, trust: 0.62, transfer: 0.55, ageDays: 1 },
-    { id: "seed-patt", type: "PATTERN", rank: 2, verification: "PROBABLE", amanah: 0.8, founderAlignment: 0.75, validated: true, sources: 3, trust: 0.78, transfer: 0.7 },
-    { id: "seed-und", type: "UNDERSTANDING", rank: 3, verification: "CONFIRMED", amanah: 0.9, founderAlignment: 0.85, validated: true, sources: 3, trust: 0.87, transfer: 0.75 },
-    { id: "seed-judg", type: "JUDGMENT", rank: 4, verification: "CONFIRMED", amanah: 0.95, founderAlignment: 0.9, validated: true, sources: 4, trust: 0.88, transfer: 0.8, yield: 0.9 },
-    { id: "seed-dec", type: "DECISION", rank: 3, verification: "PROBABLE", amanah: 0.9, founderAlignment: 0.88, validated: true, sources: 2, trust: 0.8, transfer: 0.72, yield: 0.8 },
-    { id: "seed-out", type: "OUTCOME", rank: 4, verification: "PROVEN", amanah: 0.96, founderAlignment: 0.92, validated: true, sources: 3, trust: 0.9, transfer: 0.82, yield: 0.95 },
-    { id: "seed-evi", type: "EVIDENCE", rank: 2, verification: "CONFIRMED", amanah: 0.9, founderAlignment: 0.8, validated: true, sources: 3, trust: 0.85, transfer: 0.6 },
-    { id: "seed-val", type: "VALIDATION", rank: 3, verification: "PROVEN", amanah: 0.92, founderAlignment: 0.85, validated: true, sources: 3, trust: 0.86, transfer: 0.65 },
-  ];
-  for (const s of seeds) g.addObject(s);
+  for (const s of seedObjects) g.addObject(s);
   return g;
 }
 
@@ -88,6 +99,13 @@ const tucHistory: number[] = [];
 /** Live IURG objects — shared with the D17 measurement engine. */
 export function listLiveObjects() {
   return graph.list();
+}
+
+function indicatorValue(
+  snapshot: ReturnType<typeof computeIUC>,
+  key: "UGR" | "URS" | "UC" | "UY" | "UVR" | "UT" | "CAS" | "FAS",
+) {
+  return snapshot.indicators.find((i) => i.key === key)?.value ?? 0;
 }
 
 export const iucRouter = createRouter({
@@ -119,23 +137,42 @@ export const iucRouter = createRouter({
   // --- Live IUC snapshot: TUC + 11 indicators over the live graph (§2.4) ---
   snapshot: publicQuery
     .input(z.object({ previousTUC: z.number().optional() }).optional())
-    .query(({ input }) => {
+    .query(async ({ input }) => {
       const previousTUC = input?.previousTUC ?? (tucHistory.length ? tucHistory[tucHistory.length - 1] : undefined);
       return computeIUC(graph.list(), { previousTUC });
     }),
 
   // --- Commit a snapshot to history (daily iuc.snapshot event) ---
-  commit: publicQuery.mutation(() => {
+  commit: publicQuery.mutation(async () => {
     const previousTUC = tucHistory.length ? tucHistory[tucHistory.length - 1] : undefined;
     const snap = computeIUC(graph.list(), { previousTUC });
     tucHistory.push(snap.tuc);
+    await saveIucSnapshot({
+      tuc: snap.tuc,
+      ugr: indicatorValue(snap, "UGR"),
+      urs: indicatorValue(snap, "URS"),
+      ksr: indicatorValue(snap, "UC"),
+      pdr: indicatorValue(snap, "UY"),
+      krr: indicatorValue(snap, "UVR"),
+      kor: indicatorValue(snap, "UT"),
+      scg: indicatorValue(snap, "CAS"),
+      sai: indicatorValue(snap, "FAS"),
+      objectCount: snap.objectCount,
+    });
     return { snapshot: snap, historyLength: tucHistory.length };
   }),
 
   // --- Ingest an IURG object into the graph: contribution + VG + eligibility ---
-  ingest: publicQuery.input(zObject).mutation(({ input }) => {
+  ingest: publicQuery.input(zObject).mutation(async ({ input }) => {
     const obj = toInput(input);
     const node = graph.addObject(obj);
+    await saveIurgObject(node);
+    await appendContinuityLog({
+      tick: 0,
+      eventType: "SNAPSHOT",
+      objectId: node.id,
+      detail: `IURG_INGEST:${node.type}:R${node.rank}`,
+    });
     return {
       stored: true,
       objectId: node.id,
@@ -144,6 +181,20 @@ export const iucRouter = createRouter({
       validation: validationGates(obj),
       promotion: checkPromotion(obj),
       snapshot: computeIUC(graph.list()),
+    };
+  }),
+
+  // --- DB-backed IUC dashboard snapshot (persistent across restarts) ---
+  dashboard: publicQuery.query(async () => {
+    const persistedObjects = await getIurgObjects();
+    const latest = await getLatestIucSnapshot();
+    const computed = computeIUC(persistedObjects, {
+      previousTUC: latest ? latest.tuc : undefined,
+    });
+    return {
+      ...computed,
+      source: "db",
+      latestSnapshot: latest,
     };
   }),
 
@@ -207,9 +258,12 @@ export const iucRouter = createRouter({
   }),
 
   // --- Reset the graph to the seed state (dev/testing) ---
-  reset: publicQuery.mutation(() => {
+  reset: publicQuery.mutation(async () => {
     graph = seedGraph();
     tucHistory.length = 0;
+    await replaceIurgObjects(seedObjects);
+    await clearIucSnapshots();
+    await clearContinuityLogEntries();
     return { reset: true, objectCount: graph.list().length };
   }),
 });
