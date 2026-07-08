@@ -58,6 +58,7 @@ export interface IurgObjectInput {
   type: IurgObjectType;
   rank?: Rank;
   verification?: VerificationLevel;
+  contentText?: string;
   ageDays?: number;
   context?: number;          // C ∈ [0,1]
   yield?: number;            // Y ∈ [0,1]

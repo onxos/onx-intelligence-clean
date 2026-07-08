@@ -29,6 +29,7 @@ import {
   appendContinuityLog,
   clearIucSnapshots,
   clearContinuityLogEntries,
+  getIurgObjectCounts,
   getIurgObjects,
   getLatestIucSnapshot,
   replaceIurgObjects,
@@ -195,6 +196,28 @@ export const iucRouter = createRouter({
       ...computed,
       source: "db",
       latestSnapshot: latest,
+    };
+  }),
+
+  // --- Persisted corpus status: grouped core counts + current corpus metrics ---
+  corpusStatus: publicQuery.query(async () => {
+    const [counts, persistedObjects, latest] = await Promise.all([
+      getIurgObjectCounts(),
+      getIurgObjects(),
+      getLatestIucSnapshot(),
+    ]);
+
+    const computed = computeIUC(persistedObjects);
+
+    return {
+      perceptionCount: counts.PERCEPTION ?? 0,
+      patternCount: counts.PATTERN ?? 0,
+      understandingCount: counts.UNDERSTANDING ?? 0,
+      totalObjects: persistedObjects.length,
+      tuc: computed.tuc,
+      ksr: indicatorValue(computed, "UC"),
+      krr: indicatorValue(computed, "UVR"),
+      latestSnapshotAt: latest?.timestamp ?? null,
     };
   }),
 

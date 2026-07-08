@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { desc } from "drizzle-orm";
-import type { IurgObjectInput, Rank, VerificationLevel } from "../iuc-engine";
+import { desc, like, sql } from "drizzle-orm";
+import type { IurgObjectInput, IurgObjectType, Rank, VerificationLevel } from "../iuc-engine";
 import { getDb } from "../queries/connection";
 import { continuityLogEntries, iucSnapshots, iurgObjects } from "../../db/schema";
 import { env } from "./env";
@@ -16,6 +16,12 @@ const memoryStore = {
     tuc: number;
     ugr: number;
     urs: number;
+    ksr: number;
+    pdr: number;
+    krr: number;
+    kor: number;
+    scg: number;
+    sai: number;
     objectCount: number;
     snapshotHash: string;
   }>,
@@ -90,7 +96,7 @@ export async function saveIurgObject(obj: IurgObjectInput): Promise<{ id: string
     rank: toStoredRank(obj.rank),
     strength: String(safeNumber(obj.context, safeNumber(obj.trust, 0.5))),
     verification: (obj.verification ?? "UNVERIFIED") as VerificationLevel,
-    content: obj.id ? `iurg:${obj.id}` : null,
+    content: obj.contentText ?? (obj.id ? `iurg:${obj.id}` : null),
     context: JSON.stringify(obj),
     updatedAt: now,
     decayAppliedAt: obj.ageDays ? now : null,
@@ -132,6 +138,7 @@ export async function getIurgObjects(): Promise<IurgObjectInput[]> {
       type: row.type,
       rank: fromStoredRank(row.rank),
       verification: row.verification as VerificationLevel,
+      contentText: typeof parsed.contentText === "string" ? parsed.contentText : (row.content ?? undefined),
       context: safeNumber(parsed.context, safeNumber(row.strength, 0.5)),
     };
   });
@@ -161,6 +168,12 @@ export async function saveIucSnapshot(snapshot: IucSnapshotInput): Promise<{ id:
       tuc: normalized.tuc,
       ugr: normalized.ugr,
       urs: normalized.urs,
+      ksr: normalized.ksr,
+      pdr: normalized.pdr,
+      krr: normalized.krr,
+      kor: normalized.kor,
+      scg: normalized.scg,
+      sai: normalized.sai,
       objectCount: normalized.objectCount,
       snapshotHash,
     });
@@ -244,9 +257,40 @@ export async function getLatestIucSnapshot() {
     tuc: safeNumber(row.tuc),
     ugr: safeNumber(row.ugr),
     urs: safeNumber(row.urs),
+    ksr: safeNumber(row.ksr),
+    pdr: safeNumber(row.pdr),
+    krr: safeNumber(row.krr),
+    kor: safeNumber(row.kor),
+    scg: safeNumber(row.scg),
+    sai: safeNumber(row.sai),
     objectCount: row.objectCount,
     snapshotHash: row.snapshotHash,
   };
+}
+
+export async function getIurgObjectCounts(): Promise<Partial<Record<IurgObjectType, number>>> {
+  if (useMemoryFallback) {
+    const counts: Partial<Record<IurgObjectType, number>> = {};
+    for (const obj of memoryStore.objects.values()) {
+      counts[obj.type] = (counts[obj.type] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  const db = getDb();
+  const rows = await db
+    .select({
+      type: iurgObjects.type,
+      count: sql<number>`count(*)`,
+    })
+    .from(iurgObjects)
+    .groupBy(iurgObjects.type);
+
+  const counts: Partial<Record<IurgObjectType, number>> = {};
+  for (const row of rows) {
+    counts[row.type as IurgObjectType] = safeNumber(row.count);
+  }
+  return counts;
 }
 
 export async function listContinuityLog(limit = 100) {
@@ -267,6 +311,26 @@ export async function replaceIurgObjects(objects: IurgObjectInput[]): Promise<vo
   }
   const db = getDb();
   await db.delete(iurgObjects);
+  for (const obj of objects) {
+    await saveIurgObject(obj);
+  }
+}
+
+export async function replaceIurgObjectsByIdPrefix(prefix: string, objects: IurgObjectInput[]): Promise<void> {
+  if (useMemoryFallback) {
+    for (const id of Array.from(memoryStore.objects.keys())) {
+      if (id.startsWith(prefix)) {
+        memoryStore.objects.delete(id);
+      }
+    }
+    for (const obj of objects) {
+      memoryStore.objects.set(obj.id ?? randomUUID(), obj);
+    }
+    return;
+  }
+
+  const db = getDb();
+  await db.delete(iurgObjects).where(like(iurgObjects.id, `${prefix}%`));
   for (const obj of objects) {
     await saveIurgObject(obj);
   }

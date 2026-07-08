@@ -38,8 +38,16 @@ function formatTarget(target: number, unit: string, direction: string): string {
   return `${arrow} ${target}`
 }
 
+function formatTimestamp(value: Date | string | null | undefined): string {
+  if (!value) return "لا توجد لقطة محفوظة بعد"
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return "غير متاح"
+  return date.toLocaleString("ar-EG", { dateStyle: "medium", timeStyle: "short" })
+}
+
 export default function IUCDashboard() {
   const snapshotQ = trpc.iuc.snapshot.useQuery()
+  const corpusQ = trpc.iuc.corpusStatus.useQuery()
   const typesQ = trpc.iuc.objectTypes.useQuery()
   const ladderQ = trpc.iuc.ladder.useQuery()
   const graphQ = trpc.iuc.graph.useQuery()
@@ -48,11 +56,11 @@ export default function IUCDashboard() {
   const measurementQ = trpc.measurement.snapshot.useQuery()
 
   const refetchAll = () => {
-    snapshotQ.refetch(); graphQ.refetch(); statsQ.refetch(); pendingQ.refetch(); measurementQ.refetch()
+    snapshotQ.refetch(); corpusQ.refetch(); graphQ.refetch(); statsQ.refetch(); pendingQ.refetch(); measurementQ.refetch()
   }
 
-  const commitMut = trpc.iuc.commit.useMutation({ onSuccess: () => { snapshotQ.refetch() } })
-  const measCommitMut = trpc.measurement.commit.useMutation({ onSuccess: () => { measurementQ.refetch() } })
+  const commitMut = trpc.iuc.commit.useMutation({ onSuccess: refetchAll })
+  const measCommitMut = trpc.measurement.commit.useMutation({ onSuccess: refetchAll })
   const applyMut = trpc.iuc.applyPromotion.useMutation({ onSuccess: refetchAll })
   const approveMut = trpc.iuc.approveGate.useMutation({ onSuccess: refetchAll })
 
@@ -90,6 +98,46 @@ export default function IUCDashboard() {
               : "جارٍ التحميل..."}
           </div>
         </div>
+
+        {corpusQ.data && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+            <div className="bg-gray-900 border border-cyan-800 rounded-xl p-4">
+              <div className="text-gray-400 text-xs">Corpus داخل قاعدة البيانات</div>
+              <div className="text-3xl font-bold text-cyan-300 mt-1">{corpusQ.data.totalObjects}</div>
+              <div className="text-xs text-gray-500 mt-2 leading-6">
+                PERCEPTION: {corpusQ.data.perceptionCount} · PATTERN: {corpusQ.data.patternCount} · UNDERSTANDING: {corpusQ.data.understandingCount}
+              </div>
+            </div>
+            <div className="bg-gray-900 border border-gray-700 rounded-xl p-4">
+              <div className="text-gray-400 text-xs">آخر لقطة محفوظة</div>
+              <div className="text-lg font-bold text-gray-200 mt-2">
+                {formatTimestamp(corpusQ.data.latestSnapshotAt)}
+              </div>
+              <div className="text-[11px] text-gray-500 mt-2">
+                حالة corpus المجمّعة من iurg_objects و iuc_snapshots
+              </div>
+            </div>
+            <div className="bg-gray-900 border border-emerald-800 rounded-xl p-4">
+              <div className="text-gray-400 text-xs">KSR / KRR / TUC</div>
+              <div className="grid grid-cols-3 gap-2 mt-3 text-center">
+                <div className="rounded-lg bg-gray-800 p-2">
+                  <div className="text-[10px] text-gray-500">KSR</div>
+                  <div className="text-lg font-bold text-emerald-300">{corpusQ.data.ksr.toFixed(3)}</div>
+                </div>
+                <div className="rounded-lg bg-gray-800 p-2">
+                  <div className="text-[10px] text-gray-500">KRR</div>
+                  <div className="text-lg font-bold text-emerald-300">{corpusQ.data.krr.toFixed(3)}</div>
+                </div>
+                <div className="rounded-lg bg-gray-800 p-2">
+                  <div className="text-[10px] text-gray-500">TUC</div>
+                  <div className="text-lg font-bold text-emerald-300">
+                    {corpusQ.data.tuc.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Continuity + integrity strip */}
         {statsQ.data && (

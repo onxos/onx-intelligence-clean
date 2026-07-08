@@ -3,13 +3,13 @@ import { bodyLimit } from "hono/body-limit";
 import type { HttpBindings } from "@hono/node-server";
 import { serve } from "@hono/node-server";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
+import { Cron } from "croner";
 import { appRouter } from "./router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
 import { createOAuthCallbackHandler } from "./kimi/auth";
 import { Paths } from "@contracts/constants";
 import { serveStaticFiles } from "./lib/vite";
-import cron from "node-cron";
 import { computeIUC, type IurgObjectInput } from "./iuc-engine";
 import { createLoop, tickLoop, type Rung } from "./living-loop";
 import {
@@ -104,7 +104,7 @@ process.stderr.write(`[boot] NODE_ENV=${process.env.NODE_ENV} isProduction=${env
 
 if (env.isProduction) {
   try {
-    cron.schedule("*/5 * * * *", async () => {
+    new Cron("*/5 * * * *", async () => {
       await runLivingLoopTick();
     });
     serveStaticFiles(app);
