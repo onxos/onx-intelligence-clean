@@ -116,6 +116,142 @@ export async function countEvents(): Promise<number> {
   return Number(result.rows[0]?.count ?? 0);
 }
 
+// ============================================================
+// ANALYTICAL READ LAYER — Phase E1 "Mind reads body"
+// Read-only, parameterized queries over the event inbox.
+// ============================================================
+
+function toIso(value: unknown): string | null {
+  if (value == null) return null;
+  if (value instanceof Date) return value.toISOString();
+  const d = new Date(String(value));
+  return Number.isNaN(d.getTime()) ? String(value) : d.toISOString();
+}
+
+function clampLimit(limit: number, max: number, fallback: number): number {
+  if (!Number.isFinite(limit) || !Number.isInteger(limit) || limit < 1) return fallback;
+  return Math.min(limit, max);
+}
+
+export interface EventTypeCount {
+  eventType: string;
+  count: number;
+}
+
+export interface EventStats {
+  totalEvents: number;
+  byType: EventTypeCount[];
+  oldestReceivedAt: string | null;
+  newestReceivedAt: string | null;
+  last24hCount: number;
+}
+
+export async function getEventStats(): Promise<EventStats> {
+  await ensureSchema();
+  const p = getPool();
+
+  const totals = await p.query<{
+    total: string;
+    oldest: Date | string | null;
+    newest: Date | string | null;
+    last24h: string;
+  }>(
+    `SELECT count(*) AS total,
+            min(received_at) AS oldest,
+            max(received_at) AS newest,
+            count(*) FILTER (WHERE received_at >= now() - interval '24 hours') AS last24h
+     FROM onx_platform_event_inbox`,
+  );
+
+  const byType = await p.query<{ event_type: string; count: string }>(
+    `SELECT event_type, count(*) AS count
+     FROM onx_platform_event_inbox
+     GROUP BY event_type
+     ORDER BY count DESC, event_type ASC`,
+  );
+
+  const row = totals.rows[0];
+  return {
+    totalEvents: Number(row?.total ?? 0),
+    byType: byType.rows.map((r) => ({ eventType: r.event_type, count: Number(r.count) })),
+    oldestReceivedAt: toIso(row?.oldest ?? null),
+    newestReceivedAt: toIso(row?.newest ?? null),
+    last24hCount: Number(row?.last24h ?? 0),
+  };
+}
+
+export interface InboxEventRow {
+  id: number;
+  source: string;
+  eventId: number;
+  eventType: string;
+  aggregateType: string | null;
+  aggregateId: string | null;
+  occurredAt: string | null;
+  receivedAt: string | null;
+  payloadPreview: string | null;
+}
+
+interface RawInboxRow {
+  id: string;
+  source: string;
+  event_id: string;
+  event_type: string;
+  aggregate_type: string | null;
+  aggregate_id: string | null;
+  occurred_at: Date | string | null;
+  received_at: Date | string | null;
+  payload_preview: string | null;
+}
+
+function mapRow(r: RawInboxRow): InboxEventRow {
+  return {
+    id: Number(r.id),
+    source: r.source,
+    eventId: Number(r.event_id),
+    eventType: r.event_type,
+    aggregateType: r.aggregate_type,
+    aggregateId: r.aggregate_id,
+    occurredAt: toIso(r.occurred_at),
+    receivedAt: toIso(r.received_at),
+    payloadPreview: r.payload_preview,
+  };
+}
+
+const EVENT_COLUMNS = `id, source, event_id, event_type, aggregate_type, aggregate_id,
+       occurred_at, received_at, left(payload::text, 300) AS payload_preview`;
+
+export async function getRecentEvents(limit = 20): Promise<InboxEventRow[]> {
+  await ensureSchema();
+  const safeLimit = clampLimit(limit, 50, 20);
+  const result = await getPool().query<RawInboxRow>(
+    `SELECT ${EVENT_COLUMNS}
+     FROM onx_platform_event_inbox
+     ORDER BY id DESC
+     LIMIT $1`,
+    [safeLimit],
+  );
+  return result.rows.map(mapRow);
+}
+
+export async function getAggregateTimeline(
+  aggregateType: string,
+  aggregateId: string,
+  limit = 50,
+): Promise<InboxEventRow[]> {
+  await ensureSchema();
+  const safeLimit = clampLimit(limit, 200, 50);
+  const result = await getPool().query<RawInboxRow>(
+    `SELECT ${EVENT_COLUMNS}
+     FROM onx_platform_event_inbox
+     WHERE aggregate_type = $1 AND aggregate_id = $2
+     ORDER BY occurred_at ASC NULLS LAST, id ASC
+     LIMIT $3`,
+    [aggregateType, aggregateId, safeLimit],
+  );
+  return result.rows.map(mapRow);
+}
+
 // Test-only: reset module singletons
 export function __resetForTests(): void {
   pool = null;

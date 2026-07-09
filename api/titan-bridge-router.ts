@@ -9,7 +9,12 @@ import { createRouter, publicQuery } from "./middleware";
 import { env } from "./lib/env";
 import { rateLimiter, budgetController, costDashboard } from "./advanced-engines-router";
 import { assertBridgeAccess, getBridgeState } from "./bridge-guard";
-import { insertEvent } from "./lib/platform-inbox-store";
+import {
+  insertEvent,
+  getEventStats,
+  getRecentEvents,
+  getAggregateTimeline,
+} from "./lib/platform-inbox-store";
 
 // --- Lazy OpenAI client (server starts even without key) ---
 let openai: OpenAI | null = null;
@@ -380,6 +385,51 @@ export const titanBridgeRouter = createRouter({
       });
 
       return { accepted: true, duplicate: result.duplicate, id: result.id };
+    }),
+
+  // --- Phase E1 "Mind reads body": read-only inbox analytics ---
+  // Public by design: aggregate counts + basic event columns only.
+  // No payload bodies are exposed here (payload stays behind the bridge key).
+  inboxStats: publicQuery.query(async () => {
+    const stats = await getEventStats();
+    return {
+      bridge: "titanBridge",
+      ...stats,
+      timestamp: new Date().toISOString(),
+    };
+  }),
+
+  recentEvents: publicQuery
+    .input(z.object({ limit: z.number().int().min(1).max(50).default(20) }).optional())
+    .query(async ({ input }) => {
+      const rows = await getRecentEvents(input?.limit ?? 20);
+      return {
+        bridge: "titanBridge",
+        count: rows.length,
+        // Strip payload preview from the public surface — types/entities/timestamps only
+        events: rows.map(({ payloadPreview: _payloadPreview, ...rest }) => rest),
+        timestamp: new Date().toISOString(),
+      };
+    }),
+
+  // Aggregate timeline includes truncated payload previews → bridge-guarded
+  aggregateTimeline: publicQuery
+    .input(z.object({
+      aggregateType: z.string().min(1).max(200),
+      aggregateId: z.string().min(1).max(200),
+      limit: z.number().int().min(1).max(200).default(50),
+    }))
+    .query(async ({ input, ctx }) => {
+      assertBridgeAccess(ctx);
+      const events = await getAggregateTimeline(input.aggregateType, input.aggregateId, input.limit);
+      return {
+        bridge: "titanBridge",
+        aggregateType: input.aggregateType,
+        aggregateId: input.aggregateId,
+        count: events.length,
+        events,
+        timestamp: new Date().toISOString(),
+      };
     }),
 
   // --- Core: Ask a Titan (GPT-4o + Rate Limit + Budget + Cost Tracking) ---
