@@ -5,13 +5,11 @@
 // ============================================================
 import { z } from "zod";
 import OpenAI from "openai";
-import { eq, and } from "drizzle-orm";
 import { createRouter, publicQuery } from "./middleware";
 import { env } from "./lib/env";
 import { rateLimiter, budgetController, costDashboard } from "./advanced-engines-router";
 import { assertBridgeAccess, getBridgeState } from "./bridge-guard";
-import { getDb } from "./queries/connection";
-import { onxPlatformEventInbox } from "@db/schema";
+import { insertEvent } from "./lib/platform-inbox-store";
 
 // --- Lazy OpenAI client (server starts even without key) ---
 let openai: OpenAI | null = null;
@@ -370,48 +368,18 @@ export const titanBridgeRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       assertBridgeAccess(ctx);
 
-      const db = getDb();
-      const existing = await db
-        .select({ id: onxPlatformEventInbox.id })
-        .from(onxPlatformEventInbox)
-        .where(and(
-          eq(onxPlatformEventInbox.source, input.source),
-          eq(onxPlatformEventInbox.eventId, input.eventId),
-        ))
-        .limit(1);
+      // Race-safe idempotency handled by the store (ON CONFLICT DO NOTHING)
+      const result = await insertEvent({
+        source: input.source,
+        eventId: input.eventId,
+        eventType: input.eventType,
+        aggregateType: input.aggregateType,
+        aggregateId: input.aggregateId,
+        occurredAt: new Date(input.occurredAt),
+        payload: input.payload ?? null,
+      });
 
-      if (existing.length > 0) {
-        return { accepted: true, duplicate: true, id: existing[0].id };
-      }
-
-      try {
-        const [inserted] = await db.insert(onxPlatformEventInbox).values({
-          source: input.source,
-          eventId: input.eventId,
-          eventType: input.eventType,
-          aggregateType: input.aggregateType,
-          aggregateId: input.aggregateId,
-          occurredAt: new Date(input.occurredAt),
-          payload: input.payload ?? null,
-        }).$returningId();
-
-        return { accepted: true, duplicate: false, id: inserted.id };
-      } catch (error) {
-        // Race-safe idempotency: unique (source, event_id) violation → duplicate
-        const message = (error as Error).message ?? "";
-        if (message.includes("Duplicate entry") || message.includes("ER_DUP_ENTRY") || (error as { code?: string }).code === "ER_DUP_ENTRY") {
-          const [row] = await db
-            .select({ id: onxPlatformEventInbox.id })
-            .from(onxPlatformEventInbox)
-            .where(and(
-              eq(onxPlatformEventInbox.source, input.source),
-              eq(onxPlatformEventInbox.eventId, input.eventId),
-            ))
-            .limit(1);
-          return { accepted: true, duplicate: true, id: row?.id };
-        }
-        throw error;
-      }
+      return { accepted: true, duplicate: result.duplicate, id: result.id };
     }),
 
   // --- Core: Ask a Titan (GPT-4o + Rate Limit + Budget + Cost Tracking) ---
