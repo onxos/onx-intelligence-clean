@@ -3,11 +3,9 @@
 // System status, dependencies, readiness, liveness probes
 // ============================================================
 import { z } from "zod";
-import { sql } from "drizzle-orm";
 import { createRouter, publicQuery } from "./middleware";
 import { getBridgeState } from "./bridge-guard";
-import { getDb } from "./queries/connection";
-import { onxPlatformEventInbox } from "@db/schema";
+import { countEvents } from "./lib/platform-inbox-store";
 
 // --- Component Health ---
 interface ComponentHealth {
@@ -130,12 +128,10 @@ export const healthRouter = createRouter({
   // HT-07: platformEvents — Phase C3a ingest counter (live verification)
   platformEvents: publicQuery.query(async () => {
     try {
-      const [row] = await getDb()
-        .select({ count: sql<number>`count(*)` })
-        .from(onxPlatformEventInbox);
+      const count = await countEvents();
       return {
         available: true,
-        count: Number(row?.count ?? 0),
+        count,
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
