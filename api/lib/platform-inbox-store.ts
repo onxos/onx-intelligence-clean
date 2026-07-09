@@ -1,84 +1,82 @@
-/**
- * Platform Event Inbox store (Phase C3a fix).
- *
- * The production DATABASE_URL points at a Render Postgres instance, while the
- * repo's drizzle layer targets MySQL — so the inbox uses `pg` directly.
- * Idempotent: creates its own table on first use, and inserts use
- * ON CONFLICT DO NOTHING keyed on (source, event_id).
- */
+// ============================================================
+// PLATFORM EVENT INBOX STORE — Phase C3a follow-up
+// Direct Postgres access via `pg` (production DATABASE_URL is
+// Postgres on Render, while the drizzle layer is mysql2-only).
+// Scope: onx_platform_event_inbox only — no other path changes.
+// ============================================================
 import { Pool } from "pg";
 
-export interface PlatformInboxEvent {
-  source: string;
-  eventId: number;
-  eventType: string;
-  aggregateType: string;
-  aggregateId: string;
-  occurredAt: Date;
-  payload: Record<string, unknown> | null;
-}
-
-export interface InsertEventResult {
-  duplicate: boolean;
-  id: number;
-}
-
 let pool: Pool | null = null;
-let schemaReady: Promise<void> | null = null;
+let schemaReady = false;
+
+function getConnectionString(): string {
+  const url = process.env.PLATFORM_INBOX_DATABASE_URL ?? process.env.DATABASE_URL ?? "";
+  if (!url) {
+    throw new Error("PLATFORM_INBOX_DB_NOT_CONFIGURED: Set PLATFORM_INBOX_DATABASE_URL or DATABASE_URL");
+  }
+  return url;
+}
 
 function getPool(): Pool {
   if (!pool) {
-    const connectionString =
-      process.env.PLATFORM_INBOX_DATABASE_URL ?? process.env.DATABASE_URL ?? "";
-    const external = /render\.com|\bsslmode=require\b/.test(connectionString);
+    const connectionString = getConnectionString();
+    const isExternalHost = connectionString.includes("render.com");
     pool = new Pool({
       connectionString,
-      max: 3,
-      ssl: external ? { rejectUnauthorized: false } : undefined,
+      max: 5,
+      ...(isExternalHost ? { ssl: { rejectUnauthorized: false } } : {}),
     });
   }
   return pool;
 }
 
-function ensureSchema(): Promise<void> {
-  if (!schemaReady) {
-    schemaReady = (async () => {
-      const p = getPool();
-      await p.query(`
-        CREATE TABLE IF NOT EXISTS onx_platform_event_inbox (
-          id BIGSERIAL PRIMARY KEY,
-          source VARCHAR(100) NOT NULL,
-          event_id BIGINT NOT NULL,
-          event_type VARCHAR(200) NOT NULL,
-          aggregate_type VARCHAR(200),
-          aggregate_id VARCHAR(200),
-          occurred_at TIMESTAMPTZ,
-          payload JSONB,
-          received_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        )
-      `);
-      await p.query(
-        `CREATE UNIQUE INDEX IF NOT EXISTS inbox_source_event_idx
-           ON onx_platform_event_inbox (source, event_id)`,
-      );
-      await p.query(
-        `CREATE INDEX IF NOT EXISTS inbox_event_type_idx
-           ON onx_platform_event_inbox (event_type)`,
-      );
-      await p.query(
-        `CREATE INDEX IF NOT EXISTS inbox_aggregate_idx
-           ON onx_platform_event_inbox (aggregate_type, aggregate_id)`,
-      );
-    })();
-    // Allow retry on next call if schema creation failed (e.g. transient DB outage)
-    schemaReady.catch(() => {
-      schemaReady = null;
-    });
+async function ensureSchema(): Promise<void> {
+  if (schemaReady) return;
+  const p = getPool();
+  try {
+    await p.query(`CREATE TABLE IF NOT EXISTS onx_platform_event_inbox (
+      id BIGSERIAL PRIMARY KEY,
+      source VARCHAR(100) NOT NULL,
+      event_id BIGINT NOT NULL,
+      event_type VARCHAR(200) NOT NULL,
+      aggregate_type VARCHAR(200),
+      aggregate_id VARCHAR(200),
+      occurred_at TIMESTAMPTZ,
+      payload JSONB,
+      received_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`);
+    await p.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS inbox_source_event_idx ON onx_platform_event_inbox (source, event_id)`,
+    );
+    await p.query(
+      `CREATE INDEX IF NOT EXISTS inbox_event_type_idx ON onx_platform_event_inbox (event_type)`,
+    );
+    await p.query(
+      `CREATE INDEX IF NOT EXISTS inbox_aggregate_idx ON onx_platform_event_inbox (aggregate_type, aggregate_id)`,
+    );
+    schemaReady = true;
+  } catch (error) {
+    // Leave schemaReady=false so the next call retries
+    throw new Error(`PLATFORM_INBOX_SCHEMA_FAILED: ${(error as Error).message}`);
   }
-  return schemaReady;
 }
 
-export async function insertEvent(event: PlatformInboxEvent): Promise<InsertEventResult> {
+export interface InsertEventInput {
+  source: string;
+  eventId: number;
+  eventType: string;
+  aggregateType: string;
+  aggregateId: string;
+  occurredAt: string;
+  payload?: Record<string, unknown> | null;
+}
+
+export interface InsertEventResult {
+  duplicate: boolean;
+  id?: number;
+}
+
+export async function insertEvent(input: InsertEventInput): Promise<InsertEventResult> {
   await ensureSchema();
   const p = getPool();
 
@@ -89,13 +87,13 @@ export async function insertEvent(event: PlatformInboxEvent): Promise<InsertEven
      ON CONFLICT (source, event_id) DO NOTHING
      RETURNING id`,
     [
-      event.source,
-      event.eventId,
-      event.eventType,
-      event.aggregateType,
-      event.aggregateId,
-      event.occurredAt,
-      event.payload === null ? null : JSON.stringify(event.payload),
+      input.source,
+      input.eventId,
+      input.eventType,
+      input.aggregateType,
+      input.aggregateId,
+      input.occurredAt,
+      input.payload ? JSON.stringify(input.payload) : null,
     ],
   );
 
@@ -105,9 +103,9 @@ export async function insertEvent(event: PlatformInboxEvent): Promise<InsertEven
 
   const existing = await p.query<{ id: string }>(
     `SELECT id FROM onx_platform_event_inbox WHERE source = $1 AND event_id = $2 LIMIT 1`,
-    [event.source, event.eventId],
+    [input.source, input.eventId],
   );
-  return { duplicate: true, id: Number(existing.rows[0]?.id ?? 0) };
+  return { duplicate: true, id: existing.rows[0] ? Number(existing.rows[0].id) : undefined };
 }
 
 export async function countEvents(): Promise<number> {
@@ -116,4 +114,10 @@ export async function countEvents(): Promise<number> {
     `SELECT count(*) AS count FROM onx_platform_event_inbox`,
   );
   return Number(result.rows[0]?.count ?? 0);
+}
+
+// Test-only: reset module singletons
+export function __resetForTests(): void {
+  pool = null;
+  schemaReady = false;
 }
