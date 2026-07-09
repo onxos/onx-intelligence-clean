@@ -104,11 +104,24 @@ export default app;
 process.stderr.write(`[boot] NODE_ENV=${process.env.NODE_ENV} isProduction=${env.isProduction} PORT=${process.env.PORT}\n`);
 
 if (env.isProduction) {
+  // Safety net: a single unhandled rejection must never kill the service.
+  // (The living-loop cron used to crash the whole process every 5 minutes
+  // when the dead mysql2 layer timed out against the Postgres DATABASE_URL.)
+  process.on("unhandledRejection", (reason) => {
+    console.error("[boot] unhandledRejection (survived):", reason);
+  });
+  process.on("uncaughtException", (err) => {
+    console.error("[boot] uncaughtException (survived):", err);
+  });
   try {
     setIucCronStatus("active");
     new Cron("*/5 * * * *", async () => {
-      await runLivingLoopTick();
-      markIucTick();
+      try {
+        await runLivingLoopTick();
+        markIucTick();
+      } catch (err) {
+        console.error("[living-loop] tick failed (non-fatal):", err);
+      }
     });
     serveStaticFiles(app);
     const port = parseInt(process.env.PORT || "3000");

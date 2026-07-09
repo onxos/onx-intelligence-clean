@@ -6,7 +6,11 @@ import { continuityLogEntries, iucSnapshots, iurgObjects } from "../../db/schema
 import { env } from "./env";
 
 const GENESIS_HASH = "0".repeat(64);
-const useMemoryFallback = env.databaseUrl.startsWith("sqlite://");
+// The drizzle layer here is mysql2-only. Any non-MySQL DATABASE_URL (sqlite,
+// postgres — production uses Render Postgres) must use the in-memory store:
+// attempting mysql2 against a Postgres host hangs then throws ETIMEDOUT,
+// which previously crashed the process from the living-loop cron.
+const useMemoryFallback = !/^mysql/i.test(env.databaseUrl);
 
 const memoryStore = {
   objects: new Map<string, IurgObjectInput>(),
