@@ -9,6 +9,8 @@ import {
   bigint,
   int,
   index,
+  json,
+  uniqueIndex,
 } from "drizzle-orm/mysql-core";
 
 // ============================================================
@@ -774,3 +776,23 @@ export const gpsEvents = mysqlTable("gps_events", {
   index("gps_entity_idx").on(table.entityId),
   index("gps_recorded_idx").on(table.recordedAt),
 ]);
+
+// --- Phase C3a: Platform → Intelligence event inbox (bridge ingest) ---
+export const onxPlatformEventInbox = mysqlTable("onx_platform_event_inbox", {
+  id: serial("id").primaryKey(),
+  source: varchar("source", { length: 100 }).notNull(),
+  eventId: bigint("event_id", { mode: "number" }).notNull(),
+  eventType: varchar("event_type", { length: 200 }).notNull(),
+  aggregateType: varchar("aggregate_type", { length: 200 }).notNull(),
+  aggregateId: varchar("aggregate_id", { length: 200 }).notNull(),
+  occurredAt: timestamp("occurred_at").notNull(),
+  payload: json("payload"),
+  receivedAt: timestamp("received_at").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("inbox_source_event_idx").on(table.source, table.eventId),
+  index("inbox_event_type_idx").on(table.eventType),
+  index("inbox_aggregate_idx").on(table.aggregateType, table.aggregateId),
+]);
+
+export type PlatformEventInbox = typeof onxPlatformEventInbox.$inferSelect;
+export type InsertPlatformEventInbox = typeof onxPlatformEventInbox.$inferInsert;
