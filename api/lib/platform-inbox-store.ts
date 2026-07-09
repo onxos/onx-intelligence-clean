@@ -252,6 +252,68 @@ export async function getAggregateTimeline(
   return result.rows.map(mapRow);
 }
 
+// ============================================================
+// PERCEPTION FEED — Wave 5-b "Mind thinks about body"
+// Cursor-based read used by api/lib/perception-adapter.ts.
+// Payload *keys* are extracted SQL-side; payload values never
+// leave the database through this query.
+// ============================================================
+
+export interface PerceptionSourceRow {
+  id: number;
+  source: string;
+  eventId: number;
+  eventType: string;
+  aggregateType: string | null;
+  aggregateId: string | null;
+  occurredAt: string | null;
+  receivedAt: string | null;
+  payloadKeys: string[];
+}
+
+interface RawPerceptionSourceRow {
+  id: string;
+  source: string;
+  event_id: string;
+  event_type: string;
+  aggregate_type: string | null;
+  aggregate_id: string | null;
+  occurred_at: Date | string | null;
+  received_at: Date | string | null;
+  payload_keys: string[] | null;
+}
+
+export async function getEventsAfterId(afterId: number, limit = 200): Promise<PerceptionSourceRow[]> {
+  await ensureSchema();
+  const safeAfterId = Number.isFinite(afterId) ? Math.max(0, Math.trunc(afterId)) : 0;
+  const safeLimit = clampLimit(limit, 500, 200);
+  const result = await getPool().query<RawPerceptionSourceRow>(
+    `SELECT id, source, event_id, event_type, aggregate_type, aggregate_id,
+            occurred_at, received_at,
+            CASE WHEN jsonb_typeof(payload) = 'object'
+                 THEN (SELECT coalesce(array_agg(k ORDER BY k), ARRAY[]::text[])
+                       FROM jsonb_object_keys(payload) AS k)
+                 ELSE ARRAY[]::text[]
+            END AS payload_keys
+     FROM onx_platform_event_inbox
+     WHERE id > $1
+     ORDER BY id ASC
+     LIMIT $2`,
+    [safeAfterId, safeLimit],
+  );
+  return result.rows.map((r) => ({
+    id: Number(r.id),
+    source: r.source,
+    eventId: Number(r.event_id),
+    eventType: r.event_type,
+    aggregateType: r.aggregate_type,
+    aggregateId: r.aggregate_id,
+    occurredAt: toIso(r.occurred_at),
+    receivedAt: toIso(r.received_at),
+    payloadKeys: r.payload_keys ?? [],
+  }));
+}
+
 // Test-only: reset module singletons
 export function __resetForTests(): void {
   pool = null;

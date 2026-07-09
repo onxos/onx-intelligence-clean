@@ -19,6 +19,7 @@ import {
   saveIurgObject,
 } from "./lib/iurg-store";
 import { markIucTick, setIucCronStatus } from "./lib/iuc-runtime";
+import { runPerceptionSyncTick } from "./lib/perception-adapter";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
@@ -122,6 +123,18 @@ if (env.isProduction) {
       } catch (err) {
         console.error("[living-loop] tick failed (non-fatal):", err);
       }
+      // Wave 5-b: feed inbox events into the IUC graph as PERCEPTIONs.
+      // runPerceptionSyncTick never throws by design; guarded anyway.
+      try {
+        await runPerceptionSyncTick();
+      } catch (err) {
+        console.error("[perception-adapter] tick failed (non-fatal):", err);
+      }
+    });
+    // Immediate first sync so the graph replays the inbox without
+    // waiting for the first 5-minute cron tick.
+    runPerceptionSyncTick().catch((err) => {
+      console.error("[perception-adapter] boot sync failed (non-fatal):", err);
     });
     serveStaticFiles(app);
     const port = parseInt(process.env.PORT || "3000");

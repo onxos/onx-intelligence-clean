@@ -47,6 +47,7 @@ const zObject = z.object({
   type: zType,
   rank: z.number().int().min(1).max(6).optional(),
   verification: zVerification.optional(),
+  contentText: z.string().max(500).optional(),
   ageDays: z.number().min(0).optional(),
   context: z.number().min(0).max(1).optional(),
   yield: z.number().min(0).max(1).optional(),
