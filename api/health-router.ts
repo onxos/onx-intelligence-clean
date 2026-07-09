@@ -6,6 +6,7 @@ import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 import { getBridgeState } from "./bridge-guard";
 import { countEvents } from "./lib/platform-inbox-store";
+import { getPerceptionAdapterStatus } from "./lib/perception-adapter";
 
 // --- Component Health ---
 interface ComponentHealth {
@@ -143,4 +144,11 @@ export const healthRouter = createRouter({
       };
     }
   }),
+
+  // HT-08: perceptionAdapter — Wave 5-b inbox→IUC feed counters.
+  // Numbers + timestamps + truncated error message only; no payloads.
+  perceptionAdapter: publicQuery.query(() => ({
+    ...getPerceptionAdapterStatus(),
+    timestamp: new Date().toISOString(),
+  })),
 });
