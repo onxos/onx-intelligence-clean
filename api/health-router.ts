@@ -3,8 +3,11 @@
 // System status, dependencies, readiness, liveness probes
 // ============================================================
 import { z } from "zod";
+import { sql } from "drizzle-orm";
 import { createRouter, publicQuery } from "./middleware";
 import { getBridgeState } from "./bridge-guard";
+import { getDb } from "./queries/connection";
+import { onxPlatformEventInbox } from "@db/schema";
 
 // --- Component Health ---
 interface ComponentHealth {
@@ -122,5 +125,26 @@ export const healthRouter = createRouter({
           : "Bridge enabled but BRIDGE_SHARED_SECRET is missing — all bridge traffic will be rejected.",
       timestamp: new Date().toISOString(),
     };
+  }),
+
+  // HT-07: platformEvents — Phase C3a ingest counter (live verification)
+  platformEvents: publicQuery.query(async () => {
+    try {
+      const [row] = await getDb()
+        .select({ count: sql<number>`count(*)` })
+        .from(onxPlatformEventInbox);
+      return {
+        available: true,
+        count: Number(row?.count ?? 0),
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        available: false,
+        count: null,
+        error: (error as Error).message,
+        timestamp: new Date().toISOString(),
+      };
+    }
   }),
 });
