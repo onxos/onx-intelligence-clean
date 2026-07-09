@@ -17,7 +17,7 @@ vi.mock("pg", () => ({
 
 import { appRouter } from "../router";
 import { listLiveObjects } from "../iuc-router";
-import { getEventsAfterId, __resetForTests } from "../lib/platform-inbox-store";
+import { getEventsAfterId, __resetForTests, type PerceptionSourceRow } from "../lib/platform-inbox-store";
 import {
   PERCEPTION_BATCH_LIMIT,
   toPerceptionObject,
@@ -25,7 +25,6 @@ import {
   getPerceptionAdapterStatus,
   __resetPerceptionAdapterForTests,
   __setIngestFnForTests,
-  type PerceptionSourceRow,
 } from "../lib/perception-adapter";
 
 const caller = appRouter.createCaller({} as never);
