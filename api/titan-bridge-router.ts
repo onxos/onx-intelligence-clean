@@ -375,7 +375,7 @@ export const titanBridgeRouter = createRouter({
         eventType: input.eventType,
         aggregateType: input.aggregateType,
         aggregateId: input.aggregateId,
-        occurredAt: new Date(input.occurredAt),
+        occurredAt: input.occurredAt,
         payload: input.payload ?? null,
       });
 
