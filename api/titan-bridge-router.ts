@@ -16,6 +16,7 @@ import {
   getAggregateTimeline,
 } from "./lib/platform-inbox-store";
 import { listInsightsFromGraph } from "./lib/insights-port";
+import { recordInsightAck } from "./lib/insight-ack";
 
 // --- Lazy OpenAI client (server starts even without key) ---
 let openai: OpenAI | null = null;
@@ -454,6 +455,34 @@ export const titanBridgeRouter = createRouter({
         bridge: "titanBridge",
         insights,
         count,
+        timestamp: new Date().toISOString(),
+      };
+    }),
+
+  // --- Wave 9-a "Founder verdict feeds back": the platform notifies the
+  // mind that the founder approved/rejected an insight it served over
+  // listInsights. Bridge-guarded exactly like aggregateTimeline. The
+  // verdict is upserted into the live IURG graph as `ack-<insightId>`
+  // (recordInsightAck never throws) and the response exposes ONLY
+  // { bridge, ok, insightId, timestamp } — internal failure reasons
+  // stay behind the bridge (counters surface through HT-10).
+  acknowledgeInsight: publicQuery
+    .input(z.object({
+      insightId: z.string().min(1),
+      verdict: z.enum(["approved", "rejected"]),
+      decidedAt: z.string().datetime().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      assertBridgeAccess(ctx);
+      const result = await recordInsightAck({
+        insightId: input.insightId,
+        verdict: input.verdict,
+        decidedAt: input.decidedAt,
+      });
+      return {
+        bridge: "titanBridge",
+        ok: result.ok,
+        insightId: input.insightId,
         timestamp: new Date().toISOString(),
       };
     }),

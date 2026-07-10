@@ -10,6 +10,7 @@ import { getPerceptionAdapterStatus } from "./lib/perception-adapter";
 import { getPersistenceStatus } from "./lib/iurg-store";
 import { getReflectionStatus } from "./lib/reflection-cycle";
 import { getInsightsServedTotal } from "./lib/insights-port";
+import { getInsightAckCounters } from "./lib/insight-ack";
 
 // --- Component Health ---
 interface ComponentHealth {
@@ -163,11 +164,13 @@ export const healthRouter = createRouter({
   })),
 
   // HT-10: reflection — Wave 7-c insight-generation counters, plus the
-  // Wave 8-a reverse channel counter (insights served to the body).
+  // Wave 8-a reverse channel counter (insights served to the body) and
+  // the Wave 9-a founder-verdict counters (acks received/failed).
   // Numbers + timestamps + truncated error message only; no insight contents.
   reflection: publicQuery.query(() => ({
     ...getReflectionStatus(),
     insightsServedTotal: getInsightsServedTotal(),
+    ...getInsightAckCounters(),
     timestamp: new Date().toISOString(),
   })),
 });
