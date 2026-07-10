@@ -240,10 +240,10 @@ describe("runReflectionTick — rule 6 through the real iuc.ingest path", () => 
     );
   });
 
-  it("each tick counts the no-show-anomaly rule in rulesEvaluated (5 + cycle defs — grew by one)", async () => {
+  it("each tick counts the no-show-anomaly rule in rulesEvaluated (6 + cycle defs since wave 13-c)", async () => {
     __setListFnForTests(() => []);
     await runReflectionTick();
-    expect(getReflectionStatus().rulesEvaluated).toBe(5 + CYCLE_DEFINITIONS.length);
+    expect(getReflectionStatus().rulesEvaluated).toBe(6 + CYCLE_DEFINITIONS.length);
   });
 
   it("the no-show anomaly insight is served over titan.listInsights", async () => {
