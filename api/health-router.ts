@@ -8,6 +8,7 @@ import { getBridgeState } from "./bridge-guard";
 import { countEvents } from "./lib/platform-inbox-store";
 import { getPerceptionAdapterStatus } from "./lib/perception-adapter";
 import { getPersistenceStatus } from "./lib/iurg-store";
+import { getReflectionStatus } from "./lib/reflection-cycle";
 
 // --- Component Health ---
 interface ComponentHealth {
@@ -157,6 +158,13 @@ export const healthRouter = createRouter({
   // Numbers + mode only; no object contents are ever exposed.
   persistence: publicQuery.query(() => ({
     ...getPersistenceStatus(),
+    timestamp: new Date().toISOString(),
+  })),
+
+  // HT-10: reflection — Wave 7-c insight-generation counters.
+  // Numbers + timestamps + truncated error message only; no insight contents.
+  reflection: publicQuery.query(() => ({
+    ...getReflectionStatus(),
     timestamp: new Date().toISOString(),
   })),
 });
