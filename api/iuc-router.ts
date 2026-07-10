@@ -33,6 +33,7 @@ import {
   getIurgObjectCounts,
   getIurgObjects,
   getLatestIucSnapshot,
+  recordObjectsLoadedOnBoot,
   replaceIurgObjects,
   saveIucSnapshot,
   saveIurgObject,
@@ -103,6 +104,33 @@ const tucHistory: number[] = [];
 /** Live IURG objects — shared with the D17 measurement engine. */
 export function listLiveObjects() {
   return graph.list();
+}
+
+// --- Wave 6-b: boot hydration -------------------------------------
+// Loads persisted IURG objects (Postgres in production) back into the
+// in-memory continuity graph after a restart. Runs BEFORE the perception
+// adapter's inbox replay: the replay re-ingests perc-* objects through
+// iuc.ingest and upserts over hydrated nodes by id, so order is safe and
+// idempotent. Objects go through graph.addObject — the hash chain is
+// rebuilt in-memory from GENESIS with fresh OBJECT_CREATED entries, so
+// iuc.verifyChain stays chainValid=true. Hydration never re-persists
+// (no saveIurgObject / appendContinuityLog) to avoid write amplification.
+// NEVER throws — a storage failure only means an empty (seed-only) graph.
+export async function hydratePersistedIurgGraph(): Promise<{ loaded: number }> {
+  try {
+    const persisted = await getIurgObjects();
+    let loaded = 0;
+    for (const obj of persisted) {
+      if (!obj.id) continue;
+      graph.addObject(obj, "boot-hydration");
+      loaded += 1;
+    }
+    recordObjectsLoadedOnBoot(loaded);
+    return { loaded };
+  } catch (error) {
+    console.error("[iuc] boot hydration failed (non-fatal):", (error as Error).message);
+    return { loaded: 0 };
+  }
 }
 
 function indicatorValue(

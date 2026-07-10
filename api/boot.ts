@@ -20,6 +20,7 @@ import {
 } from "./lib/iurg-store";
 import { markIucTick, setIucCronStatus } from "./lib/iuc-runtime";
 import { runPerceptionSyncTick } from "./lib/perception-adapter";
+import { hydratePersistedIurgGraph } from "./iuc-router";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
@@ -131,11 +132,19 @@ if (env.isProduction) {
         console.error("[perception-adapter] tick failed (non-fatal):", err);
       }
     });
-    // Immediate first sync so the graph replays the inbox without
-    // waiting for the first 5-minute cron tick.
-    runPerceptionSyncTick().catch((err) => {
-      console.error("[perception-adapter] boot sync failed (non-fatal):", err);
-    });
+    // Wave 6-b boot order: (1) hydrate persisted IURG objects from
+    // Postgres into the in-memory graph, THEN (2) replay the inbox via
+    // the perception adapter — its perc-* ingests upsert by id over the
+    // hydrated nodes, so the sequence is idempotent and chain-safe.
+    // Both steps are non-fatal by design.
+    hydratePersistedIurgGraph()
+      .then(({ loaded }) => {
+        process.stderr.write(`[boot] IURG hydration loaded ${loaded} persisted objects\n`);
+        return runPerceptionSyncTick();
+      })
+      .catch((err) => {
+        console.error("[boot] hydration/perception boot sync failed (non-fatal):", err);
+      });
     serveStaticFiles(app);
     const port = parseInt(process.env.PORT || "3000");
     process.stderr.write(`[boot] Starting server on port ${port}...\n`);

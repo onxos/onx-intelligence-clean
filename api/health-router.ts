@@ -7,6 +7,7 @@ import { createRouter, publicQuery } from "./middleware";
 import { getBridgeState } from "./bridge-guard";
 import { countEvents } from "./lib/platform-inbox-store";
 import { getPerceptionAdapterStatus } from "./lib/perception-adapter";
+import { getPersistenceStatus } from "./lib/iurg-store";
 
 // --- Component Health ---
 interface ComponentHealth {
@@ -149,6 +150,13 @@ export const healthRouter = createRouter({
   // Numbers + timestamps + truncated error message only; no payloads.
   perceptionAdapter: publicQuery.query(() => ({
     ...getPerceptionAdapterStatus(),
+    timestamp: new Date().toISOString(),
+  })),
+
+  // HT-09: persistence — Wave 6-b mind-memory persistence counters.
+  // Numbers + mode only; no object contents are ever exposed.
+  persistence: publicQuery.query(() => ({
+    ...getPersistenceStatus(),
     timestamp: new Date().toISOString(),
   })),
 });

@@ -4,13 +4,73 @@ import type { IurgObjectInput, IurgObjectType, Rank, VerificationLevel } from ".
 import { getDb } from "../queries/connection";
 import { continuityLogEntries, iucSnapshots, iurgObjects } from "../../db/schema";
 import { env } from "./env";
+import {
+  pgAppendContinuity,
+  pgClearContinuity,
+  pgClearSnapshots,
+  pgDeleteAllObjects,
+  pgDeleteObjectsByIdPrefix,
+  pgHealthStats,
+  pgInsertSnapshot,
+  pgLatestContinuityHash,
+  pgLatestSnapshot,
+  pgListContinuity,
+  pgLoadAllObjects,
+  pgObjectCounts,
+  pgUpsertObject,
+} from "./iurg-pg-store";
 
 const GENESIS_HASH = "0".repeat(64);
-// The drizzle layer here is mysql2-only. Any non-MySQL DATABASE_URL (sqlite,
-// postgres — production uses Render Postgres) must use the in-memory store:
-// attempting mysql2 against a Postgres host hangs then throws ETIMEDOUT,
-// which previously crashed the process from the living-loop cron.
-const useMemoryFallback = !/^mysql/i.test(env.databaseUrl);
+// The drizzle layer here is mysql2-only. Any non-MySQL DATABASE_URL used to
+// fall back to the in-memory store: attempting mysql2 against a Postgres host
+// hangs then throws ETIMEDOUT, which previously crashed the process from the
+// living-loop cron (PR #18 lesson).
+//
+// Wave 6-b: a Postgres DATABASE_URL (production on Render) now routes to a
+// direct `pg` layer (api/lib/iurg-pg-store.ts, same pattern as
+// platform-inbox-store.ts). The in-memory store keeps running as a hot
+// mirror + fallback: every pg call is guarded — a pg failure only bumps
+// `pgErrors` and the memory path answers, so cron/boot can never crash.
+// No DATABASE_URL (local/tests) → pure in-memory, zero behavior change.
+type StoreMode = "mysql" | "pg" | "memory";
+
+function storeMode(): StoreMode {
+  if (/^mysql/i.test(env.databaseUrl)) return "mysql";
+  if (/^postgres/i.test(process.env.DATABASE_URL ?? "")) return "pg";
+  return "memory";
+}
+
+// Wave 6-b observability counters (exposed via health.persistence / HT-09).
+const counters = {
+  objectsPersisted: 0,
+  objectsLoadedOnBoot: 0,
+  snapshotsPersisted: 0,
+  continuityAppended: 0,
+  pgErrors: 0,
+};
+
+export interface PersistenceStatus {
+  mode: StoreMode;
+  objectsPersisted: number;
+  objectsLoadedOnBoot: number;
+  snapshotsPersisted: number;
+  continuityAppended: number;
+  pgErrors: number;
+}
+
+/** Numbers-only persistence counters for HT-09 (health.persistence). */
+export function getPersistenceStatus(): PersistenceStatus {
+  return { mode: storeMode(), ...counters };
+}
+
+/** Called by the boot hydration path (iuc-router) to record loaded objects. */
+export function recordObjectsLoadedOnBoot(count: number): void {
+  if (Number.isFinite(count) && count > 0) counters.objectsLoadedOnBoot += Math.trunc(count);
+}
+
+function notePgError(): void {
+  counters.pgErrors += 1;
+}
 
 const memoryStore = {
   objects: new Map<string, IurgObjectInput>(),
@@ -88,8 +148,18 @@ function stableHash(input: unknown): string {
 
 export async function saveIurgObject(obj: IurgObjectInput): Promise<{ id: string }> {
   const id = obj.id ?? randomUUID();
-  if (useMemoryFallback) {
+  const mode = storeMode();
+  if (mode !== "mysql") {
     memoryStore.objects.set(id, { ...obj, id });
+    if (mode === "pg") {
+      try {
+        await pgUpsertObject({ ...obj, id });
+        counters.objectsPersisted += 1;
+      } catch (error) {
+        notePgError();
+        console.error("[iurg-store] pg saveIurgObject failed (non-fatal):", (error as Error).message);
+      }
+    }
     return { id };
   }
   const db = getDb();
@@ -125,7 +195,16 @@ export async function saveIurgObject(obj: IurgObjectInput): Promise<{ id: string
 }
 
 export async function getIurgObjects(): Promise<IurgObjectInput[]> {
-  if (useMemoryFallback) {
+  const mode = storeMode();
+  if (mode !== "mysql") {
+    if (mode === "pg") {
+      try {
+        return await pgLoadAllObjects();
+      } catch (error) {
+        notePgError();
+        console.error("[iurg-store] pg getIurgObjects failed (non-fatal):", (error as Error).message);
+      }
+    }
     return Array.from(memoryStore.objects.values());
   }
   const db = getDb();
@@ -165,7 +244,8 @@ export async function saveIucSnapshot(snapshot: IucSnapshotInput): Promise<{ id:
     objectCount: Math.max(0, Math.trunc(snapshot.objectCount)),
   };
   const snapshotHash = stableHash(normalized);
-  if (useMemoryFallback) {
+  const mode = storeMode();
+  if (mode !== "mysql") {
     memoryStore.snapshots.push({
       id,
       timestamp,
@@ -181,6 +261,29 @@ export async function saveIucSnapshot(snapshot: IucSnapshotInput): Promise<{ id:
       objectCount: normalized.objectCount,
       snapshotHash,
     });
+    if (mode === "pg") {
+      try {
+        await pgInsertSnapshot({
+          id,
+          timestamp,
+          tuc: normalized.tuc,
+          ugr: normalized.ugr,
+          urs: normalized.urs,
+          ksr: normalized.ksr,
+          pdr: normalized.pdr,
+          krr: normalized.krr,
+          kor: normalized.kor,
+          scg: normalized.scg,
+          sai: normalized.sai,
+          objectCount: normalized.objectCount,
+          snapshotHash,
+        });
+        counters.snapshotsPersisted += 1;
+      } catch (error) {
+        notePgError();
+        console.error("[iurg-store] pg saveIucSnapshot failed (non-fatal):", (error as Error).message);
+      }
+    }
     return { id, snapshotHash };
   }
   const db = getDb();
@@ -205,10 +308,27 @@ export async function saveIucSnapshot(snapshot: IucSnapshotInput): Promise<{ id:
 }
 
 export async function appendContinuityLog(event: ContinuityLogInput): Promise<{ id: string; currentHash: string }> {
-  const latest = useMemoryFallback
-    ? memoryStore.continuity[memoryStore.continuity.length - 1]
-    : (await getDb().select().from(continuityLogEntries).orderBy(desc(continuityLogEntries.createdAt)).limit(1))[0];
-  const previousHash = latest?.currentHash ?? GENESIS_HASH;
+  const mode = storeMode();
+  let previousHash = GENESIS_HASH;
+  if (mode === "mysql") {
+    const latest = (await getDb().select().from(continuityLogEntries).orderBy(desc(continuityLogEntries.createdAt)).limit(1))[0];
+    previousHash = latest?.currentHash ?? GENESIS_HASH;
+  } else {
+    const memLatest = memoryStore.continuity[memoryStore.continuity.length - 1];
+    if (memLatest) {
+      // The in-memory mirror has seen every append this process made.
+      previousHash = memLatest.currentHash;
+    } else if (mode === "pg") {
+      // Fresh process: resume the chain from the last persisted hash
+      // instead of restarting at GENESIS.
+      try {
+        previousHash = (await pgLatestContinuityHash()) ?? GENESIS_HASH;
+      } catch (error) {
+        notePgError();
+        console.error("[iurg-store] pg latest continuity hash failed (non-fatal):", (error as Error).message);
+      }
+    }
+  }
   const createdAt = new Date();
   const id = randomUUID();
   const currentHash = stableHash([
@@ -220,7 +340,7 @@ export async function appendContinuityLog(event: ContinuityLogInput): Promise<{ 
     createdAt.toISOString(),
   ]);
 
-  if (useMemoryFallback) {
+  if (mode !== "mysql") {
     memoryStore.continuity.push({
       id,
       tick: Math.max(0, Math.trunc(event.tick)),
@@ -231,6 +351,24 @@ export async function appendContinuityLog(event: ContinuityLogInput): Promise<{ 
       currentHash,
       createdAt,
     });
+    if (mode === "pg") {
+      try {
+        await pgAppendContinuity({
+          id,
+          tick: Math.max(0, Math.trunc(event.tick)),
+          eventType: event.eventType,
+          objectId: event.objectId ?? null,
+          detail: event.detail ?? null,
+          previousHash,
+          currentHash,
+          createdAt,
+        });
+        counters.continuityAppended += 1;
+      } catch (error) {
+        notePgError();
+        console.error("[iurg-store] pg appendContinuityLog failed (non-fatal):", (error as Error).message);
+      }
+    }
   } else {
     await getDb().insert(continuityLogEntries).values({
       id,
@@ -248,7 +386,17 @@ export async function appendContinuityLog(event: ContinuityLogInput): Promise<{ 
 }
 
 export async function getLatestIucSnapshot() {
-  if (useMemoryFallback) {
+  const mode = storeMode();
+  if (mode !== "mysql") {
+    if (mode === "pg") {
+      try {
+        const row = await pgLatestSnapshot();
+        if (row) return row;
+      } catch (error) {
+        notePgError();
+        console.error("[iurg-store] pg getLatestIucSnapshot failed (non-fatal):", (error as Error).message);
+      }
+    }
     const row = memoryStore.snapshots[memoryStore.snapshots.length - 1];
     return row ?? null;
   }
@@ -273,7 +421,21 @@ export async function getLatestIucSnapshot() {
 }
 
 export async function getIurgObjectCounts(): Promise<Partial<Record<IurgObjectType, number>>> {
-  if (useMemoryFallback) {
+  const mode = storeMode();
+  if (mode !== "mysql") {
+    if (mode === "pg") {
+      try {
+        const rows = await pgObjectCounts();
+        const pgCounts: Partial<Record<IurgObjectType, number>> = {};
+        for (const row of rows) {
+          pgCounts[row.type as IurgObjectType] = row.count;
+        }
+        return pgCounts;
+      } catch (error) {
+        notePgError();
+        console.error("[iurg-store] pg getIurgObjectCounts failed (non-fatal):", (error as Error).message);
+      }
+    }
     const counts: Partial<Record<IurgObjectType, number>> = {};
     for (const obj of memoryStore.objects.values()) {
       counts[obj.type] = (counts[obj.type] ?? 0) + 1;
@@ -298,7 +460,16 @@ export async function getIurgObjectCounts(): Promise<Partial<Record<IurgObjectTy
 }
 
 export async function listContinuityLog(limit = 100) {
-  if (useMemoryFallback) {
+  const mode = storeMode();
+  if (mode !== "mysql") {
+    if (mode === "pg") {
+      try {
+        return await pgListContinuity(limit);
+      } catch (error) {
+        notePgError();
+        console.error("[iurg-store] pg listContinuityLog failed (non-fatal):", (error as Error).message);
+      }
+    }
     return memoryStore.continuity.slice(-Math.max(0, limit)).reverse();
   }
   const db = getDb();
@@ -311,7 +482,16 @@ export async function getIucHealthStats(): Promise<{
   continuityLogCount: number;
   lastTickAt: Date | null;
 }> {
-  if (useMemoryFallback) {
+  const mode = storeMode();
+  if (mode !== "mysql") {
+    if (mode === "pg") {
+      try {
+        return await pgHealthStats();
+      } catch (error) {
+        notePgError();
+        console.error("[iurg-store] pg getIucHealthStats failed (non-fatal):", (error as Error).message);
+      }
+    }
     return {
       objectCount: memoryStore.objects.size,
       snapshotCount: memoryStore.snapshots.length,
@@ -349,10 +529,19 @@ export async function getIucHealthStats(): Promise<{
 }
 
 export async function replaceIurgObjects(objects: IurgObjectInput[]): Promise<void> {
-  if (useMemoryFallback) {
+  const mode = storeMode();
+  if (mode !== "mysql") {
     memoryStore.objects.clear();
+    if (mode === "pg") {
+      try {
+        await pgDeleteAllObjects();
+      } catch (error) {
+        notePgError();
+        console.error("[iurg-store] pg replaceIurgObjects clear failed (non-fatal):", (error as Error).message);
+      }
+    }
     for (const obj of objects) {
-      memoryStore.objects.set(obj.id ?? randomUUID(), obj);
+      await saveIurgObject(obj);
     }
     return;
   }
@@ -364,14 +553,23 @@ export async function replaceIurgObjects(objects: IurgObjectInput[]): Promise<vo
 }
 
 export async function replaceIurgObjectsByIdPrefix(prefix: string, objects: IurgObjectInput[]): Promise<void> {
-  if (useMemoryFallback) {
+  const mode = storeMode();
+  if (mode !== "mysql") {
     for (const id of Array.from(memoryStore.objects.keys())) {
       if (id.startsWith(prefix)) {
         memoryStore.objects.delete(id);
       }
     }
+    if (mode === "pg") {
+      try {
+        await pgDeleteObjectsByIdPrefix(prefix);
+      } catch (error) {
+        notePgError();
+        console.error("[iurg-store] pg replaceIurgObjectsByIdPrefix clear failed (non-fatal):", (error as Error).message);
+      }
+    }
     for (const obj of objects) {
-      memoryStore.objects.set(obj.id ?? randomUUID(), obj);
+      await saveIurgObject(obj);
     }
     return;
   }
@@ -384,8 +582,17 @@ export async function replaceIurgObjectsByIdPrefix(prefix: string, objects: Iurg
 }
 
 export async function clearContinuityLogEntries(): Promise<void> {
-  if (useMemoryFallback) {
+  const mode = storeMode();
+  if (mode !== "mysql") {
     memoryStore.continuity.length = 0;
+    if (mode === "pg") {
+      try {
+        await pgClearContinuity();
+      } catch (error) {
+        notePgError();
+        console.error("[iurg-store] pg clearContinuityLogEntries failed (non-fatal):", (error as Error).message);
+      }
+    }
     return;
   }
   const db = getDb();
@@ -393,10 +600,31 @@ export async function clearContinuityLogEntries(): Promise<void> {
 }
 
 export async function clearIucSnapshots(): Promise<void> {
-  if (useMemoryFallback) {
+  const mode = storeMode();
+  if (mode !== "mysql") {
     memoryStore.snapshots.length = 0;
+    if (mode === "pg") {
+      try {
+        await pgClearSnapshots();
+      } catch (error) {
+        notePgError();
+        console.error("[iurg-store] pg clearIucSnapshots failed (non-fatal):", (error as Error).message);
+      }
+    }
     return;
   }
   const db = getDb();
   await db.delete(iucSnapshots);
+}
+
+// Test-only: reset the in-memory mirror and observability counters
+export function __resetIurgStoreForTests(): void {
+  memoryStore.objects.clear();
+  memoryStore.snapshots.length = 0;
+  memoryStore.continuity.length = 0;
+  counters.objectsPersisted = 0;
+  counters.objectsLoadedOnBoot = 0;
+  counters.snapshotsPersisted = 0;
+  counters.continuityAppended = 0;
+  counters.pgErrors = 0;
 }
