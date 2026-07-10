@@ -34,6 +34,12 @@
 //      The ANOMALY semantic lives in the id — the IURG type enum is
 //      closed (16 types, see header note above), so the object is
 //      PATTERN/R2 like every other insight.
+//   7. overdue invoices — one always-updated insight (insight-overdue-invoices,
+//      Wave 13-c): counts perceived billing.invoice.overdue events (N).
+//      A single overdue invoice already deserves attention, so the
+//      threshold is N ≥ OVERDUE_INVOICES_MIN_COUNT (= 1); N = 0 ⇒
+//      silent skip, rule-4/5/6 style. PATTERN/R2 like every other
+//      insight (closed type enum, see header note above).
 //
 // Determinism & idempotency: every insight id is derived from the
 // rule + its subject (insight-cycle-<domain>-<aggId>,
@@ -375,6 +381,32 @@ function noshowAnomalyInsight(perceptions: ParsedPerception[]): InsightIngestInp
   );
 }
 
+export const OVERDUE_INVOICES_INSIGHT_ID = "insight-overdue-invoices";
+export const OVERDUE_INVOICE_EVENT = "billing.invoice.overdue";
+export const OVERDUE_INVOICES_MIN_COUNT = 1;
+
+/**
+ * Rule 7 — overdue invoices (Wave 13-c): one always-updated insight over the
+ * billing artery. Counts PERCEPTIONs whose eventType (parsed from the
+ * adapter's "platform-event <eventType> on <entity>" contentText) is exactly
+ * billing.invoice.overdue (N). Fires only when N ≥ OVERDUE_INVOICES_MIN_COUNT
+ * (= 1 — a single overdue invoice already deserves an insight) ⇒ otherwise
+ * null (silent skip, rule-4/5/6 style). The wording is identical for every N
+ * (no conditional singular/plural) ⇒ order-independent determinism.
+ */
+function overdueInvoicesInsight(perceptions: ParsedPerception[]): InsightIngestInput | null {
+  let overdue = 0;
+  for (const p of perceptions) {
+    if (p.eventType === OVERDUE_INVOICE_EVENT) overdue += 1;
+  }
+  if (overdue < OVERDUE_INVOICES_MIN_COUNT) return null;
+  return baseInsight(
+    OVERDUE_INVOICES_INSIGHT_ID,
+    `فواتير متأخرة: رُصدت ${overdue} فاتورة تجاوزت أجل السداد دون تحصيل`,
+    overdue,
+  );
+}
+
 /**
  * Pure rule engine: PERCEPTIONs → deterministic INSIGHT objects.
  * Output ordering is stable (cycles, recurrences, coverage; sorted subjects)
@@ -399,6 +431,8 @@ export function computeInsights(nodes: LiveGraphNode[]): InsightIngestInput[] {
   if (revenuePulse) insights.push(revenuePulse);
   const noshowAnomaly = noshowAnomalyInsight(perceptions);
   if (noshowAnomaly) insights.push(noshowAnomaly);
+  const overdueInvoices = overdueInvoicesInsight(perceptions);
+  if (overdueInvoices) insights.push(overdueInvoices);
   return insights;
 }
 
@@ -420,9 +454,9 @@ export async function runReflectionTick(): Promise<ReflectionStatus> {
       state.perceptionsScanned += nodes.filter((n) => n.type === "PERCEPTION").length;
       insights = computeInsights(nodes);
       // Rules 2 (recurrence) + 3 (coverage) + 4 (verdict awareness) +
-      // 5 (revenue pulse) + 6 (no-show anomaly) + one evaluation per
-      // known cycle definition (rule 1).
-      state.rulesEvaluated += 5 + CYCLE_DEFINITIONS.length;
+      // 5 (revenue pulse) + 6 (no-show anomaly) + 7 (overdue invoices) +
+      // one evaluation per known cycle definition (rule 1).
+      state.rulesEvaluated += 6 + CYCLE_DEFINITIONS.length;
     } catch (error) {
       // Graph unavailable → silent skip with counters only.
       state.ticksSkipped += 1;
