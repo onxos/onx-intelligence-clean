@@ -20,6 +20,7 @@ import {
 } from "./lib/iurg-store";
 import { markIucTick, setIucCronStatus } from "./lib/iuc-runtime";
 import { runPerceptionSyncTick } from "./lib/perception-adapter";
+import { runReflectionTick } from "./lib/reflection-cycle";
 import { hydratePersistedIurgGraph } from "./iuc-router";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
@@ -131,6 +132,13 @@ if (env.isProduction) {
       } catch (err) {
         console.error("[perception-adapter] tick failed (non-fatal):", err);
       }
+      // Wave 7-c: derive INSIGHTs from accumulated PERCEPTIONs.
+      // runReflectionTick never throws by design; guarded anyway.
+      try {
+        await runReflectionTick();
+      } catch (err) {
+        console.error("[reflection-cycle] tick failed (non-fatal):", err);
+      }
     });
     // Wave 6-b boot order: (1) hydrate persisted IURG objects from
     // Postgres into the in-memory graph, THEN (2) replay the inbox via
@@ -142,6 +150,8 @@ if (env.isProduction) {
         process.stderr.write(`[boot] IURG hydration loaded ${loaded} persisted objects\n`);
         return runPerceptionSyncTick();
       })
+      // Wave 7-c: reflect once at boot over the freshly replayed perceptions.
+      .then(() => runReflectionTick())
       .catch((err) => {
         console.error("[boot] hydration/perception boot sync failed (non-fatal):", err);
       });
