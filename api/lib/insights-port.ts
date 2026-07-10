@@ -28,6 +28,21 @@ export const MAX_LIMIT = 200;
 const INSIGHT_ID_PREFIX = "insight-";
 const DAY_MS = 86_400_000;
 
+// ── Wave 15-B: actionable insight classification ──────────────────────────
+// Stable mapping from insight ID to the executable action type the platform
+// should dispatch when the founder approves that insight. Adding a new entry
+// here is the ONLY change required to make a new insight actionable — the
+// platform's insight-sync picks up `actionType` from the bridge response and
+// assigns it as the proposal's `proposedAction` automatically.
+const ACTIONABLE_INSIGHTS: ReadonlyMap<string, string> = new Map([
+  ["insight-overdue-invoices", "overdue_invoice_followup"],
+]);
+
+/** Returns the action type for a known actionable insight, or undefined. */
+function getActionType(id: string): string | undefined {
+  return ACTIONABLE_INSIGHTS.get(id);
+}
+
 /** The ONLY fields the bridge may ever see for an insight. */
 export interface ServedInsight {
   id: string;
@@ -36,6 +51,13 @@ export interface ServedInsight {
   verification: string;
   type: string;
   createdAt: string;
+  /**
+   * Wave 15-B: present only for insights with a known executable action on
+   * the platform. When the founder approves such an insight the platform
+   * dispatches a `decision.execute` job with this value as `proposedAction`.
+   * Absent (key not present) for purely informational insights.
+   */
+  actionType?: string;
 }
 
 export interface InsightsPortResult {
@@ -71,6 +93,7 @@ function toServed(node: PortGraphNode, now: number): ServedInsight | null {
     typeof node.ageDays === "number" && Number.isFinite(node.ageDays) && node.ageDays > 0
       ? node.ageDays
       : 0;
+  const actionType = getActionType(node.id);
   return {
     id: node.id,
     contentText: node.contentText ?? "",
@@ -78,6 +101,9 @@ function toServed(node: PortGraphNode, now: number): ServedInsight | null {
     verification: node.verification ?? "UNVERIFIED",
     type: node.type,
     createdAt: new Date(now - age * DAY_MS).toISOString(),
+    // Omit actionType key entirely when undefined so the exposure contract
+    // Object.keys check for non-actionable insights stays unaffected.
+    ...(actionType !== undefined ? { actionType } : {}),
   };
 }
 

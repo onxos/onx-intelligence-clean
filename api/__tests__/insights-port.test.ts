@@ -127,7 +127,7 @@ describe("titan.listInsights — exposure contract", () => {
     expect(serialized).not.toContain("seed-patt");
   });
 
-  it("each item carries ONLY {id, contentText, rank, verification, type, createdAt}", async () => {
+  it("each item carries ONLY {id, contentText, rank, verification, type, createdAt} for non-actionable insights", async () => {
     __setInsightsListFnForTests(() => [insightNode("insight-x")]);
 
     const res = await bridgeCaller(BRIDGE_KEY).titan.listInsights({});
@@ -154,6 +154,26 @@ describe("titan.listInsights — exposure contract", () => {
     expect(serialized).not.toContain("trust");
     expect(serialized).not.toContain("amanah");
     expect(serialized).not.toContain("founderAlignment");
+  });
+
+  // Wave 15-B: actionable insights include actionType so the platform
+  // can dispatch the correct execution handler when the founder approves.
+  it("insight-overdue-invoices carries actionType=overdue_invoice_followup", async () => {
+    __setInsightsListFnForTests(() => [
+      insightNode("insight-overdue-invoices"),
+      insightNode("insight-x"),
+    ]);
+
+    const res = await bridgeCaller(BRIDGE_KEY).titan.listInsights({});
+
+    const overdue = res.insights.find((i) => i.id === "insight-overdue-invoices");
+    const other = res.insights.find((i) => i.id === "insight-x");
+
+    expect(overdue).toBeDefined();
+    expect(overdue!.actionType).toBe("overdue_invoice_followup");
+
+    // Non-actionable insight must not carry actionType key at all.
+    expect("actionType" in (other ?? {})).toBe(false);
   });
 
   it("returns insights chronologically ascending (oldest first, id tiebreak)", async () => {
