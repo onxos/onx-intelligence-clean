@@ -233,10 +233,10 @@ describe("runReflectionTick — rule 5 through the real iuc.ingest path", () => 
     );
   });
 
-  it("each tick counts the revenue-pulse rule in rulesEvaluated (4 + cycle defs)", async () => {
+  it("each tick counts the revenue-pulse rule in rulesEvaluated (5 + cycle defs since wave 12-b)", async () => {
     __setListFnForTests(() => []);
     await runReflectionTick();
-    expect(getReflectionStatus().rulesEvaluated).toBe(4 + CYCLE_DEFINITIONS.length);
+    expect(getReflectionStatus().rulesEvaluated).toBe(5 + CYCLE_DEFINITIONS.length);
   });
 
   it("the revenue-pulse insight is served over titan.listInsights", async () => {

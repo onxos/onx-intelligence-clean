@@ -27,6 +27,13 @@
 //      billing.invoice.created vs finance.payment.received events and
 //      derives the collection ratio. Zero invoices AND zero payments ⇒
 //      silent skip, rule-4 style.
+//   6. no-show anomaly — one always-updated insight (insight-anomaly-noshow,
+//      Wave 12-b): counts perceived crm.appointment.noshow vs
+//      crm.appointment.completed events and derives the no-show ratio.
+//      Fewer than NOSHOW_ANOMALY_MIN_COUNT no-shows ⇒ silent skip.
+//      The ANOMALY semantic lives in the id — the IURG type enum is
+//      closed (16 types, see header note above), so the object is
+//      PATTERN/R2 like every other insight.
 //
 // Determinism & idempotency: every insight id is derived from the
 // rule + its subject (insight-cycle-<domain>-<aggId>,
@@ -335,6 +342,39 @@ function revenuePulseInsight(perceptions: ParsedPerception[]): InsightIngestInpu
   );
 }
 
+export const NOSHOW_ANOMALY_INSIGHT_ID = "insight-anomaly-noshow";
+export const NOSHOW_EVENT = "crm.appointment.noshow";
+export const APPOINTMENT_COMPLETED_EVENT = "crm.appointment.completed";
+export const NOSHOW_ANOMALY_MIN_COUNT = 2;
+
+/**
+ * Rule 6 — no-show anomaly (Wave 12-b): one always-updated insight over the
+ * CRM appointment artery. Counts PERCEPTIONs whose eventType (parsed from the
+ * adapter's "platform-event <eventType> on <entity>" contentText) is exactly
+ * crm.appointment.noshow (N) / crm.appointment.completed (M). Fires only when
+ * N ≥ NOSHOW_ANOMALY_MIN_COUNT ⇒ otherwise null (silent skip, rule-4/5 style).
+ * When M > 0 the text carries the no-show ratio N/(N+M), rounded.
+ * Text depends only on the two counts ⇒ order-independent determinism.
+ */
+function noshowAnomalyInsight(perceptions: ParsedPerception[]): InsightIngestInput | null {
+  let noshows = 0;
+  let completed = 0;
+  for (const p of perceptions) {
+    if (p.eventType === NOSHOW_EVENT) noshows += 1;
+    else if (p.eventType === APPOINTMENT_COMPLETED_EVENT) completed += 1;
+  }
+  if (noshows < NOSHOW_ANOMALY_MIN_COUNT) return null;
+  const ratioPart =
+    completed > 0
+      ? ` (نسبة الغياب ${Math.round((noshows * 100) / (noshows + completed))}%)`
+      : "";
+  return baseInsight(
+    NOSHOW_ANOMALY_INSIGHT_ID,
+    `شذوذ الغيابات: رُصد ${noshows} غياب عن المواعيد مقابل ${completed} موعد مكتمل${ratioPart}`,
+    noshows + completed,
+  );
+}
+
 /**
  * Pure rule engine: PERCEPTIONs → deterministic INSIGHT objects.
  * Output ordering is stable (cycles, recurrences, coverage; sorted subjects)
@@ -357,6 +397,8 @@ export function computeInsights(nodes: LiveGraphNode[]): InsightIngestInput[] {
   if (verdicts) insights.push(verdicts);
   const revenuePulse = revenuePulseInsight(perceptions);
   if (revenuePulse) insights.push(revenuePulse);
+  const noshowAnomaly = noshowAnomalyInsight(perceptions);
+  if (noshowAnomaly) insights.push(noshowAnomaly);
   return insights;
 }
 
@@ -378,8 +420,9 @@ export async function runReflectionTick(): Promise<ReflectionStatus> {
       state.perceptionsScanned += nodes.filter((n) => n.type === "PERCEPTION").length;
       insights = computeInsights(nodes);
       // Rules 2 (recurrence) + 3 (coverage) + 4 (verdict awareness) +
-      // 5 (revenue pulse) + one evaluation per known cycle definition (rule 1).
-      state.rulesEvaluated += 4 + CYCLE_DEFINITIONS.length;
+      // 5 (revenue pulse) + 6 (no-show anomaly) + one evaluation per
+      // known cycle definition (rule 1).
+      state.rulesEvaluated += 5 + CYCLE_DEFINITIONS.length;
     } catch (error) {
       // Graph unavailable → silent skip with counters only.
       state.ticksSkipped += 1;
