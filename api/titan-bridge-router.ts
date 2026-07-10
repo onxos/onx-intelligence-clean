@@ -15,6 +15,7 @@ import {
   getRecentEvents,
   getAggregateTimeline,
 } from "./lib/platform-inbox-store";
+import { listInsightsFromGraph } from "./lib/insights-port";
 
 // --- Lazy OpenAI client (server starts even without key) ---
 let openai: OpenAI | null = null;
@@ -428,6 +429,31 @@ export const titanBridgeRouter = createRouter({
         aggregateId: input.aggregateId,
         count: events.length,
         events,
+        timestamp: new Date().toISOString(),
+      };
+    }),
+
+  // --- Wave 8-a "Mind speaks back": first reverse channel (mind → body) ---
+  // The platform pulls the reflection-cycle insights (insight-* PATTERN
+  // objects in the live IURG graph) for the founder decision inbox.
+  // Read-only; bridge-guarded exactly like aggregateTimeline. Each item
+  // exposes ONLY { id, contentText, rank, verification, type, createdAt }.
+  // Internal failures / empty graph → { insights: [], count: 0 }, no throw.
+  listInsights: publicQuery
+    .input(z.object({
+      afterTimestamp: z.string().datetime().optional(),
+      limit: z.number().int().min(1).optional(),
+    }).optional())
+    .query(({ input, ctx }) => {
+      assertBridgeAccess(ctx);
+      const { insights, count } = listInsightsFromGraph({
+        afterTimestamp: input?.afterTimestamp,
+        limit: input?.limit,
+      });
+      return {
+        bridge: "titanBridge",
+        insights,
+        count,
         timestamp: new Date().toISOString(),
       };
     }),
