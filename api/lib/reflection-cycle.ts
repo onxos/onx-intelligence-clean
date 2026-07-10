@@ -16,6 +16,12 @@
 //   2. recurrence       — ≥3 events of one type in the last 24h
 //   3. coverage         — one always-updated insight counting the
 //      distinct perceived domains (event-type prefixes)
+//   4. verdict awareness — one always-updated insight (insight-verdicts)
+//      summarizing the founder verdicts (ack-* objects planted by
+//      api/lib/insight-ack.ts): totals, approval ratio, latest verdict.
+//      Because its id starts with insight- it is served back through
+//      titan.listInsights — the founder judging an insight about his
+//      own judgments is an intended meta loop.
 //
 // Determinism & idempotency: every insight id is derived from the
 // rule + its subject (insight-cycle-<domain>-<aggId>,
@@ -29,6 +35,7 @@
 // ============================================================
 import { iucRouter, listLiveObjects } from "../iuc-router";
 import type { TrpcContext } from "../context";
+import { ACK_ID_PREFIX, VERDICT_LABEL_AR } from "./insight-ack";
 
 const MAX_CONTENT_LENGTH = 300;
 const MAX_ERROR_LENGTH = 200;
@@ -249,6 +256,50 @@ function coverageInsight(perceptions: ParsedPerception[]): InsightIngestInput | 
   );
 }
 
+// Ack contentText is produced by insight-ack.buildAckObject():
+//   "حكم المؤسس على الرؤية <insightId>: <label>[ (قُرر في <decidedAt>)]"
+// Extracting the label back keeps rule 4 decoupled from the ack module's
+// internals — the graph node text is the single source of truth.
+const ACK_VERDICT_RE = new RegExp(`: (${VERDICT_LABEL_AR.approved}|${VERDICT_LABEL_AR.rejected})`);
+
+export const VERDICTS_INSIGHT_ID = "insight-verdicts";
+
+/**
+ * Rule 4 — verdict awareness: one always-updated insight over the founder
+ * verdicts (`ack-*` objects). Zero acks ⇒ null (silent skip, rule-3 style).
+ * Latest verdict = smallest ageDays, deterministic id tiebreak.
+ */
+function verdictsInsight(nodes: LiveGraphNode[]): InsightIngestInput | null {
+  let approved = 0;
+  let rejected = 0;
+  let latest: { label: string; ageDays: number; id: string } | null = null;
+  for (const node of nodes) {
+    if (!node.id || !node.id.startsWith(ACK_ID_PREFIX) || !node.contentText) continue;
+    const match = ACK_VERDICT_RE.exec(node.contentText);
+    if (!match) continue;
+    const label = match[1];
+    if (label === VERDICT_LABEL_AR.approved) approved += 1;
+    else rejected += 1;
+    const age =
+      typeof node.ageDays === "number" && Number.isFinite(node.ageDays) ? node.ageDays : 0;
+    if (
+      !latest ||
+      age < latest.ageDays ||
+      (age === latest.ageDays && node.id < latest.id)
+    ) {
+      latest = { label, ageDays: age, id: node.id };
+    }
+  }
+  const total = approved + rejected;
+  if (total === 0 || !latest) return null;
+  const approvalPct = Math.round((approved * 100) / total);
+  return baseInsight(
+    VERDICTS_INSIGHT_ID,
+    `وعي الحكم: المؤسس أصدر ${total} أحكام على رؤى العقل — ${approved} اعتماد و${rejected} رفض (نسبة الاعتماد ${approvalPct}%)، آخر حكم: ${latest.label}`,
+    total,
+  );
+}
+
 /**
  * Pure rule engine: PERCEPTIONs → deterministic INSIGHT objects.
  * Output ordering is stable (cycles, recurrences, coverage; sorted subjects)
@@ -267,6 +318,8 @@ export function computeInsights(nodes: LiveGraphNode[]): InsightIngestInput[] {
   ];
   const coverage = coverageInsight(perceptions);
   if (coverage) insights.push(coverage);
+  const verdicts = verdictsInsight(nodes);
+  if (verdicts) insights.push(verdicts);
   return insights;
 }
 
@@ -287,7 +340,9 @@ export async function runReflectionTick(): Promise<ReflectionStatus> {
       const nodes = listFn();
       state.perceptionsScanned += nodes.filter((n) => n.type === "PERCEPTION").length;
       insights = computeInsights(nodes);
-      state.rulesEvaluated += 2 + CYCLE_DEFINITIONS.length;
+      // Rules 2 (recurrence) + 3 (coverage) + 4 (verdict awareness) + one
+      // evaluation per known cycle definition (rule 1).
+      state.rulesEvaluated += 3 + CYCLE_DEFINITIONS.length;
     } catch (error) {
       // Graph unavailable → silent skip with counters only.
       state.ticksSkipped += 1;
