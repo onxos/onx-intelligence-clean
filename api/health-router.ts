@@ -9,7 +9,11 @@ import { countEvents } from "./lib/platform-inbox-store";
 import { getPerceptionAdapterStatus } from "./lib/perception-adapter";
 import { getPersistenceStatus } from "./lib/iurg-store";
 import { getReflectionStatus } from "./lib/reflection-cycle";
-import { getInsightsServedTotal } from "./lib/insights-port";
+import {
+  getInsightsServedTotal,
+  listPublicInsights,
+  PUBLIC_INSIGHTS_MAX,
+} from "./lib/insights-port";
 import { getInsightAckCounters } from "./lib/insight-ack";
 
 // --- Component Health ---
@@ -173,4 +177,24 @@ export const healthRouter = createRouter({
     ...getInsightAckCounters(),
     timestamp: new Date().toISOString(),
   })),
+
+  // HT-11: insightsPublic — Wave 11-b founder mind-pulse feed (read-only).
+  // Serves the newest reflection insights with the same insight-* filter and
+  // exposure contract as titan.listInsights ({ id, contentText, rank,
+  // verification, type, createdAt } ONLY — no internal graph scores, no
+  // ack-* or other non-insight objects). Public by design: the insights are
+  // already surfaced to the founder on the platform. Max 20, newest first,
+  // and never counted as "served to the body" (HT-10 tracks bridge only).
+  insightsPublic: publicQuery
+    .input(
+      z
+        .object({
+          limit: z.number().int().min(1).max(PUBLIC_INSIGHTS_MAX).optional(),
+        })
+        .optional(),
+    )
+    .query(({ input }) => {
+      const { insights, count } = listPublicInsights({ limit: input?.limit });
+      return { insights, count, timestamp: new Date().toISOString() };
+    }),
 });

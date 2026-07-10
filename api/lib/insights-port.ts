@@ -126,6 +126,53 @@ export function listInsightsFromGraph(
   }
 }
 
+// Wave 11-b founder mind-pulse feed cap: the /titan-conclave/pulse page
+// shows at most the 20 newest insights.
+export const PUBLIC_INSIGHTS_MAX = 20;
+
+/**
+ * Wave 11-b "Mind pulse" founder feed: same insight-only filter and exact
+ * exposure contract as listInsightsFromGraph ({ id, contentText, rank,
+ * verification, type, createdAt } — internal graph scores never leave the
+ * mind), but newest-first, hard-capped at PUBLIC_INSIGHTS_MAX, and NOT
+ * counted into insightsServedTotal — that HT-10 counter tracks deliveries
+ * to the body over the bridge only. NEVER throws.
+ */
+export function listPublicInsights(
+  options: { limit?: number | undefined } = {},
+): InsightsPortResult {
+  try {
+    const nodes = listFn();
+    const now = Date.now();
+
+    const served: ServedInsight[] = [];
+    for (const node of nodes) {
+      const insight = toServed(node, now);
+      if (insight) served.push(insight);
+    }
+
+    // Newest first (ISO-8601 strings compare lexicographically), id tiebreak.
+    served.sort((a, b) =>
+      a.createdAt > b.createdAt ? -1
+      : a.createdAt < b.createdAt ? 1
+      : a.id < b.id ? -1
+      : a.id > b.id ? 1
+      : 0,
+    );
+
+    const raw =
+      typeof options.limit === "number" && Number.isFinite(options.limit)
+        ? Math.trunc(options.limit)
+        : PUBLIC_INSIGHTS_MAX;
+    const limit = Math.min(Math.max(1, raw), PUBLIC_INSIGHTS_MAX);
+    const insights = served.slice(0, limit);
+    return { insights, count: insights.length };
+  } catch {
+    // Never-throw contract: a broken graph read = an empty feed.
+    return { insights: [], count: 0 };
+  }
+}
+
 /** Number for HT-10 — insights delivered over the bridge since boot. */
 export function getInsightsServedTotal(): number {
   return insightsServedTotal;
