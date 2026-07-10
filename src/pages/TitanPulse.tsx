@@ -88,6 +88,7 @@ export default function TitanPulse() {
   const insights = insightsQ.data?.insights ?? []
   const isLive = !reflectionQ.isError && !insightsQ.isError
   const firstLoad = reflectionQ.isLoading && !r
+  const verdictsInsight = insights.find((ins) => ins.id === VERDICTS_INSIGHT_ID)
 
   return (
     <div dir="rtl" className="min-h-screen bg-gray-950 text-white p-6">
@@ -157,18 +158,7 @@ export default function TitanPulse() {
                 accent="border-gray-700 text-gray-100"
               />
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">
-              <CounterCard
-                label="أحكام المؤسس المستلمة"
-                value={num(r.acksReceivedTotal)}
-                hint={r.acksFailedTotal > 0 ? `المرفوضة: ${num(r.acksFailedTotal)}` : undefined}
-                accent="border-violet-800 text-violet-300"
-              />
-              <CounterCard
-                label="الرؤى المُخدّمة للجسد"
-                value={num(r.insightsServedTotal)}
-                accent="border-amber-800 text-amber-300"
-              />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
               <div className="bg-gray-900 border border-gray-700 rounded-2xl p-5">
                 <div className="text-gray-400 text-xs">آخر دورة تأمل</div>
                 <div className="text-lg font-bold text-gray-200 mt-1">{relativeTime(r.lastRunAt)}</div>
@@ -188,7 +178,43 @@ export default function TitanPulse() {
                 </div>
               )}
             </div>
+            {/* Body bridge counters — Wave 14-b */}
+            <h2 className="text-lg font-bold text-amber-300 mb-3">🌉 جسر الجسد — تدفق الرؤى والإقرارات</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+              <CounterCard
+                label="رؤى خُدّمت للجسد"
+                value={num(r.insightsServedTotal)}
+                accent="border-amber-800 text-amber-300"
+              />
+              <CounterCard
+                label="إقرارات مستلمة"
+                value={num(r.acksReceivedTotal)}
+                accent="border-violet-800 text-violet-300"
+              />
+              <CounterCard
+                label="إقرارات فاشلة"
+                value={num(r.acksFailedTotal)}
+                accent={
+                  r.acksFailedTotal > 0
+                    ? "border-red-700 text-red-300"
+                    : "border-gray-800 text-gray-400"
+                }
+              />
+            </div>
           </>
+        )}
+
+        {/* Last verdict — Wave 14-b */}
+        {verdictsInsight && (
+          <div className="bg-violet-950/40 border border-violet-700 rounded-2xl p-5 mb-6">
+            <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+              <h2 className="text-lg font-bold text-violet-300">⚖️ آخر حكم — مرآة أحكام المؤسس</h2>
+              <span className="text-[11px] text-gray-500">{relativeTime(verdictsInsight.createdAt)}</span>
+            </div>
+            <p className="text-sm leading-relaxed text-violet-100 whitespace-pre-wrap">
+              {verdictsInsight.contentText || "—"}
+            </p>
+          </div>
         )}
 
         {/* Live insights */}
@@ -244,7 +270,7 @@ export default function TitanPulse() {
         </div>
 
         <p className="text-[11px] text-gray-600 mt-6">
-          المصدر: health.reflection + health.insightsPublic (قراءة فقط، بلا أسرار) · الموجة 11-ب «نبض العقل»
+          المصدر: health.reflection + health.insightsPublic (قراءة فقط، بلا أسرار) · الموجة 11-ب «نبض العقل» + 14-ب «جسر الجسد»
         </p>
       </div>
     </div>
