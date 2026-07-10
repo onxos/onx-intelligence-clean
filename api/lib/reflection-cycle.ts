@@ -22,6 +22,11 @@
 //      Because its id starts with insight- it is served back through
 //      titan.listInsights — the founder judging an insight about his
 //      own judgments is an intended meta loop.
+//   5. revenue pulse — one always-updated insight (insight-revenue-pulse)
+//      over the live revenue artery (Wave 10-b / 11-a): counts perceived
+//      billing.invoice.created vs finance.payment.received events and
+//      derives the collection ratio. Zero invoices AND zero payments ⇒
+//      silent skip, rule-4 style.
 //
 // Determinism & idempotency: every insight id is derived from the
 // rule + its subject (insight-cycle-<domain>-<aggId>,
@@ -300,6 +305,36 @@ function verdictsInsight(nodes: LiveGraphNode[]): InsightIngestInput | null {
   );
 }
 
+export const REVENUE_PULSE_INSIGHT_ID = "insight-revenue-pulse";
+export const REVENUE_INVOICE_EVENT = "billing.invoice.created";
+export const REVENUE_PAYMENT_EVENT = "finance.payment.received";
+
+/**
+ * Rule 5 — revenue pulse: one always-updated insight over the live revenue
+ * artery. Counts PERCEPTIONs whose eventType (parsed from the adapter's
+ * "platform-event <eventType> on <entity>" contentText) is exactly
+ * billing.invoice.created / finance.payment.received and derives the
+ * collection ratio. Zero invoices AND zero payments ⇒ null (silent skip).
+ * Text depends only on the two counts ⇒ order-independent determinism.
+ */
+function revenuePulseInsight(perceptions: ParsedPerception[]): InsightIngestInput | null {
+  let invoices = 0;
+  let payments = 0;
+  for (const p of perceptions) {
+    if (p.eventType === REVENUE_INVOICE_EVENT) invoices += 1;
+    else if (p.eventType === REVENUE_PAYMENT_EVENT) payments += 1;
+  }
+  if (invoices === 0 && payments === 0) return null;
+  // N_inv=0 with payments present ⇒ ratio undefined, show counts only.
+  const ratioPart =
+    invoices > 0 ? ` (نسبة التحصيل ${Math.round((payments * 100) / invoices)}%)` : "";
+  return baseInsight(
+    REVENUE_PULSE_INSIGHT_ID,
+    `نبض الإيراد: أُصدرت ${invoices} فاتورة واستُلمت ${payments} دفعة${ratioPart}`,
+    invoices + payments,
+  );
+}
+
 /**
  * Pure rule engine: PERCEPTIONs → deterministic INSIGHT objects.
  * Output ordering is stable (cycles, recurrences, coverage; sorted subjects)
@@ -320,6 +355,8 @@ export function computeInsights(nodes: LiveGraphNode[]): InsightIngestInput[] {
   if (coverage) insights.push(coverage);
   const verdicts = verdictsInsight(nodes);
   if (verdicts) insights.push(verdicts);
+  const revenuePulse = revenuePulseInsight(perceptions);
+  if (revenuePulse) insights.push(revenuePulse);
   return insights;
 }
 
@@ -340,9 +377,9 @@ export async function runReflectionTick(): Promise<ReflectionStatus> {
       const nodes = listFn();
       state.perceptionsScanned += nodes.filter((n) => n.type === "PERCEPTION").length;
       insights = computeInsights(nodes);
-      // Rules 2 (recurrence) + 3 (coverage) + 4 (verdict awareness) + one
-      // evaluation per known cycle definition (rule 1).
-      state.rulesEvaluated += 3 + CYCLE_DEFINITIONS.length;
+      // Rules 2 (recurrence) + 3 (coverage) + 4 (verdict awareness) +
+      // 5 (revenue pulse) + one evaluation per known cycle definition (rule 1).
+      state.rulesEvaluated += 4 + CYCLE_DEFINITIONS.length;
     } catch (error) {
       // Graph unavailable → silent skip with counters only.
       state.ticksSkipped += 1;
