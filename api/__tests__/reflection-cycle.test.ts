@@ -182,7 +182,7 @@ describe("runReflectionTick (through the real iuc.ingest path)", () => {
 
     const status = await runReflectionTick();
 
-    expect(status.insightsGenerated).toBe(3); // cycle + recurrence + coverage
+    expect(status.insightsGenerated).toBe(4); // cycle + recurrence + coverage + noshow anomaly
     expect(status.insightsFailed).toBe(0);
     expect(status.ticksTotal).toBe(1);
     expect(status.ticksSkipped).toBe(0);
@@ -238,7 +238,7 @@ describe("runReflectionTick (through the real iuc.ingest path)", () => {
     const status = await runReflectionTick();
 
     expect(status.insightsFailed).toBe(1);
-    expect(status.insightsGenerated).toBe(2);
+    expect(status.insightsGenerated).toBe(3);
     expect(status.lastError).toContain("boom");
   });
 
