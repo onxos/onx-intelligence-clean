@@ -47,6 +47,7 @@ import { methodsLibraryRouter } from "./methods-library-router";
 import { capabilityFactoryRouter } from "./capability-factory-router";
 import { intelligenceObjectRouter } from "./intelligence-object-router";
 import { bridgeContractsRouter } from "./bridge-contracts-router";
+import { realityEngineRouter } from "./reality-engine-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -128,6 +129,8 @@ export const appRouter = createRouter({
   intelligenceObject: intelligenceObjectRouter,
   // B8 — Bridge Contracts: versioned schema registry + fail-closed validation + unified activity log
   bridgeContracts: bridgeContractsRouter,
+  // B5 — Reality Engine: deterministic ingest→graph→contradiction detection
+  realityEngine: realityEngineRouter,
   // Platform contract aliases
   bridge: titanBridgeRouter,
   corpusQuery: corpusQueryRouter,
