@@ -439,14 +439,24 @@ export const OCMBR_SEED: SeedEntry[] = [
     units: [
       { kind: "code", path: "api/living-loop.ts" },
       { kind: "test", path: "api/__tests__/living-loop.test.ts" },
+      { kind: "code", path: "api/lib/zero-input.ts" },
+      { kind: "code", path: "api/zero-input-router.ts" },
+      { kind: "test", path: "api/__tests__/zero-input.test.ts" },
     ],
     criteria: [
-      { id: "ac-b7-suggest", statement: "اقتراحات A0/A1 فقط (لا استقلال فوق A2) + مقاييس ميتا" },
+      { id: "ac-b7-suggest", statement: "اقتراحات A0/A1 فقط (لا استقلال فوق A2) + مقاييس ميتا", verifyCommand: "vitest run zero-input" },
+      { id: "ac-b7-ceiling", statement: "سقف A1 صارم fail-closed: كل قرار عبر AuthorityGate الفعلي (B3) على سلسلة hash، ما فوق A1 → REQUIRES_APPROVAL، لا مسار تنفيذ في الوحدة (autoExecutable ثابتة false)" },
+      { id: "ac-b7-merged", statement: "CI أخضر (اختبارات B7 تعمل فعلياً في بوابة codex-guard) + دمج squash في main", verifyCommand: "gh pr checks" },
     ],
     evidence: [
       { kind: "CODE", command: "ls api/living-loop.ts", verifier: VERIFIER },
       { kind: "TEST", command: "vitest run living-loop", output: "passed", verifier: VERIFIER },
       { kind: "RUN", command: "npm test", output: BASELINE_RUN, verifier: VERIFIER },
+      { kind: "CODE", criterionId: "ac-b7-suggest", command: "ls api/lib/zero-input.ts", output: "مولد اقتراحات حتمي بلا مفاتيح/DB: محولات فوق الطبقات المدموجة — تناقضات B5 (محسوم→A1، UNRESOLVED→A2)، أحكام B4 (SUPPORTED/REFUTED→A1، INCONCLUSIVE→A0)، أنماط أحداث B8 (دون العتبة→A1، بنيوي→A2) — ثقة = salience × provenance.confidence، ومقاييس ميتا: دقة + معايرة (LOW/MODERATE/HIGH) + drift", verifier: VERIFIER },
+      { kind: "TEST", criterionId: "ac-b7-suggest", command: "vitest run zero-input", output: "26 اختباراً: توليد مصنف بالسلطة، fail-closed للمدخل المشوه، محولات التكامل مع B4/B5/B8 تستهلك المخرجات الفعلية (runRealityPipeline/renderJudgment)، مقاييس حتمية (accuracy لا NaN، معايرة، drift، منع تكرار التغذية)", verifier: VERIFIER },
+      { kind: "TEST", criterionId: "ac-b7-ceiling", command: "vitest run zero-input", output: "SUGGESTION_CEILING=A1 مثبّت؛ A0/A1→AUTO_ELIGIBLE وA2..A5→REQUIRES_APPROVAL؛ فوق A2 بلا موافقة → DENIED من AuthorityGate؛ كل قرار على سلسلة hash قابلة للتحقق (verifyChain valid)؛ autoExecutable=false دائماً — لا تنفيذ ذاتي", verifier: VERIFIER },
+      { kind: "RUN", command: "vitest run zero-input", output: "26 اختباراً أخضر في بوابة CI codex-guard (سجل خام مؤكد، run 29152563934 على 8ce44d3)", verifier: VERIFIER },
+      { kind: "COMMIT", criterionId: "ac-b7-merged", command: "gh pr merge 51 --squash", commit: "99b575df8171d95a4f9d27405663a8378abbcef5", output: "PR #51 squash-merged to main; codex-guard + Deploy + Verify Staging Health all green; worker wired B7 suite into CI gate and rebased over merged B5 ledger", date: "2026-07-11", verifier: "independent: coordinator v2 read all 793 changed lines pre-merge (strict A1 ceiling with no execution path, real AuthorityGate hash-chain per decision, provenance-mandatory persistence via B4 MemoryStore, adapters consume real merged-layer outputs — zero reimplementation), verified rebased tree identical to reviewed tree, confirmed from raw CI logs 26 tests ran green, then merged" },
     ],
   },
   {

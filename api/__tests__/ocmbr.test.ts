@@ -178,6 +178,10 @@ describe("seed — idempotent import of current project capabilities", () => {
     // COMMIT evidence (real squash-merge sha 4d46de4, PR #49, CI green with
     // the B5 suite wired into the gate) → VERIFIED.
     expect(capabilityStatus("B5-REALITY-ENGINE")!.state).toBe("VERIFIED");
+    // B7 (Constrained Zero-Input) graduates the same way: ac-b7-merged covered
+    // by COMMIT evidence (real squash-merge sha 99b575d, PR #51, CI green with
+    // the B7 suite wired into the gate) → VERIFIED.
+    expect(capabilityStatus("B7-ZERO-INPUT")!.state).toBe("VERIFIED");
   });
 
   it("B2-γ carries the evidence-granularity constraint as non-passing DOC (state unchanged)", () => {
@@ -196,9 +200,9 @@ describe("seed — idempotent import of current project capabilities", () => {
     expect(capabilityStatus("B2-CAPABILITY-FACTORY")!.state).toBe("VERIFIED");
   });
 
-  it("partially-built programs (B6/B7) are honestly PARTIAL, not VERIFIED", () => {
+  it("the last partially-built program (B6) is honestly PARTIAL, not VERIFIED", () => {
     seed();
-    for (const code of ["B6-EVALUATION-LEARNING", "B7-ZERO-INPUT"]) {
+    for (const code of ["B6-EVALUATION-LEARNING"]) {
       expect(capabilityStatus(code)!.state).toBe("PARTIAL");
     }
   });
