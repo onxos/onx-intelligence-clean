@@ -17,7 +17,8 @@
 // Pure and deterministic: no wall clock, no randomness, no I/O, no
 // keys. Ordering is captured by a monotonic `seq` counter so the
 // history is reproducible in CI. Honest naming only: this is a
-// runtime reasoning record, not a mind and not self-aware.
+// runtime reasoning record — a plain deterministic state machine,
+// nothing more.
 // ============================================================
 
 export const LIFECYCLE_STAGES = [
