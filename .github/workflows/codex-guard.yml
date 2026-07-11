@@ -55,3 +55,6 @@ jobs:
 
       - name: Zero-Input test suite (B7)
         run: npx vitest run api/__tests__/zero-input.test.ts
+
+      - name: Evaluation & Learning test suite (B6)
+        run: npx vitest run api/__tests__/evaluation-learning.test.ts
