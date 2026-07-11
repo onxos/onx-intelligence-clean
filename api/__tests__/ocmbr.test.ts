@@ -159,6 +159,9 @@ describe("seed — idempotent import of current project capabilities", () => {
     // B2 graduates the same way: ac-b2-merged covered by COMMIT evidence
     // (real squash-merge sha 4bd6de1, PR #35, CI green) → VERIFIED.
     expect(capabilityStatus("B2-ORCHESTRATOR")!.state).toBe("VERIFIED");
+    // B2-β (Methods Library) graduates the same way: ac-b2ml-merged covered by
+    // COMMIT evidence (real squash-merge sha 4b3ad3b, PR #38, CI green) → VERIFIED.
+    expect(capabilityStatus("B2-METHODS-LIBRARY")!.state).toBe("VERIFIED");
   });
 
   it("partially-built programs (B4..B8) are honestly PARTIAL, not VERIFIED", () => {

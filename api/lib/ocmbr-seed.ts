@@ -248,6 +248,33 @@ export const OCMBR_SEED: SeedEntry[] = [
   },
   {
     capability: {
+      code: "B2-METHODS-LIBRARY",
+      title: "Methods Library — governed methodology registry (B2-β)",
+      program: "B2",
+      owner: "coordinator",
+      description:
+        "سجل مناهج تشغيل كبيانات (لا prompts حرة): مناهج بقواعد machine-checkable + requireMethod (فرض) + verifyMethodCompliance (fail-closed) يعيد استخدام حارس B1.",
+    },
+    units: [
+      { kind: "code", path: "api/lib/methods-library.ts" },
+      { kind: "code", path: "api/methods-library-router.ts" },
+      { kind: "test", path: "api/__tests__/methods-library.test.ts" },
+    ],
+    criteria: [
+      { id: "ac-b2ml-registry", statement: "المناهج المعتمدة سجلات بيانات لكل منهج id + قواعد قابلة للفحص برمجياً (لا prose فقط)", verifyCommand: "vitest run methods-library" },
+      { id: "ac-b2ml-verify", statement: "verifyMethodCompliance يفحص مخرجات العامل الفعلية ضد المنهج، fail-closed للمجهول، ويعيد استخدام حارس B1 (scanFiles)", verifyCommand: "vitest run methods-library" },
+      { id: "ac-b2ml-merged", statement: "CI أخضر + دمج squash في main (يُسجَّل دليل الدمج بعد حدوثه)", verifyCommand: "gh pr checks" },
+    ],
+    evidence: [
+      { kind: "CODE", criterionId: "ac-b2ml-registry", command: "ls api/lib/methods-library.ts", verifier: VERIFIER },
+      { kind: "TEST", criterionId: "ac-b2ml-registry", command: "vitest run methods-library", output: "المناهج سجلات بيانات بقواعد machine-checkable", verifier: VERIFIER },
+      { kind: "TEST", criterionId: "ac-b2ml-verify", command: "vitest run methods-library", output: "verifyMethodCompliance fail-closed + يعيد استخدام B1 scanFiles — 30 اختبار", verifier: VERIFIER },
+      { kind: "RUN", command: "vitest run", output: "42 ملف / 607 اختبار أخضر (CI)", verifier: VERIFIER },
+      { kind: "COMMIT", criterionId: "ac-b2ml-merged", command: "gh pr merge 38 --squash", commit: "4b3ad3b3985a7c330f90a70b9e276a3606167285", output: "PR #38 squash-merged to main; codex-guard + Deploy + Verify Staging Health all green", date: "2026-07-11", verifier: "independent: coordinator rebased single commit onto main + read methods-library source (data records + fail-closed verify reusing B1) + full gate 42×607" },
+    ],
+  },
+  {
+    capability: {
       code: "B3-CONSTITUTION-RUNTIME",
       title: "Constitution as Runtime — CCMR / CEvP / Authority Gate",
       program: "B3",
