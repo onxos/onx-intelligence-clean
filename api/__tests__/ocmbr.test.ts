@@ -144,7 +144,7 @@ describe("seed — idempotent import of current project capabilities", () => {
     expect(matrix().length).toBe(before);
   });
 
-  it("merged subsystems are VERIFIED; B0/B1/B3 graduate to VERIFIED once merge evidence is recorded; B2 (spec-only) is DOCUMENTED", () => {
+  it("merged subsystems are VERIFIED; B0/B1/B2/B3 graduate to VERIFIED once merge evidence is recorded", () => {
     seed();
     // Already merged in main → legitimately VERIFIED.
     expect(capabilityStatus("CAP-REFLECTION-CYCLE")!.state).toBe("VERIFIED");
@@ -156,7 +156,9 @@ describe("seed — idempotent import of current project capabilities", () => {
     // B3 graduates the same way: ac-b3-merged covered by COMMIT evidence
     // (real squash-merge sha 52d4a5b, PR #34, CI green) → VERIFIED.
     expect(capabilityStatus("B3-CONSTITUTION-RUNTIME")!.state).toBe("VERIFIED");
-    expect(capabilityStatus("B2-ORCHESTRATOR")!.state).toBe("DOCUMENTED");
+    // B2 graduates the same way: ac-b2-merged covered by COMMIT evidence
+    // (real squash-merge sha 4bd6de1, PR #35, CI green) → VERIFIED.
+    expect(capabilityStatus("B2-ORCHESTRATOR")!.state).toBe("VERIFIED");
   });
 
   it("partially-built programs (B4..B8) are honestly PARTIAL, not VERIFIED", () => {
