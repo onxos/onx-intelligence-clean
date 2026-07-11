@@ -44,6 +44,7 @@ import { codexGuardRouter } from "./codex-guard-router";
 import { authorityRouter } from "./authority-router";
 import { orchestratorRouter } from "./orchestrator-router";
 import { methodsLibraryRouter } from "./methods-library-router";
+import { intelligenceObjectRouter } from "./intelligence-object-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -119,6 +120,8 @@ export const appRouter = createRouter({
   orchestrator: orchestratorRouter,
   // B2-β — Methods Library: governed method records + compliance verify
   methodsLibrary: methodsLibraryRouter,
+  // B4 — Intelligence Objects: deterministic reasoning lifecycle + persistent memory
+  intelligenceObject: intelligenceObjectRouter,
   // Platform contract aliases
   bridge: titanBridgeRouter,
   corpusQuery: corpusQueryRouter,
