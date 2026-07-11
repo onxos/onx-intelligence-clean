@@ -183,6 +183,7 @@ export const OCMBR_SEED: SeedEntry[] = [
       { kind: "TEST", criterionId: "ac-b0-fivestate", command: "vitest run ocmbr", verifier: VERIFIER },
       { kind: "TEST", criterionId: "ac-b0-seed", command: "vitest run ocmbr", verifier: VERIFIER },
       { kind: "RUN", command: "npm test -- ocmbr", output: "see CI", verifier: VERIFIER },
+      { kind: "COMMIT", criterionId: "ac-b0-merged", command: "gh pr merge 32 --squash", commit: "5028c3a3f44c01d275c8835ecb133ad1c5bd9011", output: "PR #32 squash-merged to main; codex-guard + Deploy + Verify Staging Health all green", date: "2026-07-11", verifier: "independent: coordinator via gh pr checks 32" },
     ],
   },
   {
@@ -210,6 +211,7 @@ export const OCMBR_SEED: SeedEntry[] = [
       { kind: "TEST", criterionId: "ac-b1-scan", command: "vitest run codex-guard", verifier: VERIFIER },
       { kind: "TEST", criterionId: "ac-b1-claim", command: "vitest run codex-guard", verifier: VERIFIER },
       { kind: "RUN", command: "npm test -- codex-guard", output: "see CI", verifier: VERIFIER },
+      { kind: "COMMIT", criterionId: "ac-b1-merged", command: "gh pr merge 32 --squash", commit: "5028c3a3f44c01d275c8835ecb133ad1c5bd9011", output: "PR #32 squash-merged to main; codex-guard check green (diff-only + baseline mode)", date: "2026-07-11", verifier: "independent: coordinator via gh pr checks 32" },
     ],
   },
   {

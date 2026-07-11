@@ -66,8 +66,8 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 
 | Program | Capability code | Computed state | Evidence |
 |---------|-----------------|----------------|----------|
-| B0 | B0-OCMBR | 🟡 PARTIAL (جزئي) | code + `api/__tests__/ocmbr.test.ts` + run — تغطية 2/3، معيار `ac-b0-merged` (CI أخضر + دمج) غير مغطى بعد → **لا يُوسم منفذاً‑ومثبتاً قبل الدمج** |
-| B1 | B1-CODEX-GUARD | 🟡 PARTIAL (جزئي) | code + `api/__tests__/codex-guard.test.ts` + run — تغطية 2/3، معيار `ac-b1-merged` غير مغطى بعد → **لا يُوسم منفذاً‑ومثبتاً قبل الدمج** |
+| B0 | B0-OCMBR | ✅ VERIFIED (منفذ ومثبت) | code + `api/__tests__/ocmbr.test.ts` + run + **merge sha 5028c3a** (PR #32, CI green) |
+| B1 | B1-CODEX-GUARD | ✅ VERIFIED (منفذ ومثبت) | code + `api/__tests__/codex-guard.test.ts` + run + **merge sha 5028c3a** (PR #32, CI green) |
 | B2 | B2-ORCHESTRATOR | 📄 DOCUMENTED (موثق) | founder mandate spec only |
 | B3 | B3-CONSTITUTION-RUNTIME | 🟡 PARTIAL (جزئي) | cevp/constitution routers + tests; A0-A5 hash-chain not fully proven |
 | B4 | B4-INTELLIGENCE-OBJECTS | 🟡 PARTIAL (جزئي) | os-objects + mind-persistence tests; pgvector memory pending |
@@ -77,8 +77,8 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 | B8 | B8-BRIDGE-CONTRACTS | 🟡 PARTIAL (جزئي) | bridge-guard + tests; versioned schema registry pending |
 
 > **قاعدة الميثاق:** «منفذ ومثبت / VERIFIED» = CI أخضر **+ مدموج في main**. B0/B1
-> يحملان معيار قبول `ac-b*-merged` غير مُغطّى، فيحسبهما المحرك **جزئي** حتى
-> يُسجَّل دليل الدمج (commit sha) بعد الـsquash merge — لا شهادة ذاتية مسبقة.
+> حملا معيار `ac-b*-merged`، وبعد الدمج (squash sha `5028c3a`) سُجِّل دليل COMMIT
+> يغطّيه، فتخرّجا إلى **منفذ ومثبت** بأثر مُتحقَّق مستقلاً — لا شهادة ذاتية مسبقة.
 
 ### B0/B1 tRPC surface
 | Router | Procedures | Status |
