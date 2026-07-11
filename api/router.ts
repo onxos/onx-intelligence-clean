@@ -44,6 +44,7 @@ import { codexGuardRouter } from "./codex-guard-router";
 import { authorityRouter } from "./authority-router";
 import { orchestratorRouter } from "./orchestrator-router";
 import { methodsLibraryRouter } from "./methods-library-router";
+import { capabilityFactoryRouter } from "./capability-factory-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -119,6 +120,8 @@ export const appRouter = createRouter({
   orchestrator: orchestratorRouter,
   // B2-β — Methods Library: governed method records + compliance verify
   methodsLibrary: methodsLibraryRouter,
+  // B2-γ — Capability Factory: propose → A2-gated generate → guard → verify → promote
+  capabilityFactory: capabilityFactoryRouter,
   // Platform contract aliases
   bridge: titanBridgeRouter,
   corpusQuery: corpusQueryRouter,
