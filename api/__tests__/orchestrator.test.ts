@@ -35,7 +35,6 @@ import {
   createMandate,
   registerExecutor,
   reassignStragglers,
-  report,
   runMandate,
 } from "../lib/orchestrator-store";
 import { __resetOcmbrForTests } from "../lib/ocmbr-store";

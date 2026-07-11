@@ -9,7 +9,8 @@
 // Charter alignment:
 //   #1 nothing is "done" without code + test + literal proof.
 //   #2 an agent = state + tools + permissions + memory + metrics.
-//      Honest naming: these are runtime loops, NOT consciousness.
+//      Honest naming: these are deterministic runtime loops, never
+//      anthropomorphic mind-claims.
 //   #3 any LLM intelligence is a swappable Gateway with a deterministic
 //      mock that works with no keys. Deterministic logic first, always.
 //   #5 build on what exists: the independent-verification step REUSES
