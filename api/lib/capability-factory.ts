@@ -87,7 +87,7 @@ export interface ProposalResult {
  * proof) — the factory never hand-declares a higher state.
  */
 export function proposeCapability(proposal: CapabilityProposal): ProposalResult {
-  registerCapability({
+  const cap = registerCapability({
     code: proposal.code,
     title: proposal.title,
     program: proposal.program,
@@ -99,11 +99,14 @@ export function proposeCapability(proposal: CapabilityProposal): ProposalResult 
     addCriterion({ capabilityCode: proposal.code, statement });
   }
 
-  // DOC evidence only — deterministic id (kind+output) keeps it idempotent.
+  // DOC evidence only — anchored to the capability's stable createdAt so the
+  // deterministic evidence id (kind+output+date) makes re-proposal idempotent
+  // regardless of wall-clock timing (no duplicate DOC record).
   recordEvidence({
     capabilityCode: proposal.code,
     kind: "DOC",
     output: proposal.rationale,
+    date: cap.createdAt,
     verifier: "capability-factory:propose",
     passed: true,
   });
