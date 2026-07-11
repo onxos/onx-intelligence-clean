@@ -144,7 +144,7 @@ describe("seed — idempotent import of current project capabilities", () => {
     expect(matrix().length).toBe(before);
   });
 
-  it("merged subsystems are VERIFIED; B0/B1 graduate to VERIFIED once merge evidence is recorded; B2 (spec-only) is DOCUMENTED", () => {
+  it("merged subsystems are VERIFIED; B0/B1/B3 graduate to VERIFIED once merge evidence is recorded; B2 (spec-only) is DOCUMENTED", () => {
     seed();
     // Already merged in main → legitimately VERIFIED.
     expect(capabilityStatus("CAP-REFLECTION-CYCLE")!.state).toBe("VERIFIED");
@@ -153,12 +153,15 @@ describe("seed — idempotent import of current project capabilities", () => {
     // engine computes them VERIFIED — proven, not self-declared.
     expect(capabilityStatus("B0-OCMBR")!.state).toBe("VERIFIED");
     expect(capabilityStatus("B1-CODEX-GUARD")!.state).toBe("VERIFIED");
+    // B3 graduates the same way: ac-b3-merged covered by COMMIT evidence
+    // (real squash-merge sha 52d4a5b, PR #34, CI green) → VERIFIED.
+    expect(capabilityStatus("B3-CONSTITUTION-RUNTIME")!.state).toBe("VERIFIED");
     expect(capabilityStatus("B2-ORCHESTRATOR")!.state).toBe("DOCUMENTED");
   });
 
-  it("partially-built programs (B3..B8) are honestly PARTIAL, not VERIFIED", () => {
+  it("partially-built programs (B4..B8) are honestly PARTIAL, not VERIFIED", () => {
     seed();
-    for (const code of ["B3-CONSTITUTION-RUNTIME", "B5-REALITY-ENGINE", "B8-BRIDGE-CONTRACTS"]) {
+    for (const code of ["B5-REALITY-ENGINE", "B8-BRIDGE-CONTRACTS"]) {
       expect(capabilityStatus(code)!.state).toBe("PARTIAL");
     }
   });
