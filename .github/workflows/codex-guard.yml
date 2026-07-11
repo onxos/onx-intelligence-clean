@@ -37,3 +37,6 @@ jobs:
 
       - name: OCMBR + Codex Guard test suites (B0/B1)
         run: npx vitest run api/__tests__/ocmbr.test.ts api/__tests__/codex-guard.test.ts
+
+      - name: Methods Library test suite (B2-β)
+        run: npx vitest run api/__tests__/methods-library.test.ts
