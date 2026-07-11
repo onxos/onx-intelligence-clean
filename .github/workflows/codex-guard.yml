@@ -40,3 +40,6 @@ jobs:
 
       - name: Methods Library test suite (B2-β)
         run: npx vitest run api/__tests__/methods-library.test.ts
+
+      - name: Capability Factory test suite (B2-γ)
+        run: npx vitest run api/__tests__/capability-factory.test.ts
