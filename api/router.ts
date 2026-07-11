@@ -41,6 +41,7 @@ import { livingLoopRouter } from "./living-loop-router";
 import { usfipRouter } from "./usfip-router";
 import { ocmbrRouter } from "./ocmbr-router";
 import { codexGuardRouter } from "./codex-guard-router";
+import { authorityRouter } from "./authority-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -110,6 +111,8 @@ export const appRouter = createRouter({
   ocmbr: ocmbrRouter,
   // B1 — Codex Guard: charter enforcement (deviation scan + claim eval)
   codexGuard: codexGuardRouter,
+  // B3 — Constitution runtime: A0–A5 authority gate + CCMR + CEvP (fail-closed)
+  authority: authorityRouter,
   // Platform contract aliases
   bridge: titanBridgeRouter,
   corpusQuery: corpusQueryRouter,

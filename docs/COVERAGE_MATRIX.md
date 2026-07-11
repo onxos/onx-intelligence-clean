@@ -69,7 +69,7 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 | B0 | B0-OCMBR | ✅ VERIFIED (منفذ ومثبت) | code + `api/__tests__/ocmbr.test.ts` + run + **merge sha 5028c3a** (PR #32, CI green) |
 | B1 | B1-CODEX-GUARD | ✅ VERIFIED (منفذ ومثبت) | code + `api/__tests__/codex-guard.test.ts` + run + **merge sha 5028c3a** (PR #32, CI green) |
 | B2 | B2-ORCHESTRATOR | 📄 DOCUMENTED (موثق) | founder mandate spec only |
-| B3 | B3-CONSTITUTION-RUNTIME | 🟡 PARTIAL (جزئي) | cevp/constitution routers + tests; A0-A5 hash-chain not fully proven |
+| B3 | B3-CONSTITUTION-RUNTIME | 🟡 PARTIAL (جزئي) | fail-closed services: `authority-gate.ts` (سلّم A0–A5 + سجل hash-chain مقاوم للعبث) + `ccmr.ts` (تصنيف جذر/دستور/مالك/دليل) + `cevp-guard.ts` (حفظ القوة) + `authority-router.ts`، مُثبتة بـ`api/__tests__/authority.test.ts` (fail-closed فوق A2 + كشف عبث hash-chain). معيار الدمج (`ac-b3-authority`/merge-gate) غير مغطى → **لا يُوسم منفذاً‑ومثبتاً قبل الدمج** |
 | B4 | B4-INTELLIGENCE-OBJECTS | 🟡 PARTIAL (جزئي) | os-objects + mind-persistence tests; pgvector memory pending |
 | B5 | B5-REALITY-ENGINE | 🟡 PARTIAL (جزئي) | conflict-engine + tests; full ingest→graph pending |
 | B6 | B6-EVALUATION-LEARNING | 🟡 PARTIAL (جزئي) | measurement-engine + tests; golden sets/regression gates pending |
