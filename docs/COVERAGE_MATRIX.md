@@ -68,7 +68,7 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 |---------|-----------------|----------------|----------|
 | B0 | B0-OCMBR | ✅ VERIFIED (منفذ ومثبت) | code + `api/__tests__/ocmbr.test.ts` + run + **merge sha 5028c3a** (PR #32, CI green) |
 | B1 | B1-CODEX-GUARD | ✅ VERIFIED (منفذ ومثبت) | code + `api/__tests__/codex-guard.test.ts` + run + **merge sha 5028c3a** (PR #32, CI green) |
-| B2 | B2-ORCHESTRATOR | 📄 DOCUMENTED (موثق) في البذرة | Runtime مُنفَّذ على الفرع: `api/lib/orchestrator-engine.ts` + `api/lib/orchestrator-store.ts` + `api/orchestrator-router.ts` + `api/__tests__/orchestrator.test.ts` (26 اختبار أخضر). البذرة تبقى موثقة والبرنامج **لا يُوسم منفذاً‑ومثبتاً قبل الدمج** (معيار merge-gate غير مغطى) |
+| B2 | B2-ORCHESTRATOR | ✅ VERIFIED (منفذ ومثبت) | code (`orchestrator-engine.ts` دورة mandate→موجات مغلقة→executor قابل للتبديل→**تحقق مستقل يرفض الشهادة الذاتية** ويسم OVERSTATED عبر B1 + حاكم ميزانية + استئناف متعثر + `orchestrator-store.ts` + `orchestrator-router.ts`) + `api/__tests__/orchestrator.test.ts` (26 اختبار: رفض الموجة المفتوحة، REJECTS lying/OVERSTATED، إيقاف الميزانية، استئناف المتعثر، دورة كاملة، tRPC) + run + **merge sha 4bd6de1** (PR #35, CI green) |
 | B3 | B3-CONSTITUTION-RUNTIME | ✅ VERIFIED (منفذ ومثبت) | code (`authority-gate.ts` سلّم A0–A5 fail-closed + hash-chain + `ccmr.ts` + `cevp-guard.ts` + `authority-router.ts`) + `api/__tests__/authority.test.ts` (24 اختبار: fail-closed فوق A2 + كشف عبث hash-chain) + run + **merge sha 52d4a5b** (PR #34, CI green) |
 | B4 | B4-INTELLIGENCE-OBJECTS | 🟡 PARTIAL (جزئي) | os-objects + mind-persistence tests; pgvector memory pending |
 | B5 | B5-REALITY-ENGINE | 🟡 PARTIAL (جزئي) | conflict-engine + tests; full ingest→graph pending |

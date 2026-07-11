@@ -221,11 +221,29 @@ export const OCMBR_SEED: SeedEntry[] = [
       program: "B2",
       owner: "coordinator",
       description:
-        "محرك تنسيق: تفويضات، توزيع مهام، تحقق مستقل، حاكم ميزانية، استئناف متعثر.",
+        "محرك تنسيق: تفويضات بخريطة موجات مغلقة، توزيع عبر executor قابل للتبديل، تحقق مستقل يرفض الشهادة الذاتية، حاكم ميزانية، استئناف متعثر.",
     },
-    units: [{ kind: "doc", path: "docs/ONX_MASTER_EXECUTION_DOCUMENT_v3.0.md" }],
+    units: [
+      { kind: "code", path: "api/lib/orchestrator-engine.ts" },
+      { kind: "code", path: "api/lib/orchestrator-store.ts" },
+      { kind: "code", path: "api/orchestrator-router.ts" },
+      { kind: "test", path: "api/__tests__/orchestrator.test.ts" },
+    ],
+    criteria: [
+      { id: "ac-b2-core-loop", statement: "دورة كاملة: تفويض → خريطة موجات مغلقة (كل موجة ببوابة خروج) → توزيع عبر executor قابل للتبديل → تقرير", verifyCommand: "vitest run orchestrator" },
+      { id: "ac-b2-independent-verify", statement: "تحقق مستقل يرفض شهادة المنفذ الذاتية: يعيد فحص المخرجات ويسم الكذب OVERSTATED عبر B1", verifyCommand: "vitest run orchestrator" },
+      { id: "ac-b2-budget", statement: "حاكم ميزانية يوقف الموجة عند تجاوز السقف", verifyCommand: "vitest run orchestrator" },
+      { id: "ac-b2-straggler", statement: "كشف المهام المتعثرة وإعادة توزيعها بسياسة", verifyCommand: "vitest run orchestrator" },
+      { id: "ac-b2-merged", statement: "CI أخضر + دمج squash في main (يُسجَّل دليل الدمج بعد حدوثه)", verifyCommand: "gh pr checks" },
+    ],
     evidence: [
-      { kind: "DOC", command: "founder mandate", output: "specified, not yet implemented", verifier: "coordinator" },
+      { kind: "CODE", criterionId: "ac-b2-core-loop", command: "ls api/lib/orchestrator-engine.ts", verifier: VERIFIER },
+      { kind: "TEST", criterionId: "ac-b2-core-loop", command: "vitest run orchestrator", output: "FULL CYCLE: mandate → closed waves → execute → verify → report — proven؛ رفض الموجة المفتوحة", verifier: VERIFIER },
+      { kind: "TEST", criterionId: "ac-b2-independent-verify", command: "vitest run orchestrator", output: "REJECTS a FALSE self-certification and flags it OVERSTATED (B1) + re-scan + recompute hash", verifier: VERIFIER },
+      { kind: "TEST", criterionId: "ac-b2-budget", command: "vitest run orchestrator", output: "HALTS the mandate when the budget cap is breached", verifier: VERIFIER },
+      { kind: "TEST", criterionId: "ac-b2-straggler", command: "vitest run orchestrator", output: "detects + RESUMES a straggler (reassigned then verified)", verifier: VERIFIER },
+      { kind: "RUN", command: "vitest run", output: "41 ملف / 577 اختبار أخضر (CI)", verifier: VERIFIER },
+      { kind: "COMMIT", criterionId: "ac-b2-merged", command: "gh pr merge 35 --squash", commit: "4bd6de1e21aa6661326829ef7c3fd46f4c75368c", output: "PR #35 squash-merged to main; codex-guard + Deploy + Verify Staging Health all green", date: "2026-07-11", verifier: "independent: coordinator re-ran full gate (tsc/eslint/guard 0-new/vitest 41×577) + read independentlyVerify source (reuses B1 scanText/evaluateClaim + B0 maturity)" },
     ],
   },
   {

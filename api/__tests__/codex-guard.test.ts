@@ -10,7 +10,7 @@ import {
   isProductionFile,
   evaluateClaim,
 } from "../lib/codex-guard";
-import { __resetOcmbrForTests, seed } from "../lib/ocmbr-store";
+import { __resetOcmbrForTests, seed, registerCapability, recordEvidence } from "../lib/ocmbr-store";
 import { appRouter } from "../router";
 
 const caller = appRouter.createCaller({} as never);
@@ -171,10 +171,26 @@ describe("tRPC surface + OCMBR integration", () => {
     expect(res.totalDeviations).toBeGreaterThanOrEqual(1);
   });
 
-  it("codexGuard.evaluateClaim rejects overstating a seeded B2 (DOCUMENTED) as VERIFIED", async () => {
+  it("codexGuard.evaluateClaim flags overstating a spec-only (DOCUMENTED) capability as VERIFIED", async () => {
     seed();
+    // Ephemeral spec-only capability: DOC evidence only → engine computes
+    // DOCUMENTED. Claiming VERIFIED must be caught as OVERSTATED. Using a
+    // dedicated fixture (not a real B-program) keeps this test durable — it
+    // never goes stale as programs graduate to VERIFIED.
+    registerCapability({
+      code: "TEST-SPEC-ONLY",
+      title: "Spec-only capability (test fixture)",
+      program: "TEST",
+    });
+    recordEvidence({
+      capabilityCode: "TEST-SPEC-ONLY",
+      kind: "DOC",
+      command: "spec",
+      output: "documented, not implemented",
+      verifier: "test",
+    });
     const res = await caller.codexGuard.evaluateClaim({
-      capabilityCode: "B2-ORCHESTRATOR",
+      capabilityCode: "TEST-SPEC-ONLY",
       claimedState: "VERIFIED",
     });
     expect(res.verdict).toBe("OVERSTATED");
