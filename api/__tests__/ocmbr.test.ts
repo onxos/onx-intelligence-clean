@@ -16,6 +16,7 @@ import {
   __resetOcmbrForTests,
   addCriterion,
   capabilityStatus,
+  listEvidence,
   matrix,
   recordEvidence,
   registerCapability,
@@ -164,6 +165,22 @@ describe("seed — idempotent import of current project capabilities", () => {
     expect(capabilityStatus("B2-METHODS-LIBRARY")!.state).toBe("VERIFIED");
     // B2-γ (Capability Factory) graduates the same way: ac-b2-gamma-merged
     // covered by COMMIT evidence (real squash-merge sha 7092aa6, PR #42, CI green) → VERIFIED.
+    expect(capabilityStatus("B2-CAPABILITY-FACTORY")!.state).toBe("VERIFIED");
+  });
+
+  it("B2-γ carries the evidence-granularity constraint as non-passing DOC (state unchanged)", () => {
+    seed();
+    const constraint = listEvidence("B2-CAPABILITY-FACTORY").find(
+      (e) => e.verifier === "coordinator-v2:constraint",
+    );
+    // The known constraint is on the record…
+    expect(constraint).toBeDefined();
+    expect(constraint!.kind).toBe("DOC");
+    expect(constraint!.passed).toBe(false);
+    expect(constraint!.output).toContain("evidence-granularity");
+    // …and, being non-passing and criterion-less, it can neither cover a
+    // criterion nor alter the computed state.
+    expect(constraint!.criterionId).toBeUndefined();
     expect(capabilityStatus("B2-CAPABILITY-FACTORY")!.state).toBe("VERIFIED");
   });
 

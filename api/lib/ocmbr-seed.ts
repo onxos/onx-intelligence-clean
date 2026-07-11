@@ -300,6 +300,13 @@ export const OCMBR_SEED: SeedEntry[] = [
       { kind: "TEST", criterionId: "ac-b2cf-reuse", command: "vitest run capability-factory", output: "17 اختباراً: guard يرفض الانحراف، independentlyVerify يسم OVERSTATED لشهادة ذاتية كاذبة، الترقية بأدلة يعيد OCMBR حسابها", verifier: VERIFIER },
       { kind: "RUN", command: "vitest run capability-factory", output: "17 اختباراً أخضر في بوابة CI (سجل خام مؤكد)", verifier: VERIFIER },
       { kind: "COMMIT", criterionId: "ac-b2-gamma-merged", command: "gh pr merge 42 --squash", commit: "7092aa635720da23f6b0585403b2d0458da5337b", output: "PR #42 squash-merged to main; codex-guard + Deploy + Verify Staging Health all green; worker wired factory tests into CI gate", date: "2026-07-11", verifier: "independent: coordinator v2 read all 751 lines pre-merge (bc6005b..c4e6278), confirmed real reuse of decideAuthority/scanText/independentlyVerify (imports, no re-implementation), fail-closed A2 short-circuit before any execution, then confirmed from raw CI logs 17 tests ran green" },
+      // KNOWN CONSTRAINT (evidence-granularity): the factory's promote step
+      // records RUN evidence for EVERY criterion from ONE executor output.
+      // Acceptable for the deterministic mock; before a REAL executor is
+      // wired, promotion MUST record per-criterion evidence from separate
+      // verification runs. Recorded as DOC (passed:false) so it can never
+      // satisfy a criterion nor alter the computed state.
+      { kind: "DOC", output: "قيد معروف evidence-granularity: خطوة الترقية تسجل RUN لكل المعايير من مخرج واحد — يجب فصل الأدلة لكل معيار من تشغيلات تحقق مستقلة قبل ربط منفذ حقيقي.", verifier: "coordinator-v2:constraint", passed: false },
     ],
   },
   {
