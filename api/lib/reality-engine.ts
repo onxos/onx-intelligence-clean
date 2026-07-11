@@ -16,7 +16,7 @@
 //   - persistent-memory.ts (B4) : MemoryStore + deterministicEmbedding
 //   - intelligence-object.ts (B4) : linking contradictions to reasoning
 //
-// No consciousness / awareness claims. Pure functions + one engine
+// Makes no mind-state claims. Pure functions + one engine
 // class that stores facts (with provenance) in a swappable MemoryStore.
 // ============================================================
 
@@ -38,6 +38,8 @@ import {
   linkInsight,
   type IntelligenceObject,
 } from "./intelligence-object";
+
+export type { Provenance } from "./persistent-memory";
 
 // --- Errors (code embedded in message so `.toThrow(/CODE/)` matches) ---
 export class RealityError extends Error {
