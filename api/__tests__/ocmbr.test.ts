@@ -170,6 +170,10 @@ describe("seed — idempotent import of current project capabilities", () => {
     // ac-b4-merged covered by COMMIT evidence (real squash-merge sha e446178,
     // PR #44, CI green with B4 suites wired into the gate) → VERIFIED.
     expect(capabilityStatus("B4-INTELLIGENCE-OBJECTS")!.state).toBe("VERIFIED");
+    // B8 (Bridge Contracts) graduates the same way: ac-b8-merged covered by
+    // COMMIT evidence (real squash-merge sha 0c4b6a5, PR #47, CI green with
+    // the B8 suite wired into the gate) → VERIFIED.
+    expect(capabilityStatus("B8-BRIDGE-CONTRACTS")!.state).toBe("VERIFIED");
   });
 
   it("B2-γ carries the evidence-granularity constraint as non-passing DOC (state unchanged)", () => {
@@ -188,9 +192,9 @@ describe("seed — idempotent import of current project capabilities", () => {
     expect(capabilityStatus("B2-CAPABILITY-FACTORY")!.state).toBe("VERIFIED");
   });
 
-  it("partially-built programs (B5..B8) are honestly PARTIAL, not VERIFIED", () => {
+  it("partially-built programs (B5/B6/B7) are honestly PARTIAL, not VERIFIED", () => {
     seed();
-    for (const code of ["B5-REALITY-ENGINE", "B8-BRIDGE-CONTRACTS"]) {
+    for (const code of ["B5-REALITY-ENGINE", "B6-EVALUATION-LEARNING", "B7-ZERO-INPUT"]) {
       expect(capabilityStatus(code)!.state).toBe("PARTIAL");
     }
   });

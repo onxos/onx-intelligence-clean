@@ -450,14 +450,23 @@ export const OCMBR_SEED: SeedEntry[] = [
     units: [
       { kind: "code", path: "api/bridge-guard.ts" },
       { kind: "test", path: "api/__tests__/bridge-contract.test.ts" },
+      { kind: "code", path: "api/lib/bridge-contracts.ts" },
+      { kind: "code", path: "api/bridge-contracts-router.ts" },
     ],
     criteria: [
-      { id: "ac-b8-registry", statement: "schema registry بإصدارات وتحقق كامل لكل الأنواع المؤسسية" },
+      { id: "ac-b8-registry", statement: "schema registry بإصدارات وتحقق كامل لكل الأنواع المؤسسية", verifyCommand: "vitest run bridge-contract" },
+      { id: "ac-b8-activity-log", statement: "سجل نشاط موحد بprovenance إلزامي فوق MemoryStore (B4) — الأحداث غير الصالحة لا تُسجَّل والإعادة idempotent" },
+      { id: "ac-b8-merged", statement: "CI أخضر (اختبارات B8 تعمل فعلياً في بوابة codex-guard) + دمج squash في main", verifyCommand: "gh pr checks" },
     ],
     evidence: [
       { kind: "CODE", command: "ls api/bridge-guard.ts", verifier: VERIFIER },
       { kind: "TEST", command: "vitest run bridge-contract", output: "passed", verifier: VERIFIER },
       { kind: "RUN", command: "npm test", output: BASELINE_RUN, verifier: VERIFIER },
+      { kind: "CODE", criterionId: "ac-b8-registry", command: "ls api/lib/bridge-contracts.ts", output: "سجل مخططات مُصدَّر بنسخ متعايشة (الأحدث افتراضياً)، عقود ثابتة (إعادة تعريف متعارضة → VERSION_CONFLICT)، تحقق fail-closed كامل: نوع مجهول/نسخة مجهولة/حقل مطلوب ناقص/نوع خاطئ → مرفوض", verifier: VERIFIER },
+      { kind: "TEST", criterionId: "ac-b8-registry", command: "vitest run bridge-contract", output: "24 اختباراً: تحقق كل الأنواع المؤسسية الـ22، رفض المجهول والمشوه، versioned validation (حقل v2 يُفرض تحت v2 فقط)، سطح tRPC", verifier: VERIFIER },
+      { kind: "TEST", criterionId: "ac-b8-activity-log", command: "vitest run bridge-contract", output: "السجل الموحد يعيد استخدام InMemoryMemoryStore(B4): provenance إلزامي fail-closed، الحدث غير الصالح لا يُسجَّل (rejectedCount فقط)، الإعادة idempotent بمعرّف مستقر، تصدير كامل للتدقيق، وربط الإدراك عبر toPerceptionObject النقي", verifier: VERIFIER },
+      { kind: "RUN", command: "vitest run bridge-contract", output: "24 اختباراً أخضر في بوابة CI codex-guard (سجل خام مؤكد، run 29150917568)", verifier: VERIFIER },
+      { kind: "COMMIT", criterionId: "ac-b8-merged", command: "gh pr merge 47 --squash", commit: "0c4b6a595762dba347af4658ba082510481d9897", output: "PR #47 squash-merged to main; codex-guard + Deploy + Verify Staging Health all green; worker wired B8 suite into CI gate", date: "2026-07-11", verifier: "independent: coordinator v2 read all 843 changed lines pre-merge (fail-closed registry + immutable contracts, genuine reuse of B4 MemoryStore / toPerceptionObject / getBridgeState — zero reimplementation), confirmed from raw CI logs 24 tests ran green, then merged" },
     ],
   },
 ];
