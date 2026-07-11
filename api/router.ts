@@ -43,6 +43,7 @@ import { ocmbrRouter } from "./ocmbr-router";
 import { codexGuardRouter } from "./codex-guard-router";
 import { authorityRouter } from "./authority-router";
 import { orchestratorRouter } from "./orchestrator-router";
+import { methodsLibraryRouter } from "./methods-library-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -116,6 +117,8 @@ export const appRouter = createRouter({
   authority: authorityRouter,
   // B2 — ONX Orchestrator: mandate → closed waves → verify → report
   orchestrator: orchestratorRouter,
+  // B2-β — Methods Library: governed method records + compliance verify
+  methodsLibrary: methodsLibraryRouter,
   // Platform contract aliases
   bridge: titanBridgeRouter,
   corpusQuery: corpusQueryRouter,

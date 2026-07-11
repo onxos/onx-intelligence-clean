@@ -69,6 +69,7 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 | B0 | B0-OCMBR | ✅ VERIFIED (منفذ ومثبت) | code + `api/__tests__/ocmbr.test.ts` + run + **merge sha 5028c3a** (PR #32, CI green) |
 | B1 | B1-CODEX-GUARD | ✅ VERIFIED (منفذ ومثبت) | code + `api/__tests__/codex-guard.test.ts` + run + **merge sha 5028c3a** (PR #32, CI green) |
 | B2 | B2-ORCHESTRATOR | ✅ VERIFIED (منفذ ومثبت) | code (`orchestrator-engine.ts` دورة mandate→موجات مغلقة→executor قابل للتبديل→**تحقق مستقل يرفض الشهادة الذاتية** ويسم OVERSTATED عبر B1 + حاكم ميزانية + استئناف متعثر + `orchestrator-store.ts` + `orchestrator-router.ts`) + `api/__tests__/orchestrator.test.ts` (26 اختبار: رفض الموجة المفتوحة، REJECTS lying/OVERSTATED، إيقاف الميزانية، استئناف المتعثر، دورة كاملة، tRPC) + run + **merge sha 4bd6de1** (PR #35, CI green) |
+| B2-β | B2-METHODS-LIBRARY | 🟡 PARTIAL (جزئي) على الفرع | سجل مناهج بيانات (لا prompts): `api/lib/methods-library.ts` + `api/methods-library-router.ts` + `api/__tests__/methods-library.test.ts` (30 اختبار أخضر). المناهج الخمسة كسجلات بقواعد قابلة للفحص + `requireMethod` + `verifyMethodCompliance` يعيد استخدام حارس B1 (`scanFiles`) + fail-closed. **لا يُوسم VERIFIED قبل الدمج في main** |
 | B3 | B3-CONSTITUTION-RUNTIME | ✅ VERIFIED (منفذ ومثبت) | code (`authority-gate.ts` سلّم A0–A5 fail-closed + hash-chain + `ccmr.ts` + `cevp-guard.ts` + `authority-router.ts`) + `api/__tests__/authority.test.ts` (24 اختبار: fail-closed فوق A2 + كشف عبث hash-chain) + run + **merge sha 52d4a5b** (PR #34, CI green) |
 | B4 | B4-INTELLIGENCE-OBJECTS | 🟡 PARTIAL (جزئي) | os-objects + mind-persistence tests; pgvector memory pending |
 | B5 | B5-REALITY-ENGINE | 🟡 PARTIAL (جزئي) | conflict-engine + tests; full ingest→graph pending |
@@ -86,6 +87,7 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 | ocmbr | matrix, summary, capability, registerCapability, addUnit, addCriterion, recordEvidence, seed | ✅ COMPLETE |
 | codexGuard | scan, scanText, evaluateClaim | ✅ COMPLETE |
 | orchestrator | createMandate, run, runTask, reassignStragglers, report, decisions | ✅ COMPLETE (branch) |
+| methodsLibrary | list, get, verify | ✅ COMPLETE (branch) |
 
 ### B2 ONX Orchestrator — coordinator methodology as a deterministic runtime
 - Core loop (exact order): mandate → **closed** wave map (every wave has a
@@ -120,7 +122,34 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 - **Merge-gate:** «منفذ ومثبت / VERIFIED» only after CI-green squash-merge to
   main. Not self-certified before merge.
 
-### B1 Codex Guard — CI enforcement (baseline mode)
+### B2-β Methods Library — governed methodology registry (data, not prompts)
+- **Data records, not free prompts:** each approved method is a `Method`
+  record (`id` + `title` + `description` + declarative `rules[]`) whose rules
+  are PROGRAMMATICALLY-checkable, not prose (`api/lib/methods-library.ts`).
+- **The five approved methods:** `tdd-mandatory` (test-before/with-code + a
+  test file per code file), `subagent-driven` (exclusive file ownership per
+  scope; overlap detected), `root-cause-tracing` (documented root cause before
+  any fix), `adr` (a decision carries a full ADR: context/decision/
+  consequences), `standard-git` (PR size ≤ limit, Co-authored-by trailer, no
+  self-merge, no charter deviations).
+- **Enforcement:** `requireMethod(id, target?)` attaches a method to a task/
+  worker and yields the concrete rules to satisfy; an unknown method throws
+  `MethodError` (fail-closed).
+- **Verification (reuse, not rebuild):** `verifyMethodCompliance(method,
+  workerOutputs)` inspects the worker's ACTUAL outputs against the declared
+  method and returns `{compliant, violations[]}`. The `no-charter-deviations`
+  rule REUSES **Codex Guard (B1)** `scanFiles` — a forbidden label / deviation
+  in a worker file becomes a violation. Fail-closed: unknown method or missing
+  input → safe REJECT.
+- Files: `api/lib/methods-library.ts` (pure core, no I/O) ·
+  `api/methods-library-router.ts` (tRPC) · `api/__tests__/methods-library.test.ts`.
+- Proof: 30 tests incl. TDD reject/accept, ownership-overlap reject, root-cause
+  reject, ADR field-completeness, standard-git gates, **codex-guard reuse**, and
+  fail-closed. Full suite green (`vitest run --maxWorkers=2`: 42 files / 607).
+- **Merge-gate:** «منفذ ومثبت / VERIFIED» only after CI-green squash-merge to
+  main. Not self-certified before merge.
+
+
 - Deviation rules: `FORBIDDEN_LABEL`, `FAIL_OPEN`, `FAKE_LIVE_METRIC` (`api/lib/codex-guard.ts`).
 - CLI: `npm run guard:scan` (all) · `-- --changed` · `-- --base=origin/main` · `-- --emit-baseline`.
 - CI: `.github/workflows/codex-guard.yml` scans **changed files only** (diff vs main) + runs B0/B1 suites.
