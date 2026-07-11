@@ -52,3 +52,6 @@ jobs:
 
       - name: Reality Engine test suite (B5)
         run: npx vitest run api/__tests__/reality-engine.test.ts
+
+      - name: Zero-Input test suite (B7)
+        run: npx vitest run api/__tests__/zero-input.test.ts

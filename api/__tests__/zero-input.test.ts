@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   ZeroInputEngine,
-  ZeroInputError,
   SUGGESTION_CEILING,
   signalFromContradiction,
   signalFromJudgment,
@@ -148,7 +147,6 @@ describe("B7 Zero-Input — fail-closed validation", () => {
 
   it("rejects a signal with missing provenance", async () => {
     await expect(
-      // @ts-expect-error deliberate bad provenance
       eng.generate([signal({ id: "s", provenance: undefined })]),
     ).rejects.toThrow(/BAD_PROVENANCE/);
   });
