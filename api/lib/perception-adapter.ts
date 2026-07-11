@@ -20,6 +20,33 @@
 // a pg failure (e.g. missing DATABASE_URL locally) is a silent
 // skip that only bumps counters. runPerceptionSyncTick never throws.
 // ============================================================
+
+// Events forwarded from platform (see apps/platform/src/server/events/handlers/intelligence-forwarder.ts FORWARDED_EVENT_TYPES)
+// Currently forwarded:
+//   pharmacy.dispense.created
+//   procurement.grn.created
+//   procurement.po.created
+//   hr.attendance.recorded
+//   billing.invoice.created          → Rule 5 (revenue-pulse)
+//   insurance.claim.created
+//   insurance.claim.approved
+//   insurance.claim.paid
+//   payroll.run.created              → Rule 1 (completed-cycle)
+//   payroll.run.submitted            → Rule 1 (completed-cycle)
+//   payroll.run.approved             → Rule 1 (completed-cycle)
+//   payroll.run.paid                 → Rule 1 (completed-cycle)
+//   clinic.appointment.completed
+//   inventory.movement.created
+//   finance.payment.received         → Rule 5 (revenue-pulse)
+//   lab.result.created
+//   crm.appointment.booked
+//   crm.appointment.completed        → Rule 6 (no-show-anomaly)
+//   crm.appointment.noshow           → Rule 6 (no-show-anomaly)
+//   crm.loyalty.awarded
+//   ops.monitor.alert
+//   billing.invoice.overdue          → Rule 7 (overdue-invoices)
+// + titan.listInsights (reverse channel for UI)
+
 import { iucRouter } from "../iuc-router";
 import type { TrpcContext } from "../context";
 import { getEventsAfterId, type PerceptionSourceRow } from "./platform-inbox-store";
