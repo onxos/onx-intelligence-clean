@@ -168,17 +168,53 @@ const KIND_TO_CLASS: Record<string, CcmrClass> = {
   audit: "EVIDENCE",
 };
 
-function countSignals(haystack: string, cls: CcmrClass): string[] {
-  const found: string[] = [];
-  for (const kw of CLASS_SIGNALS[cls]) {
-    const re = new RegExp(`(^|[^\\p{L}])${escapeRe(kw)}([^\\p{L}]|$)`, "iu");
-    if (re.test(haystack)) found.push(kw);
-  }
-  return found;
-}
-
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isArabic(s: string): boolean {
+  return /[\u0600-\u06FF]/.test(s);
+}
+
+/** Unify Arabic orthographic variants so morphology-tolerant matching works. */
+function normalizeAr(s: string): string {
+  return s
+    .replace(/[\u0640]/g, "") // tatweel
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ة/g, "ت") // taa marbuta ⇄ taa (suffix shift)
+    .replace(/ى/g, "ي");
+}
+
+/** Strip a leading clitic (و/ف/ب/ك) and the definite article «ال». */
+function stripClitics(token: string): string {
+  let t = token;
+  if (/^[وفبك]/.test(t) && t.length > 3) t = t.slice(1);
+  if (t.startsWith("ال") && t.length > 3) t = t.slice(2);
+  return t;
+}
+
+function arabicTokens(haystack: string): string[] {
+  return haystack
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean)
+    .map((t) => stripClitics(normalizeAr(t)));
+}
+
+function countSignals(haystack: string, cls: CcmrClass): string[] {
+  const found: string[] = [];
+  const arTokens = arabicTokens(haystack);
+  for (const kw of CLASS_SIGNALS[cls]) {
+    if (isArabic(kw)) {
+      // Morphology-tolerant: match a keyword stem against clitic/article/
+      // suffix-stripped tokens (e.g. «الجذر», «غايتنا» → «جذر», «غايت»).
+      const stem = stripClitics(normalizeAr(kw));
+      if (arTokens.some((t) => t === stem || t.startsWith(stem))) found.push(kw);
+    } else {
+      const re = new RegExp(`(^|[^\\p{L}])${escapeRe(kw)}([^\\p{L}]|$)`, "iu");
+      if (re.test(haystack)) found.push(kw);
+    }
+  }
+  return found;
 }
 
 /**
