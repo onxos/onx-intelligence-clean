@@ -387,14 +387,24 @@ export const OCMBR_SEED: SeedEntry[] = [
     units: [
       { kind: "code", path: "api/conflict-engine.ts" },
       { kind: "test", path: "api/__tests__/conflict.test.ts" },
+      { kind: "code", path: "api/lib/reality-engine.ts" },
+      { kind: "code", path: "api/reality-engine-router.ts" },
+      { kind: "test", path: "api/__tests__/reality-engine.test.ts" },
     ],
     criteria: [
-      { id: "ac-b5-graph", statement: "مسار كامل من الإدخال إلى knowledge graph مع كشف تناقضات وثقة/نطاق صلاحية" },
+      { id: "ac-b5-graph", statement: "مسار كامل من الإدخال إلى knowledge graph مع كشف تناقضات وثقة/نطاق صلاحية", verifyCommand: "vitest run reality-engine" },
+      { id: "ac-b5-scoped-conflict", statement: "كشف تناقض واعٍ بالنطاق: الحقائق المقيدة زمنياً/مجالياً تتعايش، والحسم عبر تسلسل الحوكمة resolveConflict ثم الثقة ثم UNRESOLVED fail-closed" },
+      { id: "ac-b5-merged", statement: "CI أخضر (اختبارات B5 تعمل فعلياً في بوابة codex-guard) + دمج squash في main", verifyCommand: "gh pr checks" },
     ],
     evidence: [
       { kind: "CODE", command: "ls api/conflict-engine.ts", verifier: VERIFIER },
       { kind: "TEST", command: "vitest run conflict", output: "passed", verifier: VERIFIER },
       { kind: "RUN", command: "npm test", output: BASELINE_RUN, verifier: VERIFIER },
+      { kind: "CODE", criterionId: "ac-b5-graph", command: "ls api/lib/reality-engine.ts", output: "مسار حتمي بلا مفاتيح/DB: ingest fail-closed (provenance إلزامي) → تنظيف/إزالة تكرار → استخراج ثلاثيات (صريحة 1.0 / pipe 0.9 / copula عربي+إنجليزي 0.75) → ontology توسم المسندات المجهولة → knowledge graph حتمي → كشف تناقضات؛ الثقة = موثوقية المصدر × يقين الاستخراج", verifier: VERIFIER },
+      { kind: "TEST", criterionId: "ac-b5-graph", command: "vitest run reality-engine", output: "39 اختباراً: ingest fail-closed، استخراج متعدد الأنماط، ontology، graph حتمي عبر التشغيلات، المسار الكامل end-to-end، RealityEngine فوق MemoryStore(B4) مع تصحيح/نسيان مقصود/تصدير وتشابه حتمي deterministicEmbedding", verifier: VERIFIER },
+      { kind: "TEST", criterionId: "ac-b5-scoped-conflict", command: "vitest run reality-engine", output: "FUNCTIONAL_CONFLICT وNEGATION يُكشفان فقط عند تداخل النطاقات (عاصمتا ألمانيا المقيدتان زمنياً تتعايشان)، الحسم HIERARCHY عبر resolveConflict الفعلي من conflict-engine ثم CONFIDENCE ثم UNRESOLVED عند التساوي — لا حسم صامت", verifier: VERIFIER },
+      { kind: "RUN", command: "vitest run reality-engine", output: "39 اختباراً أخضر في بوابة CI codex-guard (سجل خام مؤكد، run 29151376343 على a35fbbf)", verifier: VERIFIER },
+      { kind: "COMMIT", criterionId: "ac-b5-merged", command: "gh pr merge 49 --squash", commit: "4d46de44d8774781269da9d8e776577ad4da5805", output: "PR #49 squash-merged to main; codex-guard + Deploy + Verify Staging Health all green; worker wired B5 suite into CI gate and rebased over merged B8", date: "2026-07-11", verifier: "independent: coordinator v2 read all 1267 changed lines pre-merge (fail-closed ingest, scope-aware contradiction detection, genuine reuse of conflict-engine resolveConflict + B4 MemoryStore/deterministicEmbedding/intelligence-object — zero reimplementation), ordered removal of invented B5-legacy matrix row before PR, confirmed from raw CI logs 39 tests ran green on final HEAD, then merged" },
     ],
   },
   {
