@@ -182,6 +182,11 @@ describe("seed — idempotent import of current project capabilities", () => {
     // by COMMIT evidence (real squash-merge sha 99b575d, PR #51, CI green with
     // the B7 suite wired into the gate) → VERIFIED.
     expect(capabilityStatus("B7-ZERO-INPUT")!.state).toBe("VERIFIED");
+    // B6 (Evaluation & Learning) graduates the same way: ac-b6-merged covered
+    // by COMMIT evidence (real squash-merge sha 0fcc410, PR #53, CI green with
+    // the B6 suite wired into the gate) → VERIFIED. The whole B0→B8 front is
+    // now VERIFIED end-to-end.
+    expect(capabilityStatus("B6-EVALUATION-LEARNING")!.state).toBe("VERIFIED");
   });
 
   it("B2-γ carries the evidence-granularity constraint as non-passing DOC (state unchanged)", () => {
@@ -200,11 +205,17 @@ describe("seed — idempotent import of current project capabilities", () => {
     expect(capabilityStatus("B2-CAPABILITY-FACTORY")!.state).toBe("VERIFIED");
   });
 
-  it("the last partially-built program (B6) is honestly PARTIAL, not VERIFIED", () => {
+  it("no capability is VERIFIED without full criterion coverage (fixture, TEST-SPEC-ONLY)", () => {
     seed();
-    for (const code of ["B6-EVALUATION-LEARNING"]) {
-      expect(capabilityStatus(code)!.state).toBe("PARTIAL");
-    }
+    // The real B0→B8 front is fully VERIFIED now; keep the honesty rule
+    // pinned with a synthetic capability that lacks criterion coverage.
+    registerCapability({ code: "TEST-SPEC-ONLY-PARTIAL", title: "fixture", program: "test" });
+    addCriterion({ capabilityCode: "TEST-SPEC-ONLY-PARTIAL", statement: "uncovered", id: "ac-x" });
+    recordEvidence({ capabilityCode: "TEST-SPEC-ONLY-PARTIAL", kind: "CODE" });
+    recordEvidence({ capabilityCode: "TEST-SPEC-ONLY-PARTIAL", kind: "TEST" });
+    recordEvidence({ capabilityCode: "TEST-SPEC-ONLY-PARTIAL", kind: "RUN" });
+    // code+test+run exist, but ac-x has no criterion-tagged passing evidence.
+    expect(capabilityStatus("TEST-SPEC-ONLY-PARTIAL")!.state).toBe("PARTIAL");
   });
 });
 
