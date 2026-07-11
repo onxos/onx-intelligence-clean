@@ -45,6 +45,7 @@ import { authorityRouter } from "./authority-router";
 import { orchestratorRouter } from "./orchestrator-router";
 import { methodsLibraryRouter } from "./methods-library-router";
 import { capabilityFactoryRouter } from "./capability-factory-router";
+import { intelligenceObjectRouter } from "./intelligence-object-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -122,6 +123,8 @@ export const appRouter = createRouter({
   methodsLibrary: methodsLibraryRouter,
   // B2-γ — Capability Factory: propose → A2-gated generate → guard → verify → promote
   capabilityFactory: capabilityFactoryRouter,
+  // B4 — Intelligence Objects: deterministic reasoning lifecycle + persistent memory
+  intelligenceObject: intelligenceObjectRouter,
   // Platform contract aliases
   bridge: titanBridgeRouter,
   corpusQuery: corpusQueryRouter,
