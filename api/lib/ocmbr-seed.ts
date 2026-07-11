@@ -374,6 +374,13 @@ export const OCMBR_SEED: SeedEntry[] = [
       // NOT exercised in CI — only the deterministic mirror logic is. Recorded
       // as DOC (passed:false) so it can never cover a criterion nor alter state.
       { kind: "DOC", output: "قيد معروف pg-adapter-untested: محول pgvector الحقيقي على قاعدة فعلية غير مُختبَر في CI (المنطق الحتمي فقط) — يلزم اختبار تكامل على Postgres حي قبل الاعتماد الإنتاجي على المرآة.", verifier: "coordinator-v2:constraint", passed: false },
+      // RESOLUTION of the constraint above: a live-pg integration suite now
+      // exercises PgVectorMemoryStore against a real Postgres+pgvector service
+      // container in CI (no mock) — put/get/search/correct/forget/export land in
+      // pg, the mirror stays deterministic, and a mid-run connection cut bumps
+      // pgErrors without ever throwing. Recorded as DOC (passed:true) referencing
+      // the raw CI run that genuinely RAN (not skipped) the 5 live tests.
+      { kind: "DOC", output: "قيد pg-adapter-untested مُحَلّ: api/__tests__/pg-adapter-integration.test.ts يشغّل PgVectorMemoryStore ضد Postgres حي بامتداد pgvector في job منفصل بحاوية pgvector/pgvector:pg16 — يعمل فعلياً ولا يُتخطّى (سجل CI خام run 29166975569: 5 passed في 497ms). يغطي put/get/search/correct/forget/export على pg الحقيقي، حتمية المرآة، وfail-safe عند قطع الاتصال منتصف التشغيل (pgErrors يتزايد بلا استثناء متسرّب). لم يُمَسّ منطق persistent-memory.ts.", verifier: "ci:run-29166975569", passed: true },
     ],
   },
   {
