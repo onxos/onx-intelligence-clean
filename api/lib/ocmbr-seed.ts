@@ -418,14 +418,25 @@ export const OCMBR_SEED: SeedEntry[] = [
     units: [
       { kind: "code", path: "api/measurement-engine.ts" },
       { kind: "test", path: "api/__tests__/measurement.test.ts" },
+      { kind: "code", path: "api/lib/evaluation-learning.ts" },
+      { kind: "code", path: "api/lib/golden-sets.ts" },
+      { kind: "code", path: "api/evaluation-learning-router.ts" },
+      { kind: "test", path: "api/__tests__/evaluation-learning.test.ts" },
     ],
     criteria: [
-      { id: "ac-b6-golden", statement: "golden sets + regression gates تمنع التراجع في CI" },
+      { id: "ac-b6-golden", statement: "golden sets + regression gates تمنع التراجع في CI", verifyCommand: "vitest run evaluation-learning" },
+      { id: "ac-b6-reuse", statement: "المشغّلون يستدعون الدوال المدموجة الحقيقية (B1 scanText، B8 validateEvent، B2-β verifyMethodCompliance، B4 judge) — إعادة استخدام لا تكرار، وكل تشغيل يُسجَّل كدليل RUN في OCMBR (B0)" },
+      { id: "ac-b6-merged", statement: "CI أخضر (اختبارات B6 تعمل فعلياً في بوابة codex-guard) + دمج squash في main", verifyCommand: "gh pr checks" },
     ],
     evidence: [
       { kind: "CODE", command: "ls api/measurement-engine.ts", verifier: VERIFIER },
       { kind: "TEST", command: "vitest run measurement", output: "passed", verifier: VERIFIER },
       { kind: "RUN", command: "npm test", output: BASELINE_RUN, verifier: VERIFIER },
+      { kind: "CODE", criterionId: "ac-b6-golden", command: "ls api/lib/evaluation-learning.ts api/lib/golden-sets.ts", output: "محرك تقييم حتمي بلا مفاتيح/DB: runGoldenSet يحسب accuracy/precision/recall/F1 + computeCalibration (5 صناديق + ECE) + regressionGate fail-closed يقارن بخط أساس مجمّد ويسمّي كل حالة ذهبية انكسرت — غياب الأساس أو المشغّل = رفض، لا عتبات صامتة. golden-sets: 26 حالة ذهبية مجمّدة عبر 4 قدرات مدموعة بخطوط أساس محفوظة في المستودع", verifier: VERIFIER },
+      { kind: "TEST", criterionId: "ac-b6-golden", command: "vitest run evaluation-learning", output: "14 اختباراً: مقاييس مضبوطة يدوياً (accuracy 0.75، P=1، R=2/3، F1=0.8)، معايرة عند وجود ثقة وnull بدونها، بوابة تمر عند مطابقة الأساس وتفشل مسمّيةً الحالة المنكسرة (c4) وعند تراجع الدقة، fail-closed بلا مشغّل، كل المجموعات الذهبية تمر أساسها المجمّد عند HEAD", verifier: VERIFIER },
+      { kind: "TEST", criterionId: "ac-b6-reuse", command: "vitest run evaluation-learning", output: "اختبار «genuinely reuses each merged capability's real output»: scanText يكشف DEVIATION فعلياً، validateEvent يرفض INVALID، verifyMethodCompliance يرصد VIOLATION (دمج ذاتي)، حكم intelligence-object الحقيقي SUPPORTED بثقة→معايرة؛ وrecordEvaluationEvidence يسجّل دليل RUN بمعيار ac-b6-golden في OCMBR ويظهر في listEvidence", verifier: VERIFIER },
+      { kind: "RUN", command: "vitest run evaluation-learning", output: "14 اختباراً أخضر في بوابة CI codex-guard (سجل خام مؤكد، run 29153344198 على 6126e95)", verifier: VERIFIER },
+      { kind: "COMMIT", criterionId: "ac-b6-merged", command: "gh pr merge 53 --squash", commit: "0fcc410858126081dac4277c5e0aba3e6b4bd3c0", output: "PR #53 squash-merged to main; codex-guard + Deploy + Verify Staging Health all green; worker wired B6 suite into CI gate as explicit step", date: "2026-07-11", verifier: "independent: coordinator v2 read all 890 changed lines pre-merge (fail-closed regression gates naming broken cases, runners invoke real merged functions — zero reimplementation, frozen committed baselines, OCMBR RUN-evidence integration), ordered removal of test-only __resetBridgeContractsForTests from the production import path before merge (worker complied, 6126e95), confirmed from raw CI logs 14 tests ran green on final HEAD, then merged" },
     ],
   },
   {
