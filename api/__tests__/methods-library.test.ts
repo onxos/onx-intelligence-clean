@@ -33,17 +33,20 @@ import { appRouter } from "../router";
 const caller = appRouter.createCaller({} as never);
 
 describe("methods registry — data records, not free prompts", () => {
-  it("registers exactly the 5 approved methods", () => {
+  it("registers exactly the 8 approved methods", () => {
     expect([...METHOD_IDS].sort()).toEqual(
       [
         "adr",
+        "git-hygiene",
+        "independent-bisect",
+        "push-early-often",
         "root-cause-tracing",
         "standard-git",
         "subagent-driven",
         "tdd-mandatory",
       ].sort(),
     );
-    expect(listMethods()).toHaveLength(5);
+    expect(listMethods()).toHaveLength(8);
   });
 
   it("every method is a record with an id, title, description and checkable rules", () => {
@@ -331,10 +334,158 @@ describe("fail-closed — unknown method or missing input never silently accepte
   });
 });
 
+describe("git-hygiene — clean up zombie git processes before worktree init", () => {
+  it("ACCEPTS pending count within the safe limit (no remediation needed)", () => {
+    const output: WorkerOutput = {
+      gitOps: { pendingCount: 5 },
+    };
+    const result = verifyMethodCompliance("git-hygiene", output);
+    expect(result.compliant).toBe(true);
+  });
+
+  it("REJECTS a pileup with no cleanup before init", () => {
+    const output: WorkerOutput = {
+      gitOps: { pendingCount: 30 },
+    };
+    const result = verifyMethodCompliance("git-hygiene", output);
+    expect(result.compliant).toBe(false);
+    expect(result.violations.map((v) => v.rule)).toContain("git-zombie-cleanup");
+  });
+
+  it("REJECTS name-based cleanup (must terminate by PID, not by name)", () => {
+    const output: WorkerOutput = {
+      gitOps: { pendingCount: 30, cleanup: { counted: true, byPid: false } },
+    };
+    const result = verifyMethodCompliance("git-hygiene", output);
+    expect(result.compliant).toBe(false);
+    expect(result.violations.map((v) => v.rule)).toContain("git-zombie-cleanup");
+    expect(result.violations.some((v) => v.message.includes("PID"))).toBe(true);
+  });
+
+  it("REJECTS cleanup that did not count the pending processes first", () => {
+    const output: WorkerOutput = {
+      gitOps: { pendingCount: 30, cleanup: { counted: false, byPid: true } },
+    };
+    const result = verifyMethodCompliance("git-hygiene", output);
+    expect(result.compliant).toBe(false);
+    expect(result.violations.map((v) => v.rule)).toContain("git-zombie-cleanup");
+  });
+
+  it("ACCEPTS a pileup remediated by counting then killing by PID", () => {
+    const output: WorkerOutput = {
+      gitOps: { pendingCount: 30, cleanup: { counted: true, byPid: true } },
+    };
+    const result = verifyMethodCompliance("git-hygiene", output);
+    expect(result.compliant).toBe(true);
+  });
+});
+
+describe("push-early-often — push after every small work unit", () => {
+  it("REJECTS a chain of unpushed local commits", () => {
+    const output: WorkerOutput = {
+      gitActivity: { unpushedCommits: 4, pushedAfterWorkUnit: false },
+    };
+    const result = verifyMethodCompliance("push-early-often", output);
+    expect(result.compliant).toBe(false);
+    expect(result.violations.map((v) => v.rule)).toContain(
+      "push-after-work-unit",
+    );
+  });
+
+  it("REJECTS creating substantive files with no push after the work unit", () => {
+    const output: WorkerOutput = {
+      gitActivity: {
+        unpushedCommits: 0,
+        createdSubstantiveFiles: true,
+        pushedAfterWorkUnit: false,
+      },
+    };
+    const result = verifyMethodCompliance("push-early-often", output);
+    expect(result.compliant).toBe(false);
+    expect(result.violations.map((v) => v.rule)).toContain(
+      "push-after-work-unit",
+    );
+  });
+
+  it("ACCEPTS work that is pushed after the unit with nothing unpushed", () => {
+    const output: WorkerOutput = {
+      gitActivity: {
+        unpushedCommits: 0,
+        createdSubstantiveFiles: true,
+        pushedAfterWorkUnit: true,
+      },
+    };
+    const result = verifyMethodCompliance("push-early-often", output);
+    expect(result.compliant).toBe(true);
+  });
+});
+
+describe("independent-bisect — isolate a silent break with git bisect on main", () => {
+  it("REJECTS a diagnosis reached by guessing", () => {
+    const output: WorkerOutput = {
+      diagnosis: { method: "guess", culpritCommit: "abc123", ranOnMain: true },
+    };
+    const result = verifyMethodCompliance("independent-bisect", output);
+    expect(result.compliant).toBe(false);
+    expect(result.violations.map((v) => v.rule)).toContain(
+      "bisect-before-diagnosis",
+    );
+  });
+
+  it("REJECTS a bisect that did not isolate a culprit commit", () => {
+    const output: WorkerOutput = {
+      diagnosis: { method: "bisect", culpritCommit: "", ranOnMain: true },
+    };
+    const result = verifyMethodCompliance("independent-bisect", output);
+    expect(result.compliant).toBe(false);
+    expect(result.violations.map((v) => v.rule)).toContain(
+      "bisect-before-diagnosis",
+    );
+  });
+
+  it("REJECTS a bisect that was not run independently on main", () => {
+    const output: WorkerOutput = {
+      diagnosis: { method: "bisect", culpritCommit: "abc123", ranOnMain: false },
+    };
+    const result = verifyMethodCompliance("independent-bisect", output);
+    expect(result.compliant).toBe(false);
+    expect(result.violations.map((v) => v.rule)).toContain(
+      "bisect-before-diagnosis",
+    );
+  });
+
+  it("ACCEPTS a bisect on main that isolated the breaking commit", () => {
+    const output: WorkerOutput = {
+      diagnosis: { method: "bisect", culpritCommit: "deadbeef", ranOnMain: true },
+    };
+    const result = verifyMethodCompliance("independent-bisect", output);
+    expect(result.compliant).toBe(true);
+  });
+});
+
+describe("fail-closed — the 3 operational methods reject on unknown/missing input", () => {
+  it("rejects each new method under an unknown id typo (fail-closed)", () => {
+    for (const bad of ["git-hygeine", "push-often", "bisect"]) {
+      const result = verifyMethodCompliance(bad, {});
+      expect(result.compliant).toBe(false);
+      expect(result.violations.map((v) => v.rule)).toContain("unknown-method");
+    }
+  });
+
+  it("rejects a null/undefined output for a new method", () => {
+    const result = verifyMethodCompliance(
+      "git-hygiene",
+      undefined as unknown as WorkerOutput,
+    );
+    expect(result.compliant).toBe(false);
+    expect(result.violations.map((v) => v.rule)).toContain("missing-input");
+  });
+});
+
 describe("methods-library tRPC router", () => {
   it("lists all methods over tRPC", async () => {
     const methods = await caller.methodsLibrary.list();
-    expect(methods).toHaveLength(5);
+    expect(methods).toHaveLength(8);
     expect(methods.map((m) => m.id).sort()).toContain("tdd-mandatory");
   });
 
