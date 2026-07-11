@@ -42,6 +42,7 @@ import { usfipRouter } from "./usfip-router";
 import { ocmbrRouter } from "./ocmbr-router";
 import { codexGuardRouter } from "./codex-guard-router";
 import { authorityRouter } from "./authority-router";
+import { orchestratorRouter } from "./orchestrator-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -113,6 +114,8 @@ export const appRouter = createRouter({
   codexGuard: codexGuardRouter,
   // B3 — Constitution runtime: A0–A5 authority gate + CCMR + CEvP (fail-closed)
   authority: authorityRouter,
+  // B2 — ONX Orchestrator: mandate → closed waves → verify → report
+  orchestrator: orchestratorRouter,
   // Platform contract aliases
   bridge: titanBridgeRouter,
   corpusQuery: corpusQueryRouter,
