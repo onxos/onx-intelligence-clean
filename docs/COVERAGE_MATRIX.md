@@ -76,7 +76,7 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 | B5 | B5-REALITY-ENGINE | 🟡 PARTIAL (جزئي) | conflict-engine + tests; full ingest→graph pending |
 | B6 | B6-EVALUATION-LEARNING | 🟡 PARTIAL (جزئي) | measurement-engine + tests; golden sets/regression gates pending |
 | B7 | B7-ZERO-INPUT | 🟡 PARTIAL (جزئي) | living-loop + tests; A0/A1 suggestion generator + meta metrics pending |
-| B8 | B8-BRIDGE-CONTRACTS | 🟡 PARTIAL (جزئي) | bridge-guard + tests; versioned schema registry pending |
+| B8 | B8-BRIDGE-CONTRACTS | 🟡 PARTIAL (جزئي) | عقود الجسر الموحدة (على الفرع، قبل الدمج): `api/lib/bridge-contracts.ts` + `api/bridge-contracts-router.ts` + توسيع `api/__tests__/bridge-contract.test.ts` (21 اختبار B8، مربوطة في بوابة codex-guard). سجل مخططات مُصدَّر (versioned schema registry): نسخ متعددة متعايشة، أحدث نسخة افتراضياً، عقود غير قابلة للتعديل (إعادة تعريف متعارضة تُرفض) + **تحقق كامل fail-closed لكل الأنواع المؤسسية الـ22** (نوع مجهول/نسخة مجهولة/حقل مطلوب ناقص/نوع خاطئ → مرفوض) + **سجل نشاط موحد** بأصل provenance مخزَّن عبر **MemoryStore (B4)** إعادةَ استخدامٍ لا تكراراً (الأحداث غير الصالحة لا تُسجَّل، الإعادة idempotent) + ربط الإدراك يعيد استخدام `toPerceptionObject` النقي (يتحقق ثم يسجّل ثم يُصدر كائن PERCEPTION، fail-closed). معيار `ac-b8-registry` مُغطّى بالكود+الاختبار على الفرع؛ **لا يُوسم VERIFIED قبل الدمج** (معيار الدمج غير مغطّى عمداً) |
 
 > **قاعدة الميثاق:** «منفذ ومثبت / VERIFIED» = CI أخضر **+ مدموج في main**. B0/B1
 > حملا معيار `ac-b*-merged`، وبعد الدمج (squash sha `5028c3a`) سُجِّل دليل COMMIT

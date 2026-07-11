@@ -46,3 +46,6 @@ jobs:
 
       - name: Intelligence Objects + Persistent Memory test suites (B4)
         run: npx vitest run api/__tests__/intelligence-object.test.ts api/__tests__/persistent-memory.test.ts
+
+      - name: Bridge Contracts test suite (B8)
+        run: npx vitest run api/__tests__/bridge-contract.test.ts
