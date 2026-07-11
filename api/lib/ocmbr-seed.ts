@@ -277,6 +277,33 @@ export const OCMBR_SEED: SeedEntry[] = [
   },
   {
     capability: {
+      code: "B2-CAPABILITY-FACTORY",
+      title: "Capability Factory — governed capability synthesis (B2-γ)",
+      program: "B2",
+      owner: "coordinator",
+      description:
+        "مصنع القدرات المحكوم: اقتراح→OCMBR DOCUMENTED→تفويض A2 صريح عبر بوابة B3 (fail-closed)→توليد عبر Executor قابل للتبديل→فحص حارس B1→تحقق مستقل B2→ترقية بأدلة مسجّلة. تكامل لا تكرار.",
+    },
+    units: [
+      { kind: "code", path: "api/lib/capability-factory.ts" },
+      { kind: "code", path: "api/capability-factory-router.ts" },
+      { kind: "test", path: "api/__tests__/capability-factory.test.ts" },
+    ],
+    criteria: [
+      { id: "ac-b2cf-a2-gate", statement: "لا توليد بلا موافقة مالك صريحة تبلغ A2 — fail-closed، والقرار المسجّل يصدر من بوابة B3 الحقيقية (decideAuthority)", verifyCommand: "vitest run capability-factory" },
+      { id: "ac-b2cf-reuse", statement: "الحلقة تعيد استخدام B0 ocmbr-store وB1 scanText وB2 independentlyVerify/mockExecutor — لا إعادة تنفيذ، والترقية بتسجيل أدلة تُحسب لا تُعلن", verifyCommand: "vitest run capability-factory" },
+      { id: "ac-b2-gamma-merged", statement: "CI أخضر (اختبارات المصنع تعمل فعلياً في بوابة codex-guard) + دمج squash في main", verifyCommand: "gh pr checks" },
+    ],
+    evidence: [
+      { kind: "CODE", criterionId: "ac-b2cf-a2-gate", command: "ls api/lib/capability-factory.ts", verifier: VERIFIER },
+      { kind: "TEST", criterionId: "ac-b2cf-a2-gate", command: "vitest run capability-factory", output: "DENIED بلا موافقة/تحت A2/بهوية فارغة؛ GRANTED فقط بموافقة صريحة تبلغ A2 عبر decideAuthority", verifier: VERIFIER },
+      { kind: "TEST", criterionId: "ac-b2cf-reuse", command: "vitest run capability-factory", output: "17 اختباراً: guard يرفض الانحراف، independentlyVerify يسم OVERSTATED لشهادة ذاتية كاذبة، الترقية بأدلة يعيد OCMBR حسابها", verifier: VERIFIER },
+      { kind: "RUN", command: "vitest run capability-factory", output: "17 اختباراً أخضر في بوابة CI (سجل خام مؤكد)", verifier: VERIFIER },
+      { kind: "COMMIT", criterionId: "ac-b2-gamma-merged", command: "gh pr merge 42 --squash", commit: "7092aa635720da23f6b0585403b2d0458da5337b", output: "PR #42 squash-merged to main; codex-guard + Deploy + Verify Staging Health all green; worker wired factory tests into CI gate", date: "2026-07-11", verifier: "independent: coordinator v2 read all 751 lines pre-merge (bc6005b..c4e6278), confirmed real reuse of decideAuthority/scanText/independentlyVerify (imports, no re-implementation), fail-closed A2 short-circuit before any execution, then confirmed from raw CI logs 17 tests ran green" },
+    ],
+  },
+  {
+    capability: {
       code: "B3-CONSTITUTION-RUNTIME",
       title: "Constitution as Runtime — CCMR / CEvP / Authority Gate",
       program: "B3",
