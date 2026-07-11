@@ -26,13 +26,16 @@ import { scanFiles, type ScanFileInput } from "./codex-guard";
 
 // --- Method identity ------------------------------------------------------
 
-/** The five approved, governed methods (closed set). */
+/** The approved, governed methods (closed set). */
 export const METHOD_IDS = [
   "tdd-mandatory",
   "subagent-driven",
   "root-cause-tracing",
   "adr",
   "standard-git",
+  "git-hygiene",
+  "push-early-often",
+  "independent-bisect",
 ] as const;
 export type MethodId = (typeof METHOD_IDS)[number];
 
@@ -46,7 +49,10 @@ export type MethodRuleKind =
   | "pr-size-limit"
   | "commit-coauthor"
   | "no-self-merge"
-  | "no-charter-deviations";
+  | "no-charter-deviations"
+  | "git-zombie-cleanup"
+  | "push-after-work-unit"
+  | "bisect-before-diagnosis";
 
 export interface MethodRule {
   kind: MethodRuleKind;
@@ -102,12 +108,48 @@ export interface WorkerScope {
   files: string[];
 }
 
+/** Git process-hygiene snapshot (for git-hygiene). */
+export interface WorkerGitOps {
+  /** Number of pending/zombie git processes observed before worktree init. */
+  pendingCount?: number;
+  /** Remediation applied before re-launching the worktree. */
+  cleanup?: {
+    /** The pending processes were counted first. */
+    counted?: boolean;
+    /** Termination targeted specific PIDs (Stop-Process -Id), not by name. */
+    byPid?: boolean;
+  };
+}
+
+/** Push-cadence snapshot (for push-early-often). */
+export interface WorkerGitActivity {
+  /** Local commits made that have NOT yet been pushed. */
+  unpushedCommits?: number;
+  /** A substantive set of files was created/changed in this work unit. */
+  createdSubstantiveFiles?: boolean;
+  /** A push happened after the latest work unit. */
+  pushedAfterWorkUnit?: boolean;
+}
+
+/** Silent-break diagnosis provenance (for independent-bisect). */
+export interface WorkerDiagnosis {
+  /** How the breaking commit was isolated. */
+  method?: "bisect" | "guess" | "inspection" | string;
+  /** The isolated culprit commit (sha / ref). */
+  culpritCommit?: string;
+  /** git bisect was run INDEPENDENTLY on main. */
+  ranOnMain?: boolean;
+}
+
 export interface WorkerOutput {
   files?: WorkerFile[];
   evidence?: WorkerEvidence[];
   scopes?: WorkerScope[];
   pr?: { changedLines?: number; selfMerged?: boolean };
   commitMessages?: string[];
+  gitOps?: WorkerGitOps;
+  gitActivity?: WorkerGitActivity;
+  diagnosis?: WorkerDiagnosis;
 }
 
 // --- Violations / reports -------------------------------------------------
@@ -144,6 +186,8 @@ export class MethodError extends Error {
 }
 
 const DEFAULT_PR_SIZE_LIMIT = 400;
+const DEFAULT_MAX_PENDING_GIT_OPS = 20;
+const DEFAULT_MAX_UNPUSHED_COMMITS = 0;
 
 // --- The registry (data records) -----------------------------------------
 
@@ -225,6 +269,47 @@ const REGISTRY: Record<MethodId, Method> = {
         kind: "no-charter-deviations",
         description:
           "ملفات العامل خالية من انحرافات الميثاق (يعيد استخدام حارس B1).",
+      },
+    ],
+  },
+  "git-hygiene": {
+    id: "git-hygiene",
+    title: "نظافة عمليات git — تنظيف الزومبي قبل تهيئة worktree",
+    description:
+      "تراكم عمليات git المعلّقة (زومبي) يُفشل تهيئة worktree بـtimeout؛ العلاج عدّ العمليات وإنهاء المعلّقة بالـPID تحديداً (Stop-Process -Id) لا بالاسم قبل إعادة الإطلاق.",
+    rules: [
+      {
+        kind: "git-zombie-cleanup",
+        description:
+          "عند تجاوز عدد عمليات git المعلّقة الحد، يجب عدّها ثم إنهاؤها بالـPID المحدّد قبل إعادة التهيئة — لا تنظيف بالاسم.",
+        params: { maxPendingGitOps: DEFAULT_MAX_PENDING_GIT_OPS },
+      },
+    ],
+  },
+  "push-early-often": {
+    id: "push-early-often",
+    title: "الدفع المبكر المتكرر إلزامي",
+    description:
+      "العمل غير المدفوع يضيع عند انقطاع الرصيد؛ يجب push بعد كل وحدة عمل صغيرة — لا سلسلة كوميتات محلية دون دفع مقابل.",
+    rules: [
+      {
+        kind: "push-after-work-unit",
+        description:
+          "لا كوميتات محلية غير مدفوعة تتجاوز الحد، ويجب push بعد إنشاء ملفات جوهرية.",
+        params: { maxUnpushedCommits: DEFAULT_MAX_UNPUSHED_COMMITS },
+      },
+    ],
+  },
+  "independent-bisect": {
+    id: "independent-bisect",
+    title: "بايسكت مستقل على main لكشف الكسر الصامت",
+    description:
+      "عند اشتباه كسر صامت، يُعزل الكوميت الكاسر عبر git bisect مشغّلاً مستقلاً على main — لا بالتخمين (مرجع: علة Turbopack مع التعليقات العربية، onx #108).",
+    rules: [
+      {
+        kind: "bisect-before-diagnosis",
+        description:
+          "أي تشخيص لكسر صامت يجب أن يستند إلى git bisect (على main) مع تحديد الكوميت الكاسر — لا تخمين.",
       },
     ],
   },
@@ -474,6 +559,95 @@ const EVALUATORS: Record<MethodRuleKind, RuleEvaluator> = {
       rule: "no-charter-deviations" as const,
       message: `انحراف ميثاق في «${finding.filename}»:${finding.line} [${finding.rule}] ${finding.message}`,
     }));
+  },
+
+  "git-zombie-cleanup": (rule, output) => {
+    const gitOps = output.gitOps;
+    if (!gitOps || gitOps.pendingCount === undefined) return [];
+    const limit =
+      typeof rule.params?.maxPendingGitOps === "number"
+        ? rule.params.maxPendingGitOps
+        : DEFAULT_MAX_PENDING_GIT_OPS;
+    if (gitOps.pendingCount <= limit) return [];
+    const cleanup = gitOps.cleanup;
+    if (!cleanup) {
+      return [
+        {
+          rule: "git-zombie-cleanup",
+          message: `عمليات git معلّقة (${gitOps.pendingCount}) تتجاوز الحد (${limit}) بلا أي تنظيف قبل التهيئة.`,
+        },
+      ];
+    }
+    const violations: MethodViolation[] = [];
+    if (cleanup.counted !== true) {
+      violations.push({
+        rule: "git-zombie-cleanup",
+        message: "التنظيف تمّ دون عدّ العمليات المعلّقة أولاً.",
+      });
+    }
+    if (cleanup.byPid !== true) {
+      violations.push({
+        rule: "git-zombie-cleanup",
+        message:
+          "التنظيف بالاسم لا بالـPID — يجب Stop-Process -Id لعملية معلّقة محددة.",
+      });
+    }
+    return violations;
+  },
+
+  "push-after-work-unit": (rule, output) => {
+    const activity = output.gitActivity;
+    if (!activity) return [];
+    const max =
+      typeof rule.params?.maxUnpushedCommits === "number"
+        ? rule.params.maxUnpushedCommits
+        : DEFAULT_MAX_UNPUSHED_COMMITS;
+    const violations: MethodViolation[] = [];
+    if (
+      activity.unpushedCommits !== undefined &&
+      activity.unpushedCommits > max
+    ) {
+      violations.push({
+        rule: "push-after-work-unit",
+        message: `سلسلة ${activity.unpushedCommits} كوميت محلي غير مدفوع تتجاوز الحد (${max}) — ادفع مبكراً ومتكرراً.`,
+      });
+    }
+    if (
+      activity.createdSubstantiveFiles === true &&
+      activity.pushedAfterWorkUnit === false
+    ) {
+      violations.push({
+        rule: "push-after-work-unit",
+        message:
+          "أُنشئت ملفات جوهرية دون push بعد وحدة العمل — العمل غير المدفوع معرّض للضياع.",
+      });
+    }
+    return violations;
+  },
+
+  "bisect-before-diagnosis": (_rule, output) => {
+    const diagnosis = output.diagnosis;
+    if (!diagnosis) return [];
+    const violations: MethodViolation[] = [];
+    if (diagnosis.method !== "bisect") {
+      violations.push({
+        rule: "bisect-before-diagnosis",
+        message: `التشخيص بأسلوب «${diagnosis.method ?? "?"}» لا بـgit bisect — تخمين مرفوض.`,
+      });
+    }
+    if (!diagnosis.culpritCommit || diagnosis.culpritCommit.trim().length === 0) {
+      violations.push({
+        rule: "bisect-before-diagnosis",
+        message: "لا كوميت كاسر معزول — البايسكت يجب أن يحدّد الكوميت الكاسر.",
+      });
+    }
+    if (diagnosis.ranOnMain === false) {
+      violations.push({
+        rule: "bisect-before-diagnosis",
+        message: "البايسكت لم يُشغَّل مستقلاً على main.",
+      });
+    }
+    return violations;
   },
 };
 
