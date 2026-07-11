@@ -49,6 +49,7 @@ import { intelligenceObjectRouter } from "./intelligence-object-router";
 import { bridgeContractsRouter } from "./bridge-contracts-router";
 import { realityEngineRouter } from "./reality-engine-router";
 import { zeroInputRouter } from "./zero-input-router";
+import { evaluationLearningRouter } from "./evaluation-learning-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -134,6 +135,8 @@ export const appRouter = createRouter({
   realityEngine: realityEngineRouter,
   // B7 — Constrained Zero-Input: authority-classified suggestions (propose-only, fail-closed)
   zeroInput: zeroInputRouter,
+  // B6 — Evaluation & Learning: deterministic golden sets + fail-closed regression gates + OCMBR RUN evidence
+  evaluationLearning: evaluationLearningRouter,
   // Platform contract aliases
   bridge: titanBridgeRouter,
   corpusQuery: corpusQueryRouter,

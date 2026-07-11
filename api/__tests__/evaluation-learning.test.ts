@@ -134,12 +134,12 @@ describe("B6 OCMBR integration — run recorded as RUN evidence", () => {
       recordedAt: "2026-01-01T00:00:00.000Z",
     });
     const ev = recordEvaluationEvidence(m, gate);
-    expect(ev.kind).toBe("runtime");
+    expect(ev.kind).toBe("RUN");
     expect(ev.capabilityCode).toBe(B6_CAPABILITY_CODE);
     expect(ev.criterionId).toBe(B6_CRITERION);
     expect(ev.passed).toBe(gate.passed);
     const recorded = listEvidence(B6_CAPABILITY_CODE);
-    expect(recorded.some((e) => e.id === ev.id && e.kind === "runtime")).toBe(true);
+    expect(recorded.some((e) => e.id === ev.id && e.kind === "RUN")).toBe(true);
   });
 });
 
@@ -198,6 +198,6 @@ describe("B6 tRPC surface", () => {
     const guard = GOLDEN_SETS.find((s) => s.subjectCode === "B1-CODEX-GUARD")!;
     const res = await caller.evaluationLearning.gate({ capability: guard.capability });
     expect(res.passed).toBe(true);
-    expect(res.metrics.total).toBeGreaterThan(0);
+    expect(res.metrics!.total).toBeGreaterThan(0);
   });
 });

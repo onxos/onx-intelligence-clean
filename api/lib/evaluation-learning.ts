@@ -20,10 +20,8 @@
 // truth. No model, no key, no DB — fully reproducible in CI.
 // ============================================================
 
-import {
-  recordEvidence,
-  type EvidenceRecord,
-} from "./ocmbr-store";
+import { recordEvidence } from "./ocmbr-store";
+import { type EvidenceRecord } from "./ocmbr-engine";
 import { classifyProgress, type ProgressState } from "../measurement-engine";
 
 // ── Capability under which B6 records its own evaluation evidence ──
@@ -306,7 +304,7 @@ export function recordEvaluationEvidence(
     (gate.failures.length ? ` failures=[${gate.failures.join(" | ")}]` : "");
   return recordEvidence({
     capabilityCode: B6_CAPABILITY_CODE,
-    kind: "runtime",
+    kind: "RUN",
     criterionId: B6_CRITERION,
     command: `evaluation-learning:runGoldenSet(${metrics.capability})`,
     output: summary,
