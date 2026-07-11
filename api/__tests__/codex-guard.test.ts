@@ -106,6 +106,42 @@ describe("scanFiles — aggregate report", () => {
     expect(report.clean).toBe(true);
     expect(report.totalDeviations).toBe(0);
   });
+
+  it("exempts test-named files from FAIL_OPEN/FAKE_LIVE_METRIC (regression: CI false-positive on api/__tests__)", () => {
+    const report = scanFiles([
+      {
+        filename: "api/__tests__/sample.test.ts",
+        content: [
+          "try { doIt(); } catch (e) { return { passed: true }; }",
+          "const s = { score: Math.random() };",
+        ].join("\n"),
+      },
+    ]);
+    expect(report.totalDeviations).toBe(0);
+    expect(report.clean).toBe(true);
+  });
+
+  it("baseline subtracts known-legacy deviations: still reported, not counted as NEW", () => {
+    const files = [
+      { filename: "api/legacy.ts", content: "const s = { score: Math.random() };" },
+    ];
+    const without = scanFiles(files);
+    expect(without.newDeviations).toBe(1);
+    expect(without.clean).toBe(false);
+
+    const baseline = [
+      {
+        filename: "api/legacy.ts",
+        rule: "FAKE_LIVE_METRIC" as const,
+        match: "const s = { score: Math.random() };",
+      },
+    ];
+    const withBaseline = scanFiles(files, baseline);
+    expect(withBaseline.totalDeviations).toBe(1); // still reported (not muted)
+    expect(withBaseline.knownDeviations).toBe(1);
+    expect(withBaseline.newDeviations).toBe(0);
+    expect(withBaseline.clean).toBe(true); // no NEW deviation → CI passes
+  });
 });
 
 describe("evaluateClaim — against OCMBR ledger", () => {

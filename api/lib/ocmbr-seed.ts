@@ -176,6 +176,7 @@ export const OCMBR_SEED: SeedEntry[] = [
     criteria: [
       { id: "ac-b0-fivestate", statement: "الحالة تُحسب من الأدلة لا تُعلن يدوياً", verifyCommand: "npm test -- ocmbr" },
       { id: "ac-b0-seed", statement: "استيراد قدرات المشروع كبذرة idempotent", verifyCommand: "npm test -- ocmbr" },
+      { id: "ac-b0-merged", statement: "CI أخضر + دمج squash في main (يُسجَّل دليل الدمج بعد حدوثه)", verifyCommand: "gh pr checks" },
     ],
     evidence: [
       { kind: "CODE", criterionId: "ac-b0-fivestate", command: "ls api/lib/ocmbr-engine.ts", verifier: VERIFIER },
@@ -202,6 +203,7 @@ export const OCMBR_SEED: SeedEntry[] = [
     criteria: [
       { id: "ac-b1-scan", statement: "كشف تسميات محظورة وfail-open وقيم مزيفة حية", verifyCommand: "npm test -- codex-guard" },
       { id: "ac-b1-claim", statement: "تقييم ادعاء الحالة مقابل سجل OCMBR", verifyCommand: "npm test -- codex-guard" },
+      { id: "ac-b1-merged", statement: "CI أخضر + دمج squash في main (يُسجَّل دليل الدمج بعد حدوثه)", verifyCommand: "gh pr checks" },
     ],
     evidence: [
       { kind: "CODE", criterionId: "ac-b1-scan", command: "ls api/lib/codex-guard.ts", verifier: VERIFIER },

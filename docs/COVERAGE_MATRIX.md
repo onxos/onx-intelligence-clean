@@ -66,8 +66,8 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 
 | Program | Capability code | Computed state | Evidence |
 |---------|-----------------|----------------|----------|
-| B0 | B0-OCMBR | ✅ VERIFIED (منفذ ومثبت) | code + `api/__tests__/ocmbr.test.ts` (16) + run |
-| B1 | B1-CODEX-GUARD | ✅ VERIFIED (منفذ ومثبت) | code + `api/__tests__/codex-guard.test.ts` (18) + run |
+| B0 | B0-OCMBR | 🟡 PARTIAL (جزئي) | code + `api/__tests__/ocmbr.test.ts` + run — تغطية 2/3، معيار `ac-b0-merged` (CI أخضر + دمج) غير مغطى بعد → **لا يُوسم منفذاً‑ومثبتاً قبل الدمج** |
+| B1 | B1-CODEX-GUARD | 🟡 PARTIAL (جزئي) | code + `api/__tests__/codex-guard.test.ts` + run — تغطية 2/3، معيار `ac-b1-merged` غير مغطى بعد → **لا يُوسم منفذاً‑ومثبتاً قبل الدمج** |
 | B2 | B2-ORCHESTRATOR | 📄 DOCUMENTED (موثق) | founder mandate spec only |
 | B3 | B3-CONSTITUTION-RUNTIME | 🟡 PARTIAL (جزئي) | cevp/constitution routers + tests; A0-A5 hash-chain not fully proven |
 | B4 | B4-INTELLIGENCE-OBJECTS | 🟡 PARTIAL (جزئي) | os-objects + mind-persistence tests; pgvector memory pending |
@@ -76,14 +76,21 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 | B7 | B7-ZERO-INPUT | 🟡 PARTIAL (جزئي) | living-loop + tests; A0/A1 suggestion generator + meta metrics pending |
 | B8 | B8-BRIDGE-CONTRACTS | 🟡 PARTIAL (جزئي) | bridge-guard + tests; versioned schema registry pending |
 
+> **قاعدة الميثاق:** «منفذ ومثبت / VERIFIED» = CI أخضر **+ مدموج في main**. B0/B1
+> يحملان معيار قبول `ac-b*-merged` غير مُغطّى، فيحسبهما المحرك **جزئي** حتى
+> يُسجَّل دليل الدمج (commit sha) بعد الـsquash merge — لا شهادة ذاتية مسبقة.
+
 ### B0/B1 tRPC surface
 | Router | Procedures | Status |
 |--------|-----------|--------|
 | ocmbr | matrix, summary, capability, registerCapability, addUnit, addCriterion, recordEvidence, seed | ✅ COMPLETE |
 | codexGuard | scan, scanText, evaluateClaim | ✅ COMPLETE |
 
-### B1 Codex Guard — CI enforcement
+### B1 Codex Guard — CI enforcement (baseline mode)
 - Deviation rules: `FORBIDDEN_LABEL`, `FAIL_OPEN`, `FAKE_LIVE_METRIC` (`api/lib/codex-guard.ts`).
-- CLI: `npm run guard:scan` (all) · `-- --changed` · `-- --base=origin/main`.
-- CI: `.github/workflows/codex-guard.yml` scans **changed files only** (new code) + runs B0/B1 suites.
-- Baseline full-repo audit: 16 legacy deviations detected (11 FORBIDDEN_LABEL, 5 FAKE_LIVE_METRIC) — reported, not retroactively gated.
+- CLI: `npm run guard:scan` (all) · `-- --changed` · `-- --base=origin/main` · `-- --emit-baseline`.
+- CI: `.github/workflows/codex-guard.yml` scans **changed files only** (diff vs main) + runs B0/B1 suites.
+- **Baseline mode:** 16 legacy deviations (11 FORBIDDEN_LABEL, 5 FAKE_LIVE_METRIC) recorded in
+  `docs/codex-guard-baseline.json` + documented in `docs/CODEX_GUARD_BASELINE.md` as tracked debt.
+  They stay **reported (never muted)** but do **not** fail CI; only NEW deviations fail. Closed in a later cleanup wave.
+- Test/doc files are exempt from pattern rules (regression-tested) — the guard names the labels on purpose.

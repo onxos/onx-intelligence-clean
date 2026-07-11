@@ -144,10 +144,15 @@ describe("seed — idempotent import of current project capabilities", () => {
     expect(matrix().length).toBe(before);
   });
 
-  it("seeded existing subsystems are VERIFIED; B2 (spec-only) is DOCUMENTED", () => {
+  it("merged existing subsystems are VERIFIED; B0/B1 stay PARTIAL until merge-gate is met; B2 (spec-only) is DOCUMENTED", () => {
     seed();
+    // Already merged in main → legitimately VERIFIED.
     expect(capabilityStatus("CAP-REFLECTION-CYCLE")!.state).toBe("VERIFIED");
-    expect(capabilityStatus("B0-OCMBR")!.state).toBe("VERIFIED");
+    // B0/B1 are code+test+run complete but carry an uncovered merge-gate
+    // criterion (ac-b0-merged / ac-b1-merged): the ledger refuses to call
+    // them "منفذ ومثبت" before CI-green squash-merge. Honest state = PARTIAL.
+    expect(capabilityStatus("B0-OCMBR")!.state).toBe("PARTIAL");
+    expect(capabilityStatus("B1-CODEX-GUARD")!.state).toBe("PARTIAL");
     expect(capabilityStatus("B2-ORCHESTRATOR")!.state).toBe("DOCUMENTED");
   });
 

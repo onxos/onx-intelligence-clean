@@ -96,8 +96,8 @@ export function scanText(source: string, options: ScanOptions = {}): Deviation[]
       }
     }
 
-    // --- Rule C: fake live metric ---
-    if (!isAllowed(lines, i)) {
+    // --- Rule C: fake live metric (production code only) ---
+    if (isProduction && !isAllowed(lines, i)) {
       const fabricates = /Math\.random\s*\(/.test(line);
       if (fabricates && LIVE_FIELD.test(line)) {
         out.push({
@@ -111,8 +111,8 @@ export function scanText(source: string, options: ScanOptions = {}): Deviation[]
       }
     }
 
-    // --- Rule B: fail-open safety guard (truthy pass from inside a catch) ---
-    if (insideCatch && !isAllowed(lines, i)) {
+    // --- Rule B: fail-open safety guard (production code only) ---
+    if (isProduction && insideCatch && !isAllowed(lines, i)) {
       if (/return\s+(true\b|\{[^}]*\b(passed|allowed|trusted|ok|valid|safe)\s*:\s*true)/i.test(line)) {
         out.push({
           rule: "FAIL_OPEN",
@@ -144,9 +144,24 @@ export interface ScanFileInput {
 export interface ScanReport {
   scannedFiles: number;
   totalDeviations: number;
+  newDeviations: number;
+  knownDeviations: number;
   byRule: Record<DeviationRule, number>;
-  findings: Array<Deviation & { filename: string }>;
+  findings: Array<Deviation & { filename: string; known: boolean }>;
+  /** true when there are no NEW (non-baseline) deviations. */
   clean: boolean;
+}
+
+/** A recorded, accepted legacy deviation (charter debt), matched by file+rule+match. */
+export interface BaselineEntry {
+  filename: string;
+  rule: DeviationRule;
+  match: string;
+}
+
+/** Stable fingerprint (line-independent) so shifting code doesn't churn the baseline. */
+export function deviationKey(filename: string, rule: DeviationRule, match: string): string {
+  return `${filename.replace(/\\/g, "/")}::${rule}::${match}`;
 }
 
 /** Production files: real source, excluding tests, docs and this guard itself. */
@@ -158,14 +173,22 @@ export function isProductionFile(filename: string): boolean {
   return /\.(ts|tsx|js|jsx)$/i.test(f);
 }
 
-export function scanFiles(files: ScanFileInput[]): ScanReport {
-  const findings: Array<Deviation & { filename: string }> = [];
+export function scanFiles(
+  files: ScanFileInput[],
+  baseline: BaselineEntry[] = [],
+): ScanReport {
+  const baselineKeys = new Set(
+    baseline.map((b) => deviationKey(b.filename, b.rule, b.match)),
+  );
+  const findings: Array<Deviation & { filename: string; known: boolean }> = [];
   const byRule: Record<DeviationRule, number> = {
     FORBIDDEN_LABEL: 0,
     FAIL_OPEN: 0,
     FAKE_LIVE_METRIC: 0,
   };
   let scanned = 0;
+  let newCount = 0;
+  let knownCount = 0;
   for (const file of files) {
     if (!/\.(ts|tsx|js|jsx|md)$/i.test(file.filename)) continue;
     scanned += 1;
@@ -174,16 +197,23 @@ export function scanFiles(files: ScanFileInput[]): ScanReport {
       isProduction: isProductionFile(file.filename),
     });
     for (const d of devs) {
-      findings.push({ ...d, filename: file.filename });
+      const known = baselineKeys.has(
+        deviationKey(file.filename, d.rule, d.match),
+      );
+      findings.push({ ...d, filename: file.filename, known });
       byRule[d.rule] += 1;
+      if (known) knownCount += 1;
+      else newCount += 1;
     }
   }
   return {
     scannedFiles: scanned,
     totalDeviations: findings.length,
+    newDeviations: newCount,
+    knownDeviations: knownCount,
     byRule,
     findings,
-    clean: findings.length === 0,
+    clean: newCount === 0,
   };
 }
 
