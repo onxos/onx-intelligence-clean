@@ -43,3 +43,6 @@ jobs:
 
       - name: Capability Factory test suite (B2-γ)
         run: npx vitest run api/__tests__/capability-factory.test.ts
+
+      - name: Intelligence Objects + Persistent Memory test suites (B4)
+        run: npx vitest run api/__tests__/intelligence-object.test.ts api/__tests__/persistent-memory.test.ts
