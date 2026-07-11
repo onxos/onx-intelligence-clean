@@ -380,6 +380,7 @@ export const OCMBR_SEED: SeedEntry[] = [
       // NOT exercised in CI — only the deterministic mirror logic is. Recorded
       // as DOC (passed:false) so it can never cover a criterion nor alter state.
       { kind: "DOC", output: "قيد معروف pg-adapter-untested: محول pgvector الحقيقي على قاعدة فعلية غير مُختبَر في CI (المنطق الحتمي فقط) — يلزم اختبار تكامل على Postgres حي قبل الاعتماد الإنتاجي على المرآة.", verifier: "coordinator-v2:constraint", passed: false },
+      { kind: "DOC", output: "قيد pg-adapter-untested محلول: api/__tests__/pg-adapter-integration.test.ts يشغّل PgVectorMemoryStore ضد Postgres+pgvector حي (service container pgvector/pgvector:pg16، job pg-adapter-integration في codex-guard.yml، لا mock) — كتابة vector(32)+jsonb مثبتة، مرآة حتمية مطابقة لInMemory، تصحيح/نسيان مثبتان في pg، fail-safe عند قطع الاتصال (pgErrors++ بلا استثناء)، ومسار المجمّع الحقيقي end-to-end. دليل: PR #55 مدموج (8baa559)، سجل CI خام run 29166975569 = 5/5 ضد pg حي.", commit: "8baa55970189e696a6364733589ec3db20ed9087", date: "2026-07-11", verifier: "coordinator-v2:constraint-resolved", passed: true },
     ],
   },
   {
