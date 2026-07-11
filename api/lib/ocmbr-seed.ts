@@ -350,14 +350,30 @@ export const OCMBR_SEED: SeedEntry[] = [
     units: [
       { kind: "code", path: "api/os-objects.ts" },
       { kind: "test", path: "api/__tests__/mind-persistence.test.ts" },
+      { kind: "code", path: "api/lib/intelligence-object.ts" },
+      { kind: "code", path: "api/lib/persistent-memory.ts" },
+      { kind: "code", path: "api/intelligence-object-router.ts" },
+      { kind: "test", path: "api/__tests__/intelligence-object.test.ts" },
+      { kind: "test", path: "api/__tests__/persistent-memory.test.ts" },
     ],
     criteria: [
       { id: "ac-b4-lifecycle", statement: "دورة حياة كاملة: سؤال→أدلة→حكم→خطة→تعلم + ذاكرة دائمة مع provenance" },
+      { id: "ac-b4-memory", statement: "MemoryStore بواجهة واحدة: تطبيق حتمي في-الذاكرة + محول pgvector لا يرمي عند فشل pg، مع provenance إلزامي وتصحيح ونسيان مقصود وتصدير للتدقيق", verifyCommand: "vitest run persistent-memory" },
+      { id: "ac-b4-merged", statement: "CI أخضر (اختبارات B4 تعمل فعلياً في بوابة codex-guard) + دمج squash في main", verifyCommand: "gh pr checks" },
     ],
     evidence: [
       { kind: "CODE", command: "ls api/os-objects.ts", verifier: VERIFIER },
       { kind: "TEST", command: "vitest run mind-persistence", output: "passed", verifier: VERIFIER },
       { kind: "RUN", command: "npm test", output: BASELINE_RUN, verifier: VERIFIER },
+      { kind: "CODE", criterionId: "ac-b4-lifecycle", command: "ls api/lib/intelligence-object.ts", output: "آلة حالات حتمية 11 مرحلة (سؤال→…→تعلم) بانتقالات fail-closed وتاريخ قابل للإعادة", verifier: VERIFIER },
+      { kind: "TEST", criterionId: "ac-b4-lifecycle", command: "vitest run intelligence-object", output: "16 اختباراً: دورة كاملة قابلة للإعادة، حكم حتمي من ميزان الأدلة، رفض الانتقالات خارج الترتيب والمدخلات المشوهة، ربط الرؤى القائمة", verifier: VERIFIER },
+      { kind: "TEST", criterionId: "ac-b4-memory", command: "vitest run persistent-memory", output: "15 اختباراً: provenance إلزامي fail-closed، تصحيح supersede، نسيان مقصود يظهر في التصدير مع سببه، محول pgvector لا يرمي عند فشل pg ويحافظ على الحتمية", verifier: VERIFIER },
+      { kind: "RUN", command: "vitest run intelligence-object persistent-memory", output: "31 اختباراً أخضر في بوابة CI codex-guard (سجل خام مؤكد، run 29149650794)", verifier: VERIFIER },
+      { kind: "COMMIT", criterionId: "ac-b4-merged", command: "gh pr merge 44 --squash", commit: "e44617859f9e7e02a1012b12bb5c9996a2eaec05", output: "PR #44 squash-merged to main; codex-guard + Deploy + Verify Staging Health all green; worker wired B4 suites into CI gate", date: "2026-07-11", verifier: "independent: coordinator v2 read all 1487 lines pre-merge (FSM fail-closed, provenance-mandatory memory, pg adapter never throws + deterministic mirror, new intelligenceObject key = integration not replacement), demanded rebase + CI wiring + honest matrix row before merge, then confirmed from raw CI logs 31 tests ran green" },
+      // KNOWN CONSTRAINT: the real pgvector adapter against a live database is
+      // NOT exercised in CI — only the deterministic mirror logic is. Recorded
+      // as DOC (passed:false) so it can never cover a criterion nor alter state.
+      { kind: "DOC", output: "قيد معروف pg-adapter-untested: محول pgvector الحقيقي على قاعدة فعلية غير مُختبَر في CI (المنطق الحتمي فقط) — يلزم اختبار تكامل على Postgres حي قبل الاعتماد الإنتاجي على المرآة.", verifier: "coordinator-v2:constraint", passed: false },
     ],
   },
   {
