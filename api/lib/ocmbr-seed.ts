@@ -264,6 +264,7 @@ export const OCMBR_SEED: SeedEntry[] = [
       { id: "ac-b2ml-registry", statement: "المناهج المعتمدة سجلات بيانات لكل منهج id + قواعد قابلة للفحص برمجياً (لا prose فقط)", verifyCommand: "vitest run methods-library" },
       { id: "ac-b2ml-verify", statement: "verifyMethodCompliance يفحص مخرجات العامل الفعلية ضد المنهج، fail-closed للمجهول، ويعيد استخدام حارس B1 (scanFiles)", verifyCommand: "vitest run methods-library" },
       { id: "ac-b2ml-merged", statement: "CI أخضر + دمج squash في main (يُسجَّل دليل الدمج بعد حدوثه)", verifyCommand: "gh pr checks" },
+      { id: "ac-b2ml-ops-merged", statement: "المناهج التشغيلية الثلاث (git-hygiene, push-early-often, independent-bisect) مدموجة في main واختبارات المكتبة تعمل فعلياً في بوابة CI", verifyCommand: "gh pr checks" },
     ],
     evidence: [
       { kind: "CODE", criterionId: "ac-b2ml-registry", command: "ls api/lib/methods-library.ts", verifier: VERIFIER },
@@ -271,6 +272,7 @@ export const OCMBR_SEED: SeedEntry[] = [
       { kind: "TEST", criterionId: "ac-b2ml-verify", command: "vitest run methods-library", output: "verifyMethodCompliance fail-closed + يعيد استخدام B1 scanFiles — 30 اختبار", verifier: VERIFIER },
       { kind: "RUN", command: "vitest run", output: "42 ملف / 607 اختبار أخضر (CI)", verifier: VERIFIER },
       { kind: "COMMIT", criterionId: "ac-b2ml-merged", command: "gh pr merge 38 --squash", commit: "4b3ad3b3985a7c330f90a70b9e276a3606167285", output: "PR #38 squash-merged to main; codex-guard + Deploy + Verify Staging Health all green", date: "2026-07-11", verifier: "independent: coordinator rebased single commit onto main + read methods-library source (data records + fail-closed verify reusing B1) + full gate 42×607" },
+      { kind: "COMMIT", criterionId: "ac-b2ml-ops-merged", command: "gh pr merge 40 --squash", commit: "c32b68542f237389642eb7bb721e00731dfef5d4", output: "PR #40 squash-merged to main: 3 مناهج تشغيلية (git-hygiene, push-early-often, independent-bisect) → 8 مناهج، 44 اختبار. codex-guard أخضر", date: "2026-07-11", verifier: "independent: coordinator v2 read full diff (fail-closed evaluators) + discovered methods-library tests were NOT in CI, wired them into codex-guard workflow (97e2af8), then confirmed from raw CI logs that all 44 tests actually ran green before merging" },
     ],
   },
   {
