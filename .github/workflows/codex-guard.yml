@@ -1,0 +1,39 @@
+name: Codex Guard (B1)
+
+# Charter enforcement in CI (mandatory step). Scans ONLY new/changed
+# source against the deviation rules — legacy code is not retroactively
+# gated — and runs the B0/B1 governance test suites.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  codex-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Codex Guard — scan changed files
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin "${{ github.base_ref }}" --depth=1
+            npx tsx scripts/codex-guard-scan.ts --base=origin/${{ github.base_ref }}
+          else
+            npx tsx scripts/codex-guard-scan.ts --changed
+          fi
+
+      - name: OCMBR + Codex Guard test suites (B0/B1)
+        run: npx vitest run api/__tests__/ocmbr.test.ts api/__tests__/codex-guard.test.ts

@@ -39,6 +39,8 @@ import { proofRouter } from "./proof-router";
 import { osRouter } from "./os-router";
 import { livingLoopRouter } from "./living-loop-router";
 import { usfipRouter } from "./usfip-router";
+import { ocmbrRouter } from "./ocmbr-router";
+import { codexGuardRouter } from "./codex-guard-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -104,6 +106,10 @@ export const appRouter = createRouter({
   os: osRouter,
   livingLoop: livingLoopRouter,
   usfip: usfipRouter,
+  // B0 — OCMBR Runtime: executive truth ledger (five-state maturity)
+  ocmbr: ocmbrRouter,
+  // B1 — Codex Guard: charter enforcement (deviation scan + claim eval)
+  codexGuard: codexGuardRouter,
   // Platform contract aliases
   bridge: titanBridgeRouter,
   corpusQuery: corpusQueryRouter,
