@@ -18,7 +18,6 @@ import { scanText } from "./codex-guard";
 import {
   validateEvent,
   seedInstitutionalSchemas,
-  __resetBridgeContractsForTests,
   type BridgeEvent,
 } from "./bridge-contracts";
 import { verifyMethodCompliance, type WorkerOutput } from "./methods-library";
@@ -256,7 +255,10 @@ let seeded = false;
 export function installGoldenRunners(): void {
   if (!seeded) {
     // The bridge validator needs its institutional contracts registered.
-    __resetBridgeContractsForTests();
+    // seedInstitutionalSchemas is idempotent for identical schemas (it only
+    // throws VERSION_CONFLICT on a divergent redefinition), so we register
+    // without touching B8's activity store — no test-only reset in this
+    // production import path.
     seedInstitutionalSchemas();
     seeded = true;
   }
