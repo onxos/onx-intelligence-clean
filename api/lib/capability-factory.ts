@@ -95,9 +95,16 @@ export function proposeCapability(proposal: CapabilityProposal): ProposalResult 
     description: proposal.rationale,
   });
 
-  for (const statement of proposal.acceptance) {
-    addCriterion({ capabilityCode: proposal.code, statement });
-  }
+  proposal.acceptance.forEach((statement, index) => {
+    addCriterion({
+      capabilityCode: proposal.code,
+      statement,
+      // Every acceptance criterion is independently verifiable: a stable,
+      // per-criterion verify command so the promotion step can prove each one
+      // from its OWN verification run (see generateCapability step 5).
+      verifyCommand: `verify:${proposal.code}:${index}`,
+    });
+  });
 
   // DOC evidence only — anchored to the capability's stable createdAt so the
   // deterministic evidence id (kind+output+date) makes re-proposal idempotent
@@ -243,7 +250,10 @@ function currentState(code: string): MaturityState {
  *   2. execute via the swappable executor
  *   3. Codex Guard scan            — any deviation → reject, no promotion
  *   4. independent verification    — ignores claimedComplete; REJECTED → no promotion
- *   5. promote by recording CODE/TEST/RUN evidence so OCMBR re-computes state
+ *   5. per-criterion promotion     — each acceptance criterion is proven by
+ *      its OWN independent verification run; evidence is recorded per criterion
+ *      from THAT run's output. Fail-closed: any criterion lacking a verify
+ *      command, or whose run does not verify, blocks promotion ENTIRELY.
  */
 export async function generateCapability(
   params: GenerateParams,
@@ -314,8 +324,79 @@ export async function generateCapability(
     };
   }
 
-  // 5. Promote by RECORDING EVIDENCE — OCMBR re-computes the state.
+  // 5. Per-criterion INDEPENDENT verification (resolves the evidence-
+  // granularity constraint). Each acceptance criterion is proven by its OWN
+  // verification run through the swappable executor, and its evidence carries
+  // THAT run's own output — never a single collective output reused across
+  // criteria. Fail-closed & ATOMIC: a criterion with no verify command, or
+  // whose independent run does not verify, blocks promotion ENTIRELY and
+  // records nothing (so OCMBR leaves the capability un-graduated).
   const verifier = "capability-factory:independent";
+
+  interface CriterionRun {
+    criterionId: string;
+    command: string;
+    output: string;
+  }
+  const criterionRuns: CriterionRun[] = [];
+  for (const criterion of listCriteria(code)) {
+    const command = criterion.verifyCommand?.trim();
+    // Fail-closed: an unverifiable criterion (no command) can never be proven.
+    if (!command) {
+      return {
+        code,
+        authorityDecision: "GRANTED",
+        authorityReason: auth.reason,
+        generated: true,
+        executor: result.executor,
+        output: result.output,
+        guardClean,
+        guardDeviations: 0,
+        verification,
+        promoted: false,
+        state: currentState(code),
+        reason: `المعيار ${criterion.id} بلا أمر تحقق (verifyCommand) — لا يمكن إثباته مستقلاً، لا ترقية (fail-closed).`,
+      };
+    }
+    // An INDEPENDENT run scoped to THIS criterion → distinct deterministic
+    // output per criterion (the mock seeds on taskId:title:input).
+    const critResult = await executor.execute({
+      taskId: `${code}::${criterion.id}`,
+      title: `verify:${criterion.id}`,
+      input: command,
+    });
+    // Re-scan the criterion's own output for charter deviations before trusting it.
+    const critDeviations = scanText(critResult.output, { isProduction: true });
+    const critOutcome = independentlyVerify(critResult, check);
+    if (critDeviations.length > 0 || critOutcome.verdict !== "VERIFIED") {
+      const why =
+        critDeviations.length > 0
+          ? `حارس الميثاق رصد ${critDeviations.length} انحرافاً`
+          : `${critOutcome.verdict}: ${critOutcome.reason}`;
+      return {
+        code,
+        authorityDecision: "GRANTED",
+        authorityReason: auth.reason,
+        generated: true,
+        executor: result.executor,
+        output: result.output,
+        guardClean,
+        guardDeviations: critDeviations.length,
+        verification,
+        promoted: false,
+        state: currentState(code),
+        reason: `تحقق المعيار ${criterion.id} فشل (${why}) — لا ترقية (fail-closed).`,
+      };
+    }
+    criterionRuns.push({
+      criterionId: criterion.id,
+      command,
+      output: critResult.output,
+    });
+  }
+
+  // Every criterion proved independently → record evidence atomically. OCMBR
+  // re-computes the state from these records (code + test + per-criterion runs).
   recordEvidence({
     capabilityCode: code,
     kind: "CODE",
@@ -331,13 +412,14 @@ export async function generateCapability(
     verifier,
     passed: true,
   });
-  for (const criterion of listCriteria(code)) {
+  for (const run of criterionRuns) {
     recordEvidence({
       capabilityCode: code,
       kind: "RUN",
-      criterionId: criterion.id,
-      command: `verify:${criterion.id}`,
-      output: result.output,
+      criterionId: run.criterionId,
+      command: run.command,
+      // THIS criterion's own verification-run output — separated per criterion.
+      output: run.output,
       verifier,
       passed: true,
     });
@@ -355,6 +437,7 @@ export async function generateCapability(
     verification,
     promoted: true,
     state: currentState(code),
-    reason: "تحقق مستقل ناجح — رُقّيت الحالة بأدلة كود/اختبار/تشغيل مسجّلة.",
+    reason:
+      "تحقق مستقل ناجح لكل معيار على حدة — رُقّيت الحالة بأدلة كود/اختبار + تشغيل منفصل لكل معيار.",
   };
 }

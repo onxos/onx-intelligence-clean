@@ -34,7 +34,9 @@ import {
 } from "../lib/capability-factory";
 import {
   __resetOcmbrForTests,
+  addCriterion,
   capabilityStatus,
+  listCriteria,
   listEvidence,
 } from "../lib/ocmbr-store";
 import { mockExecutor, type Executor } from "../lib/orchestrator-engine";
@@ -273,6 +275,92 @@ describe("executor is swappable and the default mock is deterministic", () => {
     expect(called).toBe(true);
     expect(result.executor).toBe("llm-gateway");
     expect(result.output).toContain("custom:");
+  });
+});
+
+// --- (C1) evidence granularity: per-criterion independent verification ---
+
+describe("generateCapability — per-criterion independent verification (C1)", () => {
+  it("records a SEPARATE RUN evidence per criterion, each carrying its OWN run output (distinct content, not one shared output)", async () => {
+    proposeCapability(sampleProposal); // two acceptance criteria
+    const result = await generateCapability({
+      code: "GEN-DEMO-1",
+      approval: founderApproval,
+    });
+    expect(result.promoted).toBe(true);
+
+    const criteria = listCriteria("GEN-DEMO-1");
+    expect(criteria).toHaveLength(2);
+
+    const runs = listEvidence("GEN-DEMO-1").filter((e) => e.kind === "RUN");
+    // one RUN per criterion — evidence is separated, never collective
+    expect(runs).toHaveLength(2);
+    // every criterion is covered by its OWN tagged evidence
+    const covered = new Set(runs.map((e) => e.criterionId));
+    expect(covered).toEqual(new Set(criteria.map((c) => c.id)));
+    // the two runs carry DIFFERENT output content — each is its own run, not a
+    // single generation output reused across criteria (the resolved constraint)
+    const outputs = runs.map((e) => e.output);
+    expect(outputs[0]).not.toBe(outputs[1]);
+    expect(outputs.every((o) => typeof o === "string" && o!.length > 0)).toBe(
+      true,
+    );
+    // the recorded command is the criterion's real, independent verify command
+    for (const run of runs) {
+      const crit = criteria.find((c) => c.id === run.criterionId)!;
+      expect(run.command).toBe(crit.verifyCommand);
+    }
+  });
+
+  it("BLOCKS promotion ENTIRELY when a single criterion's independent verification fails (fail-closed, atomic — nothing recorded)", async () => {
+    proposeCapability(sampleProposal);
+    const criteria = listCriteria("GEN-DEMO-1");
+    const failingId = criteria[1].id;
+    // An executor that yields valid output for the primary generation and the
+    // first criterion, but EMPTY output for the SECOND criterion's run — its
+    // independent verification must REJECT and block the whole promotion.
+    const partlyFailingExecutor: Executor = {
+      kind: "mock",
+      execute: (req) => ({
+        taskId: req.taskId,
+        executor: "mock",
+        output: req.title === `verify:${failingId}` ? "" : `ok:${req.title}`,
+        claimedComplete: true,
+        cost: 1,
+      }),
+    };
+    const result = await generateCapability({
+      code: "GEN-DEMO-1",
+      approval: founderApproval,
+      executor: partlyFailingExecutor,
+    });
+
+    expect(result.promoted).toBe(false);
+    // the reason names the exact criterion that broke
+    expect(result.reason).toContain(failingId);
+    // atomic fail-closed: NO runnable evidence recorded, stays DOCUMENTED
+    expect(capabilityStatus("GEN-DEMO-1")!.state).toBe("DOCUMENTED");
+    expect(listEvidence("GEN-DEMO-1").every((e) => e.kind === "DOC")).toBe(true);
+  });
+
+  it("BLOCKS promotion when a criterion has NO verifyCommand (unverifiable → fail-closed)", async () => {
+    proposeCapability(sampleProposal);
+    // an externally-added criterion with no verify command can never be
+    // independently proven — so the capability must not graduate.
+    addCriterion({
+      capabilityCode: "GEN-DEMO-1",
+      statement: "معيار بلا أمر تحقق مستقل",
+      id: "ac-no-cmd",
+    });
+    const result = await generateCapability({
+      code: "GEN-DEMO-1",
+      approval: founderApproval,
+    });
+
+    expect(result.promoted).toBe(false);
+    expect(result.reason).toContain("ac-no-cmd");
+    expect(capabilityStatus("GEN-DEMO-1")!.state).toBe("DOCUMENTED");
+    expect(listEvidence("GEN-DEMO-1").every((e) => e.kind === "DOC")).toBe(true);
   });
 });
 
