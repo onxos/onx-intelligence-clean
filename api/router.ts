@@ -46,6 +46,7 @@ import { orchestratorRouter } from "./orchestrator-router";
 import { methodsLibraryRouter } from "./methods-library-router";
 import { capabilityFactoryRouter } from "./capability-factory-router";
 import { intelligenceObjectRouter } from "./intelligence-object-router";
+import { bridgeContractsRouter } from "./bridge-contracts-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -125,6 +126,8 @@ export const appRouter = createRouter({
   capabilityFactory: capabilityFactoryRouter,
   // B4 — Intelligence Objects: deterministic reasoning lifecycle + persistent memory
   intelligenceObject: intelligenceObjectRouter,
+  // B8 — Bridge Contracts: versioned schema registry + fail-closed validation + unified activity log
+  bridgeContracts: bridgeContractsRouter,
   // Platform contract aliases
   bridge: titanBridgeRouter,
   corpusQuery: corpusQueryRouter,
