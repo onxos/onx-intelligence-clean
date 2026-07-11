@@ -224,6 +224,24 @@ describe("seed — idempotent import of current project capabilities", () => {
     expect(capabilityStatus("B4-INTELLIGENCE-OBJECTS")!.state).toBe("VERIFIED");
   });
 
+  it("B2-γ's evidence-granularity constraint is resolved: historical DOC kept, passing resolution DOC added", () => {
+    seed();
+    const gammaDocs = listEvidence("B2-CAPABILITY-FACTORY").filter((e) =>
+      e.output?.includes("evidence-granularity"),
+    );
+    // The historical constraint stays on the record (honest audit trail)…
+    const historical = gammaDocs.find((e) => e.verifier === "coordinator-v2:constraint");
+    expect(historical).toBeDefined();
+    expect(historical!.passed).toBe(false);
+    // …and the resolution is recorded as a passing DOC pinned to the merge.
+    const resolved = gammaDocs.find((e) => e.verifier === "worker:c1-evidence-granularity");
+    expect(resolved).toBeDefined();
+    expect(resolved!.kind).toBe("DOC");
+    expect(resolved!.passed).toBe(true);
+    expect(resolved!.commit).toContain("536d297");
+    expect(capabilityStatus("B2-CAPABILITY-FACTORY")!.state).toBe("VERIFIED");
+  });
+
   it("no capability is VERIFIED without full criterion coverage (fixture, TEST-SPEC-ONLY)", () => {
     seed();
     // The real B0→B8 front is fully VERIFIED now; keep the honesty rule

@@ -312,7 +312,7 @@ export const OCMBR_SEED: SeedEntry[] = [
       // run's OWN output; fail-closed when a criterion lacks a verify command
       // or its run does not verify. Historical DOC above is retained on the
       // record; this passing DOC references the resolution.
-      { kind: "DOC", command: "c1:evidence-granularity-resolved", output: "قيد محلول evidence-granularity (C1): الترقية باتت تُجري تشغيل تحقق مستقل منفصل لكل معيار وتسجّل دليل RUN موسوماً بـcriterionId من مخرج ذلك التشغيل وحده — fail-closed لأي معيار بلا verifyCommand أو يفشل تحققه، ذرّياً (لا ترقية جزئية).", verifier: "worker:c1-evidence-granularity", passed: true },
+      { kind: "DOC", command: "c1:evidence-granularity-resolved", output: "قيد محلول evidence-granularity (C1): الترقية باتت تُجري تشغيل تحقق مستقل منفصل لكل معيار وتسجّل دليل RUN موسوماً بـcriterionId من مخرج ذلك التشغيل وحده — fail-closed لأي معيار بلا verifyCommand أو يفشل تحققه، ذرّياً (لا ترقية جزئية). دليل: PR #56 مدموج، سجل CI خام run 29167549210 = 20/20.", commit: "536d297855d55c5b524b0b0435f06b30b6bc538f", date: "2026-07-11", verifier: "worker:c1-evidence-granularity", passed: true },
     ],
   },
   {
