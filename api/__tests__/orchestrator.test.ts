@@ -33,6 +33,7 @@ import {
 import {
   __resetOrchestratorForTests,
   createMandate,
+  getTask,
   registerExecutor,
   reassignStragglers,
   runMandate,
@@ -489,5 +490,93 @@ describe("tRPC surface", () => {
     await expect(
       caller.orchestrator.createMandate(bad),
     ).rejects.toThrow();
+  });
+});
+
+// --- K4: the Orchestrator CONSUMES the Methods Library (B2-β) --------------
+
+describe("K4 — TaskSpec.methodId is enforced through the methods library", () => {
+  it("REJECTS a mandate whose task names an unknown method (fail-closed at plan time)", () => {
+    const spec = mandate();
+    spec.waves[0].tasks[0].methodId = "no-such-method";
+    expect(() => createMandate(spec)).toThrow(/منهج غير معروف|no-such-method/);
+  });
+
+  it("accepts a mandate whose task names a registered method", () => {
+    const spec = mandate();
+    spec.waves[0].tasks[0].methodId = "code-review";
+    const plan = createMandate(spec);
+    expect(plan.totalTasks).toBeGreaterThan(0);
+  });
+
+  it("a method-bound task is verified for method compliance: violations REJECT it", async () => {
+    const spec = mandate();
+    const task = spec.waves[0].tasks[0];
+    task.methodId = "code-review";
+    // Executor output that self-reports a merge with NO review evidence.
+    registerExecutor({
+      kind: "llm-gateway",
+      execute: (req) => ({
+        taskId: req.taskId,
+        executor: "llm-gateway" as ExecutorKind,
+        output: "merged pr-1 without review",
+        claimedComplete: true,
+        cost: 1,
+        methodOutput: {
+          evidence: [{ type: "MERGE", ref: "pr-1", date: "2026-07-12T10:00:00Z" }],
+        },
+      }),
+    });
+    task.executor = "llm-gateway";
+    task.verify = { mustInclude: "merged" };
+    createMandate(spec);
+    await runMandate(spec.id);
+    expect(getTask(task.id)!.state).not.toBe("verified");
+  });
+
+  it("a method-bound task passes when the actual output complies with the method", async () => {
+    const spec = mandate();
+    const task = spec.waves[0].tasks[0];
+    task.methodId = "code-review";
+    registerExecutor({
+      kind: "llm-gateway",
+      execute: (req) => ({
+        taskId: req.taskId,
+        executor: "llm-gateway" as ExecutorKind,
+        output: "reviewed then merged pr-1",
+        claimedComplete: true,
+        cost: 1,
+        methodOutput: {
+          evidence: [
+            { type: "REVIEW", ref: "pr-1", date: "2026-07-12T09:00:00Z" },
+            { type: "MERGE", ref: "pr-1", date: "2026-07-12T10:00:00Z" },
+          ],
+        },
+      }),
+    });
+    task.executor = "llm-gateway";
+    task.verify = { mustInclude: "merged" };
+    createMandate(spec);
+    await runMandate(spec.id);
+    expect(getTask(task.id)!.state).toBe("verified");
+  });
+
+  it("a method-bound task with NO methodOutput is rejected (fail-closed, no silent pass)", async () => {
+    const spec = mandate();
+    const task = spec.waves[0].tasks[0];
+    task.methodId = "code-review";
+    // mock executor produces no methodOutput at all
+    task.verify = { mustInclude: "mock" };
+    createMandate(spec);
+    await runMandate(spec.id);
+    expect(getTask(task.id)!.state).not.toBe("verified");
+  });
+
+  it("tasks WITHOUT a methodId keep the existing behaviour (no regression)", async () => {
+    const spec = mandate();
+    createMandate(spec);
+    const report = await runMandate(spec.id);
+    expect(report.proven.length).toBeGreaterThan(0);
+    expect(report.complete).toBe(true);
   });
 });

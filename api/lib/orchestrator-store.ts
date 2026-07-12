@@ -39,6 +39,7 @@ import {
   registerCapability,
 } from "./ocmbr-store";
 import { type MaturityState } from "./ocmbr-engine";
+import { verifyMethodCompliance } from "./methods-library";
 
 const DEFAULT_MAX_ATTEMPTS = 2;
 const DEFAULT_TIMEOUT_MS = 1000;
@@ -347,7 +348,29 @@ export async function runTask(
   );
 
   // --- INDEPENDENT verification (never trust the self-certification) ---
-  const verification = independentlyVerify(result, task.spec.verify);
+  let verification = independentlyVerify(result, task.spec.verify);
+
+  // Method-bound tasks (K4): the output must ALSO comply with the
+  // declared B2-β method. Fail-closed — a missing methodOutput is a
+  // missing-input violation inside verifyMethodCompliance, never a pass.
+  if (verification.verdict === "VERIFIED" && task.spec.methodId !== undefined) {
+    const compliance = verifyMethodCompliance(
+      task.spec.methodId,
+      result.methodOutput,
+    );
+    if (!compliance.compliant) {
+      const details = compliance.violations
+        .map((v) => `[${v.rule}] ${v.message}`)
+        .join(" | ");
+      verification = {
+        ...verification,
+        verdict: "REJECTED",
+        passedCheck: false,
+        actualState: "PARTIAL",
+        reason: `رُفض: المخرجات تخالف المنهج المعتمد «${task.spec.methodId}» — ${details}`,
+      };
+    }
+  }
   task.lastVerification = verification;
 
   if (verification.verdict === "VERIFIED") {

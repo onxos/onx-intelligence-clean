@@ -36,6 +36,8 @@ export const METHOD_IDS = [
   "git-hygiene",
   "push-early-often",
   "independent-bisect",
+  "code-review",
+  "test-fixing",
 ] as const;
 export type MethodId = (typeof METHOD_IDS)[number];
 
@@ -52,7 +54,10 @@ export type MethodRuleKind =
   | "no-charter-deviations"
   | "git-zombie-cleanup"
   | "push-after-work-unit"
-  | "bisect-before-diagnosis";
+  | "bisect-before-diagnosis"
+  | "review-before-merge"
+  | "repro-before-fix"
+  | "regression-test-with-fix";
 
 export interface MethodRule {
   kind: MethodRuleKind;
@@ -80,7 +85,8 @@ export type EvidenceType =
   | "ADR"
   | "DECISION"
   | "COMMIT"
-  | "MERGE";
+  | "MERGE"
+  | "REVIEW";
 
 export interface WorkerEvidence {
   type: EvidenceType;
@@ -310,6 +316,36 @@ const REGISTRY: Record<MethodId, Method> = {
         kind: "bisect-before-diagnosis",
         description:
           "أي تشخيص لكسر صامت يجب أن يستند إلى git bisect (على main) مع تحديد الكوميت الكاسر — لا تخمين.",
+      },
+    ],
+  },
+  "code-review": {
+    id: "code-review",
+    title: "مراجعة سطرية قبل الدمج",
+    description:
+      "لا دمج بلا دليل REVIEW مؤرّخ يسبق/يرافق دليل MERGE — المراجعة اللاحقة للدمج ختم شكلي مرفوض.",
+    rules: [
+      {
+        kind: "review-before-merge",
+        description:
+          "لكل دليل MERGE دليل REVIEW مؤرّخ في وقت لا يلي أقدم MERGE — مراجعة بعد الدمج مرفوضة.",
+      },
+    ],
+  },
+  "test-fixing": {
+    id: "test-fixing",
+    title: "إصلاح الاختبارات — استنساخ أولاً، أصلح الكود لا الاختبار",
+    description:
+      "أي FIX لاختبار فاشل يسبقه دليل RUN يستنسخ الفشل، ويرافقه دليل TEST (اختبار انحدار) — لا إصلاح أعمى ولا حذف اختبارات.",
+    rules: [
+      {
+        kind: "repro-before-fix",
+        description:
+          "يجب وجود دليل RUN (استنساخ الفشل) مؤرّخ قبل/مع أقدم دليل FIX.",
+      },
+      {
+        kind: "regression-test-with-fix",
+        description: "كل FIX يرافقه دليل TEST (اختبار انحدار) — إصلاح بلا اختبار مرفوض.",
       },
     ],
   },
@@ -649,6 +685,79 @@ const EVALUATORS: Record<MethodRuleKind, RuleEvaluator> = {
     }
     return violations;
   },
+
+  "review-before-merge": (_rule, output) => {
+    const merges = evidenceOf(output, "MERGE");
+    if (merges.length === 0) return [];
+    const reviews = evidenceOf(output, "REVIEW");
+    if (reviews.length === 0) {
+      return [
+        {
+          rule: "review-before-merge",
+          message: "دليل MERGE بلا أي دليل REVIEW — دمج بلا مراجعة سطرية مرفوض.",
+        },
+      ];
+    }
+    const earliestReview = earliest(reviews.map((r) => r.date));
+    const earliestMerge = earliest(merges.map((m) => m.date));
+    if (
+      earliestReview !== undefined &&
+      earliestMerge !== undefined &&
+      earliestReview > earliestMerge
+    ) {
+      return [
+        {
+          rule: "review-before-merge",
+          message: "أقدم REVIEW مؤرّخ بعد أقدم MERGE — مراجعة لاحقة للدمج (ختم شكلي) مرفوضة.",
+        },
+      ];
+    }
+    return [];
+  },
+
+  "repro-before-fix": (_rule, output) => {
+    const fixes = evidenceOf(output, "FIX");
+    if (fixes.length === 0) return [];
+    const runs = evidenceOf(output, "RUN");
+    if (runs.length === 0) {
+      return [
+        {
+          rule: "repro-before-fix",
+          message: "دليل FIX بلا دليل RUN يستنسخ الفشل — إصلاح أعمى مرفوض.",
+        },
+      ];
+    }
+    const earliestRun = earliest(runs.map((r) => r.date));
+    const earliestFix = earliest(fixes.map((f) => f.date));
+    if (
+      earliestRun !== undefined &&
+      earliestFix !== undefined &&
+      earliestRun > earliestFix
+    ) {
+      return [
+        {
+          rule: "repro-before-fix",
+          message: "أقدم RUN (استنساخ) مؤرّخ بعد أقدم FIX — الاستنساخ لم يسبق الإصلاح.",
+        },
+      ];
+    }
+    return [];
+  },
+
+  "regression-test-with-fix": (_rule, output) => {
+    const fixes = evidenceOf(output, "FIX");
+    if (fixes.length === 0) return [];
+    const tests = evidenceOf(output, "TEST");
+    if (tests.length === 0) {
+      return [
+        {
+          rule: "regression-test-with-fix",
+          message: "دليل FIX بلا دليل TEST (اختبار انحدار) — إصلاح بلا اختبار مرفوض.",
+        },
+      ];
+    }
+    return [];
+  },
 };
 
 // --- The public verification entry point ----------------------------------
@@ -661,7 +770,7 @@ const EVALUATORS: Record<MethodRuleKind, RuleEvaluator> = {
  */
 export function verifyMethodCompliance(
   method: MethodId | string | Method,
-  output: WorkerOutput,
+  output: WorkerOutput | null | undefined,
 ): ComplianceReport {
   const resolved =
     typeof method === "string" ? getMethod(method) : method;

@@ -33,10 +33,11 @@ import { appRouter } from "../router";
 const caller = appRouter.createCaller({} as never);
 
 describe("methods registry — data records, not free prompts", () => {
-  it("registers exactly the 8 approved methods", () => {
+  it("registers exactly the 10 approved methods", () => {
     expect([...METHOD_IDS].sort()).toEqual(
       [
         "adr",
+        "code-review",
         "git-hygiene",
         "independent-bisect",
         "push-early-often",
@@ -44,9 +45,10 @@ describe("methods registry — data records, not free prompts", () => {
         "standard-git",
         "subagent-driven",
         "tdd-mandatory",
+        "test-fixing",
       ].sort(),
     );
-    expect(listMethods()).toHaveLength(8);
+    expect(listMethods()).toHaveLength(10);
   });
 
   it("every method is a record with an id, title, description and checkable rules", () => {
@@ -485,7 +487,7 @@ describe("fail-closed — the 3 operational methods reject on unknown/missing in
 describe("methods-library tRPC router", () => {
   it("lists all methods over tRPC", async () => {
     const methods = await caller.methodsLibrary.list();
-    expect(methods).toHaveLength(8);
+    expect(methods).toHaveLength(10);
     expect(methods.map((m) => m.id).sort()).toContain("tdd-mandatory");
   });
 
@@ -514,5 +516,99 @@ describe("methods-library tRPC router", () => {
     });
     expect(res.compliant).toBe(false);
     expect(res.violations.length).toBeGreaterThan(0);
+  });
+});
+
+describe("code-review — REVIEW evidence must precede MERGE (K4)", () => {
+  it("REJECTS a merge with no review evidence at all", () => {
+    const output: WorkerOutput = {
+      evidence: [{ type: "MERGE", ref: "pr-9", date: "2026-07-12T10:00:00Z" }],
+    };
+    const result = verifyMethodCompliance("code-review", output);
+    expect(result.compliant).toBe(false);
+    expect(result.violations.map((v) => v.rule)).toContain("review-before-merge");
+  });
+
+  it("REJECTS a review dated AFTER the merge (retroactive rubber-stamp)", () => {
+    const output: WorkerOutput = {
+      evidence: [
+        { type: "MERGE", ref: "pr-9", date: "2026-07-12T10:00:00Z" },
+        { type: "REVIEW", ref: "pr-9", date: "2026-07-12T11:00:00Z" },
+      ],
+    };
+    const result = verifyMethodCompliance("code-review", output);
+    expect(result.compliant).toBe(false);
+    expect(result.violations.map((v) => v.rule)).toContain("review-before-merge");
+  });
+
+  it("ACCEPTS a dated review at/before the merge", () => {
+    const output: WorkerOutput = {
+      evidence: [
+        { type: "REVIEW", ref: "pr-9", date: "2026-07-12T09:00:00Z" },
+        { type: "MERGE", ref: "pr-9", date: "2026-07-12T10:00:00Z" },
+      ],
+    };
+    expect(verifyMethodCompliance("code-review", output).compliant).toBe(true);
+  });
+
+  it("ACCEPTS output with no merge at all (nothing to gate)", () => {
+    const output: WorkerOutput = {
+      evidence: [{ type: "CODE", ref: "api/x.ts", date: "2026-07-12T08:00:00Z" }],
+    };
+    expect(verifyMethodCompliance("code-review", output).compliant).toBe(true);
+  });
+});
+
+describe("test-fixing — reproduce first, fix the code not the test (K4)", () => {
+  it("REJECTS a fix with no failing-run reproduction evidence", () => {
+    const output: WorkerOutput = {
+      evidence: [
+        { type: "TEST", ref: "api/__tests__/x.test.ts", date: "2026-07-12T09:00:00Z" },
+        { type: "FIX", ref: "api/x.ts", date: "2026-07-12T10:00:00Z" },
+      ],
+    };
+    const result = verifyMethodCompliance("test-fixing", output);
+    expect(result.compliant).toBe(false);
+    expect(result.violations.map((v) => v.rule)).toContain("repro-before-fix");
+  });
+
+  it("REJECTS a reproduction dated AFTER the fix", () => {
+    const output: WorkerOutput = {
+      evidence: [
+        { type: "RUN", ref: "repro", date: "2026-07-12T11:00:00Z" },
+        { type: "TEST", ref: "api/__tests__/x.test.ts", date: "2026-07-12T09:00:00Z" },
+        { type: "FIX", ref: "api/x.ts", date: "2026-07-12T10:00:00Z" },
+      ],
+    };
+    const result = verifyMethodCompliance("test-fixing", output);
+    expect(result.compliant).toBe(false);
+    expect(result.violations.map((v) => v.rule)).toContain("repro-before-fix");
+  });
+
+  it("REJECTS a fix carrying no regression test evidence", () => {
+    const output: WorkerOutput = {
+      evidence: [
+        { type: "RUN", ref: "repro", date: "2026-07-12T09:00:00Z" },
+        { type: "FIX", ref: "api/x.ts", date: "2026-07-12T10:00:00Z" },
+      ],
+    };
+    const result = verifyMethodCompliance("test-fixing", output);
+    expect(result.compliant).toBe(false);
+    expect(result.violations.map((v) => v.rule)).toContain("regression-test-with-fix");
+  });
+
+  it("ACCEPTS repro run + regression test + fix in honest order", () => {
+    const output: WorkerOutput = {
+      evidence: [
+        { type: "RUN", ref: "repro", date: "2026-07-12T08:00:00Z" },
+        { type: "TEST", ref: "api/__tests__/x.test.ts", date: "2026-07-12T09:00:00Z" },
+        { type: "FIX", ref: "api/x.ts", date: "2026-07-12T10:00:00Z" },
+      ],
+    };
+    expect(verifyMethodCompliance("test-fixing", output).compliant).toBe(true);
+  });
+
+  it("ACCEPTS output with no fix at all (nothing to gate)", () => {
+    expect(verifyMethodCompliance("test-fixing", { evidence: [] }).compliant).toBe(true);
   });
 });
