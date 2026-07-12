@@ -82,6 +82,9 @@ jobs:
           npx vitest run api/__tests__/methods-library.test.ts -t "anti-self-certification"
           npx vitest run api/__tests__/orchestrator.test.ts -t "K4"
 
+      - name: Deep Research test suite (K1)
+        run: npx vitest run api/__tests__/deep-research.test.ts
+
   # Resolves the recorded B4 constraint `pg-adapter-untested`: exercises the
   # real PgVectorMemoryStore against a LIVE Postgres+pgvector (no mock). This
   # job genuinely RUNS the integration suite (never skipped) because the
