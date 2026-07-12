@@ -25,12 +25,15 @@ import {
   registerSchema,
   validateEvent,
   recordActivity,
+  getSchema,
   type BridgeEvent,
   type FieldSpec,
   type ValidationError,
   type RecordActivityResult,
 } from "./bridge-contracts";
 import type { Provenance } from "./persistent-memory";
+import type { InsertEventInput, InsertEventResult } from "./platform-inbox-store";
+import { createHash } from "node:crypto";
 
 // ── The literal envelope forwarded by the marketing platform ───────
 // Mirrors onx-marketing-platform platform-bridge.service.ts exactly.
@@ -63,7 +66,7 @@ export const MARKETING_ORIGIN = "onx-marketing";
  * are the canonical `marketing.<aggregate>.<action>` contract names. An
  * event whose raw type is absent here is rejected — never guessed.
  */
-export const MARKETING_EVENT_TYPE_MAP: Readonly<Record<string, string>> = {
+export const MARKETING_EVENT_TYPE_MAP: Readonly<Record<string, string>> = Object.freeze({
   creative_published: "marketing.creative.published",
   campaign_launched: "marketing.campaign.launched",
   campaign_paused: "marketing.campaign.paused",
@@ -71,11 +74,10 @@ export const MARKETING_EVENT_TYPE_MAP: Readonly<Record<string, string>> = {
   approval_rejected: "marketing.approval.rejected",
   agent_task_failed: "marketing.agent_task.failed",
   error_occurred: "marketing.error.occurred",
-};
+});
 
 /** Canonical marketing event types (contract names). */
 export const MARKETING_EVENT_TYPES: readonly string[] = Object.values(MARKETING_EVENT_TYPE_MAP);
-
 /**
  * v1 identity contract carried by every marketing event. Beyond the shared
  * B8 identity fields, the envelope's audit identifiers (recordId, traceId,
@@ -105,18 +107,25 @@ export function seedMarketingSchemas(): void {
 }
 
 /**
- * Stable 32-bit FNV-1a hash of the string recordId → positive integer.
- * Deterministic and collision-resistant enough to key the B8 activity id,
- * so replaying the same recordId is idempotent.
+ * Collision-resistant idempotency id for a marketing record.
+ *
+ * The B8 `eventId` and the platform inbox unique key `(source, eventId)` are
+ * numeric, so the string `recordId` is hashed into a positive integer. A weak
+ * 32-bit hash has a birthday bound of only ~65k records — two DIFFERENT records
+ * could collide and the inbox's `ON CONFLICT DO NOTHING` would silently drop the
+ * second (silent data loss). We therefore use SHA-256 (≥128-bit computed) and
+ * fold it down to 52 bits so the value stays a safe integer (≤ 2^53−1, fits a
+ * Postgres BIGINT) while pushing the birthday bound out to ~2^26 (~67M). A
+ * genuine collision is additionally caught explicitly at ingest time
+ * (`MarketingIdempotencyCollisionError`) — never a silent duplicate.
+ *
+ * Deterministic: pure function of `recordId`, no time/randomness/network.
  */
 export function deriveMarketingEventId(recordId: string): number {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < recordId.length; i += 1) {
-    hash ^= recordId.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  // >>> 0 → unsigned; +1 so it is always ≥ 1 (never 0).
-  return (hash >>> 0) + 1;
+  const hex = createHash("sha256").update(recordId, "utf8").digest("hex");
+  // First 13 hex chars = 52 bits → 0 .. 2^52−1. +1 keeps it strictly positive
+  // and ≤ 2^52 < Number.MAX_SAFE_INTEGER.
+  return Number.parseInt(hex.slice(0, 13), 16) + 1;
 }
 
 export type EnvelopeConversion =
@@ -234,3 +243,217 @@ export async function ingestMarketingEnvelope(
 // Re-export the B8 validator so callers can pre-check a produced event
 // without importing two modules — pure convenience, same implementation.
 export { validateEvent };
+
+// ============================================================
+// LIVE INGEST — reach the SAME event inbox the minds read
+//
+// The B8 activity log (ingestMarketingEnvelope, above) is an audit ledger.
+// For a marketing event to actually inform the minds it must land in the
+// real `onx_platform_event_inbox` (the store read by the perception feed).
+// `marketingLiveIngest` converges the converted+validated envelope onto that
+// inbox through an INJECTED writer (`deps.insert`, defaulting in production to
+// the real `insertEvent`), so tests stay deterministic and DB-free while
+// production reaches the live store — the same seam #62 established for the
+// institutional path (`ingestThroughBridgeContract`).
+// ============================================================
+
+/**
+ * Injected adapters for the live inbox. `insert` writes to the shared event
+ * inbox (keyed on `source,eventId`); `lookupRecordId` reads back the stored
+ * `recordId` for a given `(source,eventId)` so a hash collision between two
+ * genuinely different records is detected instead of silently deduplicated.
+ * `rateLimit` and `now` are optional deterministic hooks.
+ */
+export interface MarketingInboxDeps {
+  insert: (event: InsertEventInput) => Promise<InsertEventResult>;
+  lookupRecordId: (source: string, eventId: number) => Promise<string | null>;
+  rateLimit?: (key: string) => { allowed: boolean; remaining: number; resetAt: Date };
+  now?: () => string;
+}
+
+/**
+ * Raised when two DIFFERENT records hash to the same numeric `eventId`. The
+ * inbox would otherwise treat the second as a duplicate and drop it silently;
+ * we surface it loudly so no real event is lost.
+ */
+export class MarketingIdempotencyCollisionError extends Error {
+  readonly code = "IDEMPOTENCY_COLLISION";
+  readonly eventId: number;
+  readonly incomingRecordId: string;
+  readonly storedRecordId: string;
+  constructor(eventId: number, incomingRecordId: string, storedRecordId: string) {
+    super(
+      `[IDEMPOTENCY_COLLISION] eventId ${eventId} maps to distinct records: ` +
+        `stored="${storedRecordId}" incoming="${incomingRecordId}".`,
+    );
+    this.name = "MarketingIdempotencyCollisionError";
+    this.eventId = eventId;
+    this.incomingRecordId = incomingRecordId;
+    this.storedRecordId = storedRecordId;
+  }
+}
+
+export interface MarketingLiveIngestResult {
+  accepted: boolean;
+  duplicate?: boolean;
+  id?: number;
+  eventId?: number;
+  errors?: ValidationError[];
+}
+
+/**
+ * Convert (fail-closed) → validate under the seeded B8 contract → write to the
+ * real event inbox via `deps.insert`. FAIL-CLOSED: a rejected conversion or an
+ * invalid event never reaches the inbox. Idempotent on replay of the SAME
+ * recordId; a genuine hash collision (distinct recordId, same eventId) throws
+ * `MarketingIdempotencyCollisionError` rather than dropping the event.
+ */
+export async function marketingLiveIngest(
+  envelope: PlatformEventEnvelope,
+  deps: MarketingInboxDeps,
+): Promise<MarketingLiveIngestResult> {
+  const conversion = marketingEnvelopeToBridgeEvent(envelope);
+  if (!conversion.ok) {
+    return { accepted: false, errors: conversion.errors };
+  }
+  // Defense in depth: ensure the contract is registered and re-validate the
+  // produced event with the SAME B8 validator used everywhere else.
+  seedMarketingSchemas();
+  const validation = validateEvent(conversion.event);
+  if (!validation.valid) {
+    return { accepted: false, errors: validation.errors };
+  }
+
+  const ev = conversion.event;
+  const insertInput: InsertEventInput = {
+    source: ev.source,
+    eventId: ev.eventId,
+    eventType: ev.eventType,
+    aggregateType: ev.aggregateType,
+    aggregateId: ev.aggregateId,
+    occurredAt: ev.occurredAt,
+    payload: ev.payload,
+  };
+
+  const result = await deps.insert(insertInput);
+
+  if (result.duplicate) {
+    const incoming = String(ev.payload.recordId ?? "");
+    const stored = await deps.lookupRecordId(ev.source, ev.eventId);
+    if (stored !== null && stored !== incoming) {
+      throw new MarketingIdempotencyCollisionError(ev.eventId, incoming, stored);
+    }
+    return { accepted: true, duplicate: true, id: result.id, eventId: ev.eventId };
+  }
+
+  return { accepted: true, duplicate: false, id: result.id, eventId: ev.eventId };
+}
+
+// ============================================================
+// AUTHENTICATED RECEIVER — fail-closed transport-agnostic handler
+//
+// The marketing platform crosses the SAME Platform→Intelligence bridge as the
+// institutional path, so it authenticates with the same shared secret
+// (`x-onx-bridge-key`). `authorizeMarketingRequest` is a pure fail-closed check
+// (missing secret → 503; missing/blank/mismatched key → 401). `handleMarketingIngest`
+// composes auth → rate limit → live ingest into an HTTP-shaped result so any
+// transport (the tRPC bridge mutation, or a raw Hono route) is a thin adapter.
+// ============================================================
+
+export interface MarketingAuthResult {
+  ok: boolean;
+  code?: "SECRET_NOT_CONFIGURED" | "MISSING_KEY" | "UNAUTHORIZED";
+  message?: string;
+}
+
+/** Pure, fail-closed auth for a marketing bridge request. */
+export function authorizeMarketingRequest(
+  providedKey: string | null | undefined,
+  expectedSecret: string | null | undefined,
+): MarketingAuthResult {
+  if (!isNonEmptyString(expectedSecret)) {
+    return { ok: false, code: "SECRET_NOT_CONFIGURED", message: "لم يُضبط سر الجسر." };
+  }
+  if (!isNonEmptyString(providedKey)) {
+    return { ok: false, code: "MISSING_KEY", message: "مفتاح المصادقة مفقود." };
+  }
+  if (providedKey !== expectedSecret) {
+    return { ok: false, code: "UNAUTHORIZED", message: "مفتاح المصادقة غير صالح." };
+  }
+  return { ok: true };
+}
+
+export interface MarketingIngestRequest {
+  headerKey: string | null | undefined;
+  secret: string | null | undefined;
+  envelope: PlatformEventEnvelope;
+  rateLimitKey?: string;
+}
+
+export interface MarketingIngestResponse {
+  status: number;
+  body: Record<string, unknown>;
+}
+
+/**
+ * Full fail-closed receiver pipeline: authenticate, rate-limit, then live-ingest
+ * into the real inbox. Returns an HTTP-shaped `{status, body}`:
+ *  401 missing/blank/wrong key · 503 secret not configured · 429 rate limited ·
+ *  422 contract rejected · 409 idempotency collision · 201 created · 200 duplicate.
+ */
+export async function handleMarketingIngest(
+  req: MarketingIngestRequest,
+  deps: MarketingInboxDeps,
+): Promise<MarketingIngestResponse> {
+  const auth = authorizeMarketingRequest(req.headerKey, req.secret);
+  if (!auth.ok) {
+    const status = auth.code === "SECRET_NOT_CONFIGURED" ? 503 : 401;
+    return { status, body: { accepted: false, error: auth.code, message: auth.message } };
+  }
+
+  if (deps.rateLimit) {
+    const key = req.rateLimitKey ?? req.envelope?.workspaceId ?? "marketing";
+    const rc = deps.rateLimit(key);
+    if (!rc.allowed) {
+      return {
+        status: 429,
+        body: { accepted: false, error: "RATE_LIMIT_EXCEEDED", resetAt: rc.resetAt.toISOString() },
+      };
+    }
+  }
+
+  try {
+    const res = await marketingLiveIngest(req.envelope, deps);
+    if (!res.accepted) {
+      return { status: 422, body: { accepted: false, error: "CONTRACT_REJECTED", errors: res.errors ?? [] } };
+    }
+    return {
+      status: res.duplicate ? 200 : 201,
+      body: { accepted: true, duplicate: !!res.duplicate, id: res.id, eventId: res.eventId },
+    };
+  } catch (error) {
+    if (error instanceof MarketingIdempotencyCollisionError) {
+      return {
+        status: 409,
+        body: { accepted: false, error: error.code, eventId: error.eventId },
+      };
+    }
+    throw error;
+  }
+}
+
+/**
+ * Producer coupling guard: assert that EVERY canonical type in the manifest has
+ * a registered contract on the core side. The exported, frozen
+ * `MARKETING_EVENT_TYPE_MAP` is the single source of truth a producer consumes
+ * to reject unknown types before sending; this guard proves the core honours the
+ * same manifest (self-seeds, then verifies) so the two never drift.
+ */
+export function assertMarketingManifestCoverage(): void {
+  seedMarketingSchemas();
+  for (const [raw, canonical] of Object.entries(MARKETING_EVENT_TYPE_MAP)) {
+    if (!getSchema(canonical)) {
+      throw new Error(`MANIFEST_UNCOVERED: raw "${raw}" → "${canonical}" has no registered contract.`);
+    }
+  }
+}

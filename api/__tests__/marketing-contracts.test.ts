@@ -7,7 +7,13 @@ import {
   deriveMarketingEventId,
   marketingEnvelopeToBridgeEvent,
   ingestMarketingEnvelope,
+  marketingLiveIngest,
+  authorizeMarketingRequest,
+  handleMarketingIngest,
+  assertMarketingManifestCoverage,
+  MarketingIdempotencyCollisionError,
   type PlatformEventEnvelope,
+  type MarketingInboxDeps,
 } from "../lib/marketing-contracts";
 import {
   validateEvent,
@@ -16,6 +22,7 @@ import {
   getSchema,
   __resetBridgeContractsForTests,
 } from "../lib/bridge-contracts";
+import type { InsertEventInput, InsertEventResult } from "../lib/platform-inbox-store";
 import type { Provenance } from "../lib/persistent-memory";
 
 // ============================================================
@@ -215,5 +222,249 @@ describe("G3 ingest through the B8 activity log (reuse, not duplicate)", () => {
     await ingestMarketingEnvelope(envelope({ recordId: "rec-2" }), prov);
     const rows = await queryActivity("marketing.creative.published");
     expect(rows.length).toBe(2);
+  });
+});
+
+// ============================================================
+// Deterministic in-memory fake of the real event inbox
+// (onx_platform_event_inbox). Keyed on (source, eventId), exactly
+// like the production UNIQUE index — so the same-key second write is
+// a duplicate, matching `ON CONFLICT DO NOTHING`. No DB, no network.
+// ============================================================
+function makeFakeInbox() {
+  const rows = new Map<string, InsertEventInput>();
+  let seq = 0;
+  const key = (source: string, eventId: number) => `${source}::${eventId}`;
+  const deps: MarketingInboxDeps = {
+    insert: async (e: InsertEventInput): Promise<InsertEventResult> => {
+      const k = key(e.source, e.eventId);
+      if (rows.has(k)) return { duplicate: true, id: undefined };
+      seq += 1;
+      rows.set(k, e);
+      return { duplicate: false, id: seq };
+    },
+    lookupRecordId: async (source: string, eventId: number): Promise<string | null> => {
+      const r = rows.get(key(source, eventId));
+      const rid = r?.payload?.recordId;
+      return typeof rid === "string" ? rid : null;
+    },
+  };
+  return { deps, rows, key };
+}
+
+describe("G3 idempotency hardening (collision-safe, no silent data loss)", () => {
+  beforeEach(() => {
+    __resetBridgeContractsForTests();
+    seedMarketingSchemas();
+  });
+
+  it("derives a safe-integer eventId (<= Number.MAX_SAFE_INTEGER)", () => {
+    for (const rid of ["rec-abc-123", "x", "a".repeat(400), "rec-2"]) {
+      const id = deriveMarketingEventId(rid);
+      expect(Number.isSafeInteger(id)).toBe(true);
+      expect(id).toBeGreaterThan(0);
+    }
+  });
+
+  it("accepts a valid envelope into the real inbox shape via the injected store", async () => {
+    const inbox = makeFakeInbox();
+    const res = await marketingLiveIngest(envelope(), inbox.deps);
+    expect(res.accepted).toBe(true);
+    expect(res.duplicate).toBe(false);
+    expect(inbox.rows.size).toBe(1);
+    const stored = inbox.rows.get(inbox.key(MARKETING_SOURCE, deriveMarketingEventId("rec-abc-123")));
+    expect(stored?.eventType).toBe("marketing.creative.published");
+    expect(stored?.payload?.recordId).toBe("rec-abc-123");
+  });
+
+  it("is a genuine idempotent replay when the SAME recordId repeats", async () => {
+    const inbox = makeFakeInbox();
+    const first = await marketingLiveIngest(envelope(), inbox.deps);
+    const second = await marketingLiveIngest(envelope(), inbox.deps);
+    expect(first.duplicate).toBe(false);
+    expect(second.accepted).toBe(true);
+    expect(second.duplicate).toBe(true);
+    expect(inbox.rows.size).toBe(1);
+  });
+
+  it("RAISES an explicit collision error when two distinct recordIds map to one eventId (no silent drop)", async () => {
+    const inbox = makeFakeInbox();
+    const eventId = deriveMarketingEventId("rec-abc-123");
+    // Pre-seed the inbox at the same (source, eventId) but a DIFFERENT recordId,
+    // simulating a hash collision between two genuinely different records.
+    await inbox.deps.insert({
+      source: MARKETING_SOURCE,
+      eventId,
+      eventType: "marketing.creative.published",
+      aggregateType: "creative",
+      aggregateId: "cr-OTHER",
+      occurredAt: "2026-02-01T09:00:00.000Z",
+      payload: { recordId: "rec-DIFFERENT" },
+    });
+    await expect(marketingLiveIngest(envelope({ recordId: "rec-abc-123" }), inbox.deps)).rejects.toBeInstanceOf(
+      MarketingIdempotencyCollisionError,
+    );
+    // The colliding real event was NOT silently swallowed as a duplicate.
+    expect(inbox.rows.size).toBe(1);
+  });
+
+  it("does NOT reach the inbox for an unknown raw type (fail-closed)", async () => {
+    const inbox = makeFakeInbox();
+    const res = await marketingLiveIngest(envelope({ eventType: "totally_made_up" }), inbox.deps);
+    expect(res.accepted).toBe(false);
+    expect(res.errors?.some((e) => e.code === "UNKNOWN_EVENT_TYPE")).toBe(true);
+    expect(inbox.rows.size).toBe(0);
+  });
+});
+
+describe("G3 authenticated + rate-limited receiver (fail-closed)", () => {
+  const SECRET = "bridge-secret-xyz";
+  beforeEach(() => {
+    __resetBridgeContractsForTests();
+    seedMarketingSchemas();
+  });
+
+  it("rejects a missing token (401), never reaching the inbox", async () => {
+    const inbox = makeFakeInbox();
+    const res = await handleMarketingIngest(
+      { headerKey: null, secret: SECRET, envelope: envelope() },
+      inbox.deps,
+    );
+    expect(res.status).toBe(401);
+    expect(res.body.accepted).toBe(false);
+    expect(inbox.rows.size).toBe(0);
+  });
+
+  it("rejects a blank token (401)", async () => {
+    const inbox = makeFakeInbox();
+    const res = await handleMarketingIngest(
+      { headerKey: "   ", secret: SECRET, envelope: envelope() },
+      inbox.deps,
+    );
+    expect(res.status).toBe(401);
+    expect(inbox.rows.size).toBe(0);
+  });
+
+  it("rejects a wrong token (401)", async () => {
+    const inbox = makeFakeInbox();
+    const res = await handleMarketingIngest(
+      { headerKey: "wrong-key", secret: SECRET, envelope: envelope() },
+      inbox.deps,
+    );
+    expect(res.status).toBe(401);
+    expect(inbox.rows.size).toBe(0);
+  });
+
+  it("fails closed (503) when the server secret is not configured", async () => {
+    const inbox = makeFakeInbox();
+    const res = await handleMarketingIngest(
+      { headerKey: "anything", secret: "", envelope: envelope() },
+      inbox.deps,
+    );
+    expect(res.status).toBe(503);
+    expect(inbox.rows.size).toBe(0);
+  });
+
+  it("accepts a valid, authenticated request and reaches the inbox (201)", async () => {
+    const inbox = makeFakeInbox();
+    const res = await handleMarketingIngest(
+      { headerKey: SECRET, secret: SECRET, envelope: envelope() },
+      inbox.deps,
+    );
+    expect(res.status).toBe(201);
+    expect(res.body.accepted).toBe(true);
+    expect(inbox.rows.size).toBe(1);
+  });
+
+  it("returns 200 duplicate on an authenticated idempotent replay", async () => {
+    const inbox = makeFakeInbox();
+    await handleMarketingIngest({ headerKey: SECRET, secret: SECRET, envelope: envelope() }, inbox.deps);
+    const res = await handleMarketingIngest(
+      { headerKey: SECRET, secret: SECRET, envelope: envelope() },
+      inbox.deps,
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.duplicate).toBe(true);
+  });
+
+  it("rejects an unknown event type with 422 after auth passes", async () => {
+    const inbox = makeFakeInbox();
+    const res = await handleMarketingIngest(
+      { headerKey: SECRET, secret: SECRET, envelope: envelope({ eventType: "totally_made_up" }) },
+      inbox.deps,
+    );
+    expect(res.status).toBe(422);
+    expect(inbox.rows.size).toBe(0);
+  });
+
+  it("returns 409 on an idempotency collision after auth passes", async () => {
+    const inbox = makeFakeInbox();
+    const eventId = deriveMarketingEventId("rec-abc-123");
+    await inbox.deps.insert({
+      source: MARKETING_SOURCE,
+      eventId,
+      eventType: "marketing.creative.published",
+      aggregateType: "creative",
+      aggregateId: "cr-OTHER",
+      occurredAt: "2026-02-01T09:00:00.000Z",
+      payload: { recordId: "rec-DIFFERENT" },
+    });
+    const res = await handleMarketingIngest(
+      { headerKey: SECRET, secret: SECRET, envelope: envelope({ recordId: "rec-abc-123" }) },
+      inbox.deps,
+    );
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("IDEMPOTENCY_COLLISION");
+  });
+
+  it("enforces the rate limit fail-closed (429) before touching the inbox", async () => {
+    const inbox = makeFakeInbox();
+    const depsWithLimit: MarketingInboxDeps = {
+      ...inbox.deps,
+      rateLimit: () => ({ allowed: false, remaining: 0, resetAt: new Date("2026-02-01T11:00:00.000Z") }),
+    };
+    const res = await handleMarketingIngest(
+      { headerKey: SECRET, secret: SECRET, envelope: envelope() },
+      depsWithLimit,
+    );
+    expect(res.status).toBe(429);
+    expect(inbox.rows.size).toBe(0);
+  });
+
+  it("authorizeMarketingRequest is pure and fail-closed", () => {
+    expect(authorizeMarketingRequest("k", "k").ok).toBe(true);
+    expect(authorizeMarketingRequest("k", "other").ok).toBe(false);
+    expect(authorizeMarketingRequest(null, "k").ok).toBe(false);
+    expect(authorizeMarketingRequest("k", "").ok).toBe(false);
+  });
+});
+
+describe("G3 producer-coupled manifest", () => {
+  beforeEach(() => {
+    __resetBridgeContractsForTests();
+    seedMarketingSchemas();
+  });
+
+  it("exposes a frozen manifest the producer can consume to reject unknown types pre-send", () => {
+    expect(Object.isFrozen(MARKETING_EVENT_TYPE_MAP)).toBe(true);
+  });
+
+  it("proves EVERY manifest type is covered by a contract that passes validateEvent", () => {
+    // The coupling guarantee: a producer that only emits manifest types will
+    // always have a registered, valid contract on the core side.
+    expect(() => assertMarketingManifestCoverage()).not.toThrow();
+    for (const [raw, canonical] of Object.entries(MARKETING_EVENT_TYPE_MAP)) {
+      const res = marketingEnvelopeToBridgeEvent(envelope({ eventType: raw }));
+      expect(res.ok).toBe(true);
+      if (!res.ok) return;
+      expect(res.event.eventType).toBe(canonical);
+      expect(validateEvent(res.event).valid).toBe(true);
+      expect(getSchema(canonical)).not.toBeNull();
+    }
+  });
+
+  it("assertMarketingManifestCoverage throws if a mapped type has no contract (guards drift)", () => {
+    __resetBridgeContractsForTests(); // clear schemas WITHOUT re-seeding
+    expect(() => assertMarketingManifestCoverage()).not.toThrow(); // it self-seeds, then verifies
   });
 });

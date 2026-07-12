@@ -116,6 +116,27 @@ export async function countEvents(): Promise<number> {
   return Number(result.rows[0]?.count ?? 0);
 }
 
+/**
+ * Read back the stored `payload.recordId` for a given `(source, eventId)`.
+ * Used by the marketing live-ingest path to distinguish a genuine idempotent
+ * replay (same recordId) from a hash collision (different recordId on the same
+ * numeric eventId). Reuses the existing payload JSONB column — no schema change.
+ */
+export async function getInboxRecordIdByEventId(
+  source: string,
+  eventId: number,
+): Promise<string | null> {
+  await ensureSchema();
+  const result = await getPool().query<{ record_id: string | null }>(
+    `SELECT payload->>'recordId' AS record_id
+       FROM onx_platform_event_inbox
+      WHERE source = $1 AND event_id = $2
+      LIMIT 1`,
+    [source, eventId],
+  );
+  return result.rows[0]?.record_id ?? null;
+}
+
 // ============================================================
 // ANALYTICAL READ LAYER — Phase E1 "Mind reads body"
 // Read-only, parameterized queries over the event inbox.
