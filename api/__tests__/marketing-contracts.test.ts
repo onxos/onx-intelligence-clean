@@ -14,6 +14,7 @@ import {
   MarketingIdempotencyCollisionError,
   type PlatformEventEnvelope,
   type MarketingInboxDeps,
+  type MarketingCollisionSignal,
 } from "../lib/marketing-contracts";
 import {
   validateEvent,
@@ -328,6 +329,33 @@ describe("G3 idempotency hardening (collision-safe, no silent data loss)", () =>
     const replay = await marketingLiveIngest(envelope({ recordId: "rec-AAA" }), collidingDeps);
     expect(replay.accepted).toBe(true);
     expect(replay.duplicate).toBe(true);
+  });
+
+  it("emits an operator-visible structured collision signal (correlation + source + eventId) on the 409 path", async () => {
+    const inbox = makeFakeInbox();
+    const signals: MarketingCollisionSignal[] = [];
+    const collidingDeps: MarketingInboxDeps = {
+      ...inbox.deps,
+      deriveEventId: () => 555111,
+      emitCollision: (s) => signals.push(s),
+    };
+    await marketingLiveIngest(envelope({ recordId: "rec-X", traceId: "trace-777" }), collidingDeps);
+    await expect(
+      marketingLiveIngest(envelope({ recordId: "rec-Y", traceId: "trace-888" }), collidingDeps),
+    ).rejects.toBeInstanceOf(MarketingIdempotencyCollisionError);
+    // The collision was surfaced to the operator, not only to the caller.
+    expect(signals).toHaveLength(1);
+    expect(signals[0]).toMatchObject({
+      code: "IDEMPOTENCY_COLLISION",
+      source: MARKETING_SOURCE,
+      eventId: 555111,
+      incomingRecordId: "rec-Y",
+      storedRecordId: "rec-X",
+      traceId: "trace-888",
+    });
+    // A genuine idempotent replay of the SAME record does NOT emit a signal.
+    await marketingLiveIngest(envelope({ recordId: "rec-X", traceId: "trace-777" }), collidingDeps);
+    expect(signals).toHaveLength(1);
   });
 
   it("does NOT reach the inbox for an unknown raw type (fail-closed)", async () => {

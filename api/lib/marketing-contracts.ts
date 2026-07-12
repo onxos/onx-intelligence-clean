@@ -278,6 +278,42 @@ export interface MarketingInboxDeps {
    * deriver to prove the collision path raises `MarketingIdempotencyCollisionError`.
    */
   deriveEventId?: (recordId: string) => number;
+  /**
+   * Optional structured sink for the collision signal. Production leaves this
+   * unset (uses `emitMarketingCollisionSignal`, an operator-visible
+   * `console.error`). A rejected genuine event MUST be observable to the
+   * OPERATOR — not only to the caller via the 409 — otherwise a legitimate
+   * event silently dropped from the minds' view is a hidden availability gap.
+   */
+  emitCollision?: (signal: MarketingCollisionSignal) => void;
+}
+
+/**
+ * Operator-facing structured record of an idempotency-key collision. `source`
+ * and `eventId` locate the inbox row; `traceId`/`recordId` are the producer's
+ * NATURAL correlation identifiers (carried verbatim in the envelope) — NOT
+ * derived from the truncated hash, so the collision check is not circular.
+ */
+export interface MarketingCollisionSignal {
+  code: "IDEMPOTENCY_COLLISION";
+  source: string;
+  eventId: number;
+  incomingRecordId: string;
+  storedRecordId: string;
+  traceId: string | null;
+}
+
+/**
+ * Default operator-visible emitter for a collision. Mirrors the repo's
+ * `[prefix] non-fatal` structured `console.error` discipline so the collision
+ * surfaces in logs/metrics for the operator, never silently.
+ */
+export function emitMarketingCollisionSignal(signal: MarketingCollisionSignal): void {
+  console.error(
+    `[marketing-ingest][IDEMPOTENCY_COLLISION] source=${signal.source} eventId=${signal.eventId} ` +
+      `traceId=${signal.traceId ?? "n/a"} storedRecordId=${signal.storedRecordId} ` +
+      `incomingRecordId=${signal.incomingRecordId}`,
+  );
 }
 
 /**
@@ -356,6 +392,20 @@ export async function marketingLiveIngest(
     const incoming = String(ev.payload.recordId ?? "");
     const stored = await deps.lookupRecordId(ev.source, ev.eventId);
     if (stored !== null && stored !== incoming) {
+      // Make the collision OPERATIONALLY visible (structured, correlated) before
+      // failing the caller — a legitimate event rejected 409 without an operator
+      // trace would be a hidden availability gap. The correlation ids (traceId,
+      // recordId) are the producer's natural identifiers, independent of the
+      // truncated hash, so this detection is not circular.
+      const emit = deps.emitCollision ?? emitMarketingCollisionSignal;
+      emit({
+        code: "IDEMPOTENCY_COLLISION",
+        source: ev.source,
+        eventId: ev.eventId,
+        incomingRecordId: incoming,
+        storedRecordId: stored,
+        traceId: typeof ev.payload.traceId === "string" ? ev.payload.traceId : null,
+      });
       throw new MarketingIdempotencyCollisionError(ev.eventId, incoming, stored);
     }
     return { accepted: true, duplicate: true, id: result.id, eventId: ev.eventId };
