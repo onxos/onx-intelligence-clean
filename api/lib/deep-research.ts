@@ -16,6 +16,7 @@
 //     claims with no source are rejected (citation is mandatory).
 //   • Bounded — recursion depth is capped by a documented maximum.
 // ============================================================
+import { createHash } from "node:crypto";
 import {
   runRealityPipeline,
   type RawInput,
@@ -35,19 +36,89 @@ export class DeepResearchError extends Error {
   }
 }
 
-// --- Documented, deterministic defaults ---
+// --- Documented, deterministic defaults & governance bounds ---
 /** A source below this reliability is excluded (fail-closed). */
 export const DEFAULT_RELIABILITY_THRESHOLD = 0.5;
-/** Recursion is never deeper than this; a documented, finite bound. */
+/** Default recursion depth when the caller omits one. */
 export const DEFAULT_MAX_DEPTH = 2;
+/**
+ * HARD, server-owned ceiling on recursion depth. The loop fans out as
+ * facets^depth, so an unbounded caller-supplied depth is a DoS vector; the
+ * effective depth is always `Math.min(requested, MAX_DEPTH_HARD_CAP)`. A
+ * caller can never exceed this, regardless of input.
+ */
+export const MAX_DEPTH_HARD_CAP = 3;
+/**
+ * HARD ceiling on the total number of sources collected across the whole
+ * run. Collection stops once this is reached (fail-closed against a provider
+ * that returns an unbounded stream). Documented, server-owned bound.
+ */
+export const MAX_TOTAL_SOURCES = 500;
 /** The closed facet set a question is decomposed into at plan time. */
 export const DEFAULT_FACETS = [
   "التعريف والنطاق",
   "الأدلة والبيانات",
   "التناقضات والحدود",
 ];
-/** Deterministic fallback timestamp when the caller omits `now`. */
-const EPOCH = "1970-01-01T00:00:00.000Z";
+
+/**
+ * Explicit provenance of the retrieval backend behind a run:
+ *   • "live"        — a real, networked retrieval backend produced the data.
+ *   • "demo"        — a deterministic, server-owned illustrative provider.
+ *   • "unavailable" — no backend is wired; the report is honestly empty.
+ * This is surfaced on every report so an empty result is never silently
+ * mistaken for "researched and found nothing".
+ */
+export type ProviderStatus = "live" | "demo" | "unavailable";
+
+/**
+ * Fail-closed clock guard. There is NO fabricated-time fallback: a run
+ * without a valid, server-owned ISO timestamp is rejected outright so that
+ * validation (future-dating) and provenance can never be stamped with a
+ * fake epoch.
+ */
+function assertClock(now?: string): string {
+  if (typeof now !== "string" || collapse(now).length === 0) {
+    throw new DeepResearchError(
+      "NO_CLOCK",
+      "الساعة (now) مطلوبة — لا زمن افتراضي (fail-closed)",
+    );
+  }
+  if (Number.isNaN(Date.parse(now))) {
+    throw new DeepResearchError("NO_CLOCK", `الساعة (now) غير صالحة: ${now}`);
+  }
+  return now;
+}
+
+/**
+ * Deterministic SHA-256 content hash of a source, over a canonical,
+ * order-stable serialization — lets an auditor verify exactly what was
+ * gathered without trusting the engine's self-report.
+ */
+export function computeSourceHash(s: ResearchSource): string {
+  const canonical = JSON.stringify({
+    id: s?.id ?? null,
+    title: s?.title ?? null,
+    publishedAt: s?.publishedAt ?? null,
+    reliability: typeof s?.reliability === "number" ? s.reliability : null,
+    claims: Array.isArray(s?.claims)
+      ? [...s.claims]
+          .map((c) => ({
+            id: c?.id ?? null,
+            subject: c?.subject ?? null,
+            predicate: c?.predicate ?? null,
+            object: c?.object ?? null,
+            text: c?.text ?? null,
+          }))
+          .sort((a, b) =>
+            `${a.subject}|${a.predicate}|${a.object}`.localeCompare(
+              `${b.subject}|${b.predicate}|${b.object}`,
+            ),
+          )
+      : null,
+  });
+  return createHash("sha256").update(canonical).digest("hex");
+}
 
 // ============================================================
 // Types
@@ -138,16 +209,31 @@ export interface ReportStats {
   sourcesExcluded: number;
   claims: number;
   maxDepthReached: number;
+  /** True when a hard governance cap (depth or total sources) was hit. */
+  capHit: boolean;
+}
+
+/** An auditable digest of a single collected source. */
+export interface SourceDigest {
+  id: string;
+  sourceHash: string;
+  status: "accepted" | "excluded";
 }
 
 export interface ResearchReport {
   question: string;
   maxDepth: number;
+  /** The server-owned hard ceiling that bounded this run. */
+  maxDepthCap: number;
+  /** Explicit provenance of the retrieval backend (never assumed "live"). */
+  providerStatus: ProviderStatus;
   claims: CitedClaim[];
   rejectedClaims: { id: string; reason: string }[];
   contradictions: ReportContradiction[];
   unresolvedCount: number;
   excludedSources: ExcludedSource[];
+  /** Content hashes of every collected source, for independent audit. */
+  sources: SourceDigest[];
   stats: ReportStats;
 }
 
@@ -161,8 +247,11 @@ export interface RunOptions {
   facets?: string[];
   maxDepth?: number;
   reliabilityThreshold?: number;
+  /** Server-owned clock (ISO). REQUIRED — no fabricated fallback. */
   now?: string;
   ontology?: Ontology;
+  /** Declared provenance of the injected provider. Defaults to "demo". */
+  providerStatus?: ProviderStatus;
 }
 
 // ============================================================
@@ -260,7 +349,7 @@ export function validateSources(
   sources: ResearchSource[],
   opts: ValidateOptions = {},
 ): ValidationOutcome {
-  const now = opts.now ?? EPOCH;
+  const now = assertClock(opts.now);
   const threshold = opts.reliabilityThreshold ?? DEFAULT_RELIABILITY_THRESHOLD;
   const nowMs = Date.parse(now);
 
@@ -370,7 +459,7 @@ export function detectResearchContradictions(
   candidates: CandidateClaim[],
   opts: ContradictionOptions = {},
 ): ReportContradiction[] {
-  const now = opts.now ?? EPOCH;
+  const now = assertClock(opts.now);
   // Turn each candidate claim into a RawInput with provenance, then let the
   // B5 pipeline do ALL of the contradiction work — no logic duplicated here.
   const inputs: RawInput[] = candidates.map((c) => ({
@@ -402,12 +491,15 @@ export function detectResearchContradictions(
 // STATE 5 — report (mandatory citation, surfaced contradictions)
 // ============================================================
 export interface ReportOptions {
-  now?: string;
   maxDepth?: number;
+  maxDepthCap?: number;
+  providerStatus?: ProviderStatus;
   subQueries?: number;
   sourcesCollected?: number;
   sourcesAccepted?: number;
   maxDepthReached?: number;
+  sources?: SourceDigest[];
+  capHit?: boolean;
 }
 
 export function buildReport(
@@ -449,16 +541,23 @@ export function buildReport(
     a.id.localeCompare(b.id),
   );
 
+  const sources = [...(opts.sources ?? [])].sort((a, b) =>
+    a.id === b.id ? a.status.localeCompare(b.status) : a.id.localeCompare(b.id),
+  );
+
   const unresolvedCount = contradictions.filter((c) => !c.resolved).length;
 
   return {
     question: collapse(question),
     maxDepth: opts.maxDepth ?? DEFAULT_MAX_DEPTH,
+    maxDepthCap: opts.maxDepthCap ?? MAX_DEPTH_HARD_CAP,
+    providerStatus: opts.providerStatus ?? "demo",
     claims,
     rejectedClaims,
     contradictions,
     unresolvedCount,
     excludedSources,
+    sources,
     stats: {
       subQueries: opts.subQueries ?? 0,
       sourcesCollected: opts.sourcesCollected ?? 0,
@@ -466,6 +565,7 @@ export function buildReport(
       sourcesExcluded: excludedSources.length,
       claims: claims.length,
       maxDepthReached: opts.maxDepthReached ?? 0,
+      capHit: opts.capHit ?? false,
     },
   };
 }
@@ -478,38 +578,62 @@ export async function runDeepResearch(
   provider: SourceProvider,
   opts: RunOptions = {},
 ): Promise<ResearchReport> {
-  const now = opts.now ?? EPOCH;
-  const maxDepth = opts.maxDepth ?? DEFAULT_MAX_DEPTH;
+  // Server-owned clock, fail-closed — no fabricated epoch fallback.
+  const now = assertClock(opts.now);
+  // Depth is HARD-clamped to the server-owned ceiling; a caller can never
+  // exceed MAX_DEPTH_HARD_CAP (guards the facets^depth fan-out / DoS).
+  const requestedDepth = opts.maxDepth ?? DEFAULT_MAX_DEPTH;
+  const maxDepth = Math.min(Math.max(1, requestedDepth), MAX_DEPTH_HARD_CAP);
   const facets = opts.facets ?? DEFAULT_FACETS;
   const threshold = opts.reliabilityThreshold ?? DEFAULT_RELIABILITY_THRESHOLD;
+  const providerStatus: ProviderStatus = opts.providerStatus ?? "demo";
 
   // Fail-closed up front: an empty question never starts a run.
   planResearch(question, { facets, maxDepth });
 
   const acceptedById = new Map<string, ResearchSource>();
   const excluded: ExcludedSource[] = [];
+  const digestById = new Map<string, SourceDigest>();
   let sourcesCollected = 0;
   let subQueryCount = 0;
   let maxDepthReached = 0;
+  let capHit = false;
 
   async function gather(q: string, depth: number): Promise<void> {
     maxDepthReached = Math.max(maxDepthReached, depth);
     const plan = planResearch(q, { facets, maxDepth, depth });
     subQueryCount += plan.subQueries.length;
 
-    const sources = await collectSources(plan.subQueries, provider);
+    const collected = await collectSources(plan.subQueries, provider);
+
+    // HARD total-source cap — stop admitting sources once the ceiling is hit.
+    const remaining = MAX_TOTAL_SOURCES - sourcesCollected;
+    const sources = collected.slice(0, Math.max(0, remaining));
+    if (sources.length < collected.length) capHit = true;
     sourcesCollected += sources.length;
 
     const outcome = validateSources(sources, {
       now,
       reliabilityThreshold: threshold,
     });
+    const acceptedSet = new Set(outcome.accepted);
     for (const s of outcome.accepted) {
       if (!acceptedById.has(s.id)) acceptedById.set(s.id, s);
     }
     for (const e of outcome.excluded) excluded.push(e);
+    // Auditable digest of every collected source (accepted or excluded).
+    for (const s of sources) {
+      const id = s?.id && collapse(s.id).length > 0 ? s.id : "?";
+      const status: SourceDigest["status"] = acceptedSet.has(s)
+        ? "accepted"
+        : "excluded";
+      const key = `${id}:${status}`;
+      if (!digestById.has(key)) {
+        digestById.set(key, { id, sourceHash: computeSourceHash(s), status });
+      }
+    }
 
-    if (depth < maxDepth) {
+    if (depth < maxDepth && sourcesCollected < MAX_TOTAL_SOURCES) {
       for (const sq of plan.subQueries) {
         await gather(sq.question, depth + 1);
       }
@@ -526,11 +650,49 @@ export async function runDeepResearch(
   });
 
   return buildReport(question, candidates, contradictions, excluded, {
-    now,
     maxDepth,
+    maxDepthCap: MAX_DEPTH_HARD_CAP,
+    providerStatus,
     subQueries: subQueryCount,
     sourcesCollected,
     sourcesAccepted: accepted.length,
     maxDepthReached,
+    sources: [...digestById.values()],
+    capHit,
   });
+}
+
+// ============================================================
+// Server-owned providers (the swap-point). A production tRPC surface MUST
+// use one of these — it never accepts caller-supplied fixtures.
+// ============================================================
+/** No live backend is wired: yields nothing → an honest, empty report. */
+export function makeUnavailableProvider(): SourceProvider {
+  return async () => [];
+}
+
+/** A deterministic, server-owned illustrative provider. Its data is clearly
+ *  labelled DEMO so it is never mistaken for live retrieval. */
+export function makeDemoProvider(): SourceProvider {
+  return async (q: SubQuery) => {
+    if (q.facet === DEFAULT_FACETS[1]) {
+      return [
+        {
+          id: `demo-${q.id}`,
+          title: `DEMO: مصدر توضيحي (${q.facet})`,
+          publishedAt: "2020-01-01T00:00:00.000Z",
+          reliability: 0.8,
+          claims: [
+            {
+              id: `demo-cl-${q.id}`,
+              subject: "onx",
+              predicate: "is",
+              object: "demo",
+            },
+          ],
+        },
+      ];
+    }
+    return [];
+  };
 }

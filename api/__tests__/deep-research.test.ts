@@ -30,8 +30,13 @@ import {
   buildReport,
   runDeepResearch,
   makeStaticProvider,
+  makeDemoProvider,
+  makeUnavailableProvider,
+  computeSourceHash,
   DEFAULT_RELIABILITY_THRESHOLD,
   DEFAULT_MAX_DEPTH,
+  MAX_DEPTH_HARD_CAP,
+  MAX_TOTAL_SOURCES,
   DeepResearchError,
   type ResearchSource,
   type SourceProvider,
@@ -166,7 +171,7 @@ describe("contradict — reuses B5 reality pipeline (K1 state 4)", () => {
     const b = extractClaims([
       src({ id: "sB", reliability: 0.7, claims: [{ id: "b1", subject: "Egypt", predicate: "capital-of", object: "Alexandria" }] }),
     ]);
-    const contradictions = detectResearchContradictions([...a, ...b]);
+    const contradictions = detectResearchContradictions([...a, ...b], { now: NOW });
     expect(contradictions).toHaveLength(1);
     expect(contradictions[0].kind).toBe("FUNCTIONAL_CONFLICT");
     // Resolvable by confidence (0.9 vs 0.7) → resolved.
@@ -180,7 +185,7 @@ describe("contradict — reuses B5 reality pipeline (K1 state 4)", () => {
     const b = extractClaims([
       src({ id: "sB", reliability: 0.8, claims: [{ id: "b1", subject: "Egypt", predicate: "population-of", object: "110M" }] }),
     ]);
-    const contradictions = detectResearchContradictions([...a, ...b]);
+    const contradictions = detectResearchContradictions([...a, ...b], { now: NOW });
     expect(contradictions).toHaveLength(1);
     expect(contradictions[0].resolved).toBe(false);
   });
@@ -190,7 +195,7 @@ describe("contradict — reuses B5 reality pipeline (K1 state 4)", () => {
       src({ id: "sA", claims: [{ id: "a1", subject: "Egypt", predicate: "capital-of", object: "Cairo" }] }),
       src({ id: "sB", claims: [{ id: "b1", subject: "Egypt", predicate: "capital-of", object: "Cairo" }] }),
     ]);
-    expect(detectResearchContradictions(claims)).toHaveLength(0);
+    expect(detectResearchContradictions(claims, { now: NOW })).toHaveLength(0);
   });
 });
 
@@ -202,7 +207,7 @@ describe("report — mandatory citation, contradictions surfaced (K1 state 5)", 
     const candidates = extractClaims([
       src({ id: "sA", claims: [{ id: "a1", subject: "Egypt", predicate: "capital-of", object: "Cairo" }] }),
     ]);
-    const report = buildReport("ما عاصمة مصر؟", candidates, [], [], { now: NOW });
+    const report = buildReport("ما عاصمة مصر؟", candidates, [], [], {});
     expect(report.claims).toHaveLength(1);
     expect(report.claims[0].sourceIds).toContain("sA");
     expect(report.rejectedClaims).toHaveLength(0);
@@ -212,7 +217,7 @@ describe("report — mandatory citation, contradictions surfaced (K1 state 5)", 
     const uncited = [
       { id: "u1", subject: "X", predicate: "is", object: "Y", sourceIds: [] as string[] },
     ];
-    const report = buildReport("س", uncited, [], [], { now: NOW });
+    const report = buildReport("س", uncited, [], [], {});
     expect(report.claims).toHaveLength(0);
     expect(report.rejectedClaims).toHaveLength(1);
     expect(report.rejectedClaims[0].id).toBe("u1");
@@ -223,7 +228,7 @@ describe("report — mandatory citation, contradictions surfaced (K1 state 5)", 
       src({ id: "sA", claims: [{ id: "a1", subject: "Egypt", predicate: "capital-of", object: "Cairo" }] }),
       src({ id: "sB", claims: [{ id: "b1", subject: "Egypt", predicate: "capital-of", object: "Cairo" }] }),
     ]);
-    const report = buildReport("س", candidates, [], [], { now: NOW });
+    const report = buildReport("س", candidates, [], [], {});
     expect(report.claims).toHaveLength(1);
     expect(report.claims[0].sourceIds.sort()).toEqual(["sA", "sB"]);
   });
@@ -236,8 +241,8 @@ describe("report — mandatory citation, contradictions surfaced (K1 state 5)", 
       src({ id: "sB", reliability: 0.8, claims: [{ id: "b1", subject: "Egypt", predicate: "population-of", object: "110M" }] }),
     ]);
     const all = [...a, ...b];
-    const contradictions = detectResearchContradictions(all);
-    const report = buildReport("س", all, contradictions, [], { now: NOW });
+    const contradictions = detectResearchContradictions(all, { now: NOW });
+    const report = buildReport("س", all, contradictions, [], {});
     expect(report.contradictions).toHaveLength(1);
     expect(report.unresolvedCount).toBe(1);
   });
@@ -302,5 +307,127 @@ describe("runDeepResearch — end-to-end loop (K1)", () => {
     const report = await runDeepResearch("س", badProvider, { now: NOW });
     expect(report.claims).toHaveLength(0);
     expect(report.stats.sourcesExcluded).toBeGreaterThan(0);
+  });
+});
+
+// ------------------------------------------------------------------
+// GOVERNANCE HARDENING — server-owned clock, hard caps, source hashing,
+// explicit provider status, server-owned providers (gate #65 remediation)
+// ------------------------------------------------------------------
+describe("governance — server-owned clock (fail-closed, no fabricated time)", () => {
+  it("REJECTS a run with no clock (no EPOCH fallback)", async () => {
+    const provider = makeStaticProvider({});
+    await expect(runDeepResearch("س", provider, {})).rejects.toThrow(/NO_CLOCK/);
+  });
+
+  it("REJECTS a run with an invalid clock string", async () => {
+    const provider = makeStaticProvider({});
+    await expect(
+      runDeepResearch("س", provider, { now: "not-a-date" }),
+    ).rejects.toThrow(DeepResearchError);
+  });
+
+  it("validateSources and detectResearchContradictions also require a clock", () => {
+    expect(() => validateSources([src()], {})).toThrow(/NO_CLOCK/);
+    const c = extractClaims([src()]);
+    expect(() => detectResearchContradictions(c, {})).toThrow(/NO_CLOCK/);
+  });
+});
+
+describe("governance — hard, server-owned recursion & source caps", () => {
+  it("CLAMPS caller-supplied depth to MAX_DEPTH_HARD_CAP (DoS guard)", async () => {
+    let maxSeen = 0;
+    const spy: SourceProvider = async (q: SubQuery) => {
+      maxSeen = Math.max(maxSeen, q.depth);
+      return [];
+    };
+    await runDeepResearch("س", spy, { now: NOW, maxDepth: 999 });
+    expect(maxSeen).toBe(MAX_DEPTH_HARD_CAP);
+    expect(MAX_DEPTH_HARD_CAP).toBeLessThan(999);
+  });
+
+  it("CAPS the total number of collected sources and flags capHit", async () => {
+    // One sub-query floods more sources than the hard cap allows.
+    const flood: ResearchSource[] = Array.from(
+      { length: MAX_TOTAL_SOURCES + 25 },
+      (_unused, i) =>
+        src({
+          id: `f${i}`,
+          claims: [{ id: `c${i}`, subject: "A", predicate: "is", object: "B" }],
+        }),
+    );
+    const floodProvider: SourceProvider = async (q: SubQuery) =>
+      q.facet === "الأدلة والبيانات" ? flood : [];
+    const report = await runDeepResearch("س", floodProvider, {
+      now: NOW,
+      maxDepth: 1,
+    });
+    expect(report.stats.sourcesCollected).toBeLessThanOrEqual(MAX_TOTAL_SOURCES);
+    expect(report.stats.capHit).toBe(true);
+  });
+});
+
+describe("governance — auditable per-source content hashes", () => {
+  it("computeSourceHash is a deterministic 64-hex SHA-256 digest", () => {
+    const h1 = computeSourceHash(src({ id: "s1" }));
+    const h2 = computeSourceHash(src({ id: "s1" }));
+    expect(h1).toMatch(/^[a-f0-9]{64}$/);
+    expect(h1).toBe(h2);
+  });
+
+  it("different source content yields a different hash", () => {
+    const a = computeSourceHash(
+      src({ id: "s1", claims: [{ id: "c", subject: "X", predicate: "is", object: "Y" }] }),
+    );
+    const b = computeSourceHash(
+      src({ id: "s1", claims: [{ id: "c", subject: "X", predicate: "is", object: "Z" }] }),
+    );
+    expect(a).not.toBe(b);
+  });
+
+  it("the report carries a hash digest for every collected source", async () => {
+    const provider: SourceProvider = async (q: SubQuery) =>
+      q.facet === "الأدلة والبيانات" ? [src({ id: "sX" })] : [];
+    const report = await runDeepResearch("س", provider, { now: NOW, maxDepth: 1 });
+    expect(report.sources.length).toBeGreaterThan(0);
+    for (const d of report.sources) {
+      expect(d.sourceHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(["accepted", "excluded"]).toContain(d.status);
+    }
+  });
+});
+
+describe("governance — explicit provider status & server-owned providers", () => {
+  it("surfaces an explicit providerStatus (never assumed live)", async () => {
+    const report = await runDeepResearch("س", makeUnavailableProvider(), {
+      now: NOW,
+      providerStatus: "unavailable",
+    });
+    expect(report.providerStatus).toBe("unavailable");
+    expect(report.claims).toHaveLength(0);
+  });
+
+  it("makeUnavailableProvider yields nothing for any query (honest empty)", async () => {
+    const provider = makeUnavailableProvider();
+    const out = await provider({ id: "q", question: "q", facet: "x", depth: 1 });
+    expect(out).toEqual([]);
+  });
+
+  it("makeDemoProvider is deterministic and labelled DEMO", async () => {
+    const provider = makeDemoProvider();
+    const report = await runDeepResearch("س", provider, {
+      now: NOW,
+      providerStatus: "demo",
+    });
+    expect(report.providerStatus).toBe("demo");
+    expect(report.claims.length).toBeGreaterThan(0);
+    for (const d of report.sources) {
+      expect(d.id.startsWith("demo-")).toBe(true);
+    }
+    const again = await runDeepResearch("س", makeDemoProvider(), {
+      now: NOW,
+      providerStatus: "demo",
+    });
+    expect(again).toEqual(report);
   });
 });

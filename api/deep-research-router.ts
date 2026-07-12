@@ -2,46 +2,33 @@
 // DEEP RESEARCH ROUTER — K1 over tRPC
 //
 // Surfaces the deterministic deep-research loop:
-//   • plan — decompose a question into a closed sub-query list
-//   • run  — execute plan→collect→validate→contradict→report over an
-//            explicit, caller-supplied source fixture map (the injectable
-//            provider port). Keyless & deterministic; there is no hidden
-//            live-retrieval backend, so an empty fixture map honestly
-//            yields an empty (but well-formed) report — no fabricated data.
+//   • plan — decompose a question into a closed sub-query list.
+//   • run  — execute plan→collect→validate→contradict→report.
 //
-// Contradiction handling is delegated to the B5 reality pipeline inside
-// the engine; nothing is re-implemented here.
+// GOVERNANCE (server-owned, fail-closed):
+//   • The CLOCK is owned by the server (`new Date()`), never supplied by the
+//     caller — there is no fabricated-time fallback in the engine.
+//   • The PROVIDER is owned by the server. The client CANNOT inject source
+//     fixtures; it may only opt into a clearly-labelled, deterministic DEMO
+//     provider. With no live backend wired, the default is "unavailable" and
+//     the report is honestly empty (with an explicit `providerStatus`).
+//   • Recursion depth is clamped to the server-owned MAX_DEPTH_HARD_CAP both
+//     at the schema boundary and again inside the engine (defence in depth).
+//
+// Contradiction handling is delegated to the B5 reality pipeline inside the
+// engine; nothing is re-implemented here.
 // ============================================================
 import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 import {
   planResearch,
   runDeepResearch,
-  makeStaticProvider,
+  makeDemoProvider,
+  makeUnavailableProvider,
   DEFAULT_MAX_DEPTH,
-  type ResearchSource,
+  MAX_DEPTH_HARD_CAP,
+  type ProviderStatus,
 } from "./lib/deep-research";
-
-const claimSchema = z.object({
-  id: z.string().min(1),
-  subject: z.string().min(1),
-  predicate: z.string().min(1),
-  object: z.string().min(1),
-  text: z.string().optional(),
-});
-
-const sourceSchema = z.object({
-  id: z.string().min(1),
-  title: z.string(),
-  publishedAt: z.string(),
-  reliability: z.number(),
-  claims: z.array(claimSchema),
-});
-
-const fixtureSchema = z.object({
-  queryId: z.string().min(1),
-  sources: z.array(sourceSchema),
-});
 
 export const deepResearchRouter = createRouter({
   // Decompose a research question into a closed, deterministic sub-query set.
@@ -50,7 +37,7 @@ export const deepResearchRouter = createRouter({
       z.object({
         question: z.string().min(1),
         facets: z.array(z.string().min(1)).optional(),
-        maxDepth: z.number().int().min(1).optional(),
+        maxDepth: z.number().int().min(1).max(MAX_DEPTH_HARD_CAP).optional(),
       }),
     )
     .query(({ input }) =>
@@ -60,28 +47,33 @@ export const deepResearchRouter = createRouter({
       }),
     ),
 
-  // Run the full loop over an explicit fixture map (injected provider).
+  // Run the full loop with a SERVER-OWNED provider and clock. No caller
+  // fixtures and no caller clock are accepted.
   run: publicQuery
     .input(
       z.object({
         question: z.string().min(1),
-        fixtures: z.array(fixtureSchema).optional(),
-        maxDepth: z.number().int().min(1).optional(),
+        /** Opt into the deterministic, server-owned DEMO provider. */
+        demo: z.boolean().optional(),
+        maxDepth: z.number().int().min(1).max(MAX_DEPTH_HARD_CAP).optional(),
         reliabilityThreshold: z.number().min(0).max(1).optional(),
-        /** Deterministic clock; defaults inside the engine. */
-        now: z.string().optional(),
       }),
     )
     .query(async ({ input }) => {
-      const byQueryId: Record<string, ResearchSource[]> = {};
-      for (const f of input.fixtures ?? []) {
-        byQueryId[f.queryId] = f.sources;
-      }
-      const provider = makeStaticProvider(byQueryId);
+      // Server owns the clock — real time, never a caller-supplied value.
+      const now = new Date().toISOString();
+      // Server owns the provider — no live backend is wired, so absent an
+      // explicit demo opt-in the status is honestly "unavailable".
+      const useDemo = input.demo === true;
+      const provider = useDemo
+        ? makeDemoProvider()
+        : makeUnavailableProvider();
+      const providerStatus: ProviderStatus = useDemo ? "demo" : "unavailable";
       return runDeepResearch(input.question, provider, {
+        now,
         maxDepth: input.maxDepth ?? DEFAULT_MAX_DEPTH,
         reliabilityThreshold: input.reliabilityThreshold,
-        now: input.now,
+        providerStatus,
       });
     }),
 });
