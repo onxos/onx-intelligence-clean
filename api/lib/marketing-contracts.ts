@@ -150,7 +150,10 @@ function isNonEmptyString(value: unknown): value is string {
  * blank identity field, or a non-ISO timestamp yields `ok:false` with
  * explicit errors and NO event — nothing is guessed or coerced.
  */
-export function marketingEnvelopeToBridgeEvent(envelope: PlatformEventEnvelope): EnvelopeConversion {
+export function marketingEnvelopeToBridgeEvent(
+  envelope: PlatformEventEnvelope,
+  deriveId: (recordId: string) => number = deriveMarketingEventId,
+): EnvelopeConversion {
   const errors: ValidationError[] = [];
   const e = envelope ?? ({} as PlatformEventEnvelope);
   const metadata = e.metadata ?? ({} as PlatformEventEnvelope["metadata"]);
@@ -194,7 +197,7 @@ export function marketingEnvelopeToBridgeEvent(envelope: PlatformEventEnvelope):
     eventType: canonical,
     version: 1,
     source: MARKETING_SOURCE,
-    eventId: deriveMarketingEventId(e.recordId),
+    eventId: deriveId(e.recordId),
     aggregateType: metadata.entityType,
     aggregateId: metadata.entityId,
     occurredAt: e.occurredAt,
@@ -269,6 +272,12 @@ export interface MarketingInboxDeps {
   lookupRecordId: (source: string, eventId: number) => Promise<string | null>;
   rateLimit?: (key: string) => { allowed: boolean; remaining: number; resetAt: Date };
   now?: () => string;
+  /**
+   * Optional override for the numeric eventId derivation. Production leaves this
+   * unset (uses `deriveMarketingEventId`). Tests inject a deliberately colliding
+   * deriver to prove the collision path raises `MarketingIdempotencyCollisionError`.
+   */
+  deriveEventId?: (recordId: string) => number;
 }
 
 /**
@@ -312,7 +321,7 @@ export async function marketingLiveIngest(
   envelope: PlatformEventEnvelope,
   deps: MarketingInboxDeps,
 ): Promise<MarketingLiveIngestResult> {
-  const conversion = marketingEnvelopeToBridgeEvent(envelope);
+  const conversion = marketingEnvelopeToBridgeEvent(envelope, deps.deriveEventId);
   if (!conversion.ok) {
     return { accepted: false, errors: conversion.errors };
   }
@@ -338,6 +347,12 @@ export async function marketingLiveIngest(
   const result = await deps.insert(insertInput);
 
   if (result.duplicate) {
+    // The unique `(source, eventId)` index rejected this write, so a row for
+    // that key is already committed (ON CONFLICT DO NOTHING waits out any
+    // concurrent inserter before reporting the conflict). The subsequent
+    // read-back therefore returns a stable, committed recordId — no read/write
+    // race: a matching recordId is a genuine idempotent replay; a different one
+    // is a true hash collision and is raised loudly rather than dropped.
     const incoming = String(ev.payload.recordId ?? "");
     const stored = await deps.lookupRecordId(ev.source, ev.eventId);
     if (stored !== null && stored !== incoming) {
@@ -412,7 +427,9 @@ export async function handleMarketingIngest(
   }
 
   if (deps.rateLimit) {
-    const key = req.rateLimitKey ?? req.envelope?.workspaceId ?? "marketing";
+    // Namespace the marketing bucket so it never consumes the general
+    // `ingestEvent`/`consult` quota (separate key space per the gate decision).
+    const key = req.rateLimitKey ?? `marketing:${req.envelope?.workspaceId ?? "default"}`;
     const rc = deps.rateLimit(key);
     if (!rc.allowed) {
       return {

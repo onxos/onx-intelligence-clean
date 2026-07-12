@@ -501,7 +501,9 @@ export const titanBridgeRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       assertBridgeAccess(ctx);
 
-      const rateCheck = rateLimiter.checkLimit(input.workspaceId);
+      // Namespaced rate-limit bucket: marketing traffic gets its own quota and
+      // does NOT consume the general `ingestEvent`/`consult` allowance.
+      const rateCheck = rateLimiter.checkLimit(`marketing:${input.workspaceId}`);
       if (!rateCheck.allowed) {
         throw new Error(
           `RATE_LIMIT_EXCEEDED: ${rateCheck.remaining} remaining, resets at ${rateCheck.resetAt.toISOString()}`,

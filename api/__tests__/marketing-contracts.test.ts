@@ -308,6 +308,28 @@ describe("G3 idempotency hardening (collision-safe, no silent data loss)", () =>
     expect(inbox.rows.size).toBe(1);
   });
 
+  it("detects a collision through an INJECTED deliberately-colliding hash (two distinct records → 409, no drop)", async () => {
+    const inbox = makeFakeInbox();
+    // A fake deriver that maps EVERY recordId to the same eventId — the worst
+    // case the 52-bit truncation could ever produce. Two genuinely different
+    // records must NOT be silently deduplicated; the second must raise 409.
+    const collidingDeps: MarketingInboxDeps = { ...inbox.deps, deriveEventId: () => 424242 };
+    const first = await marketingLiveIngest(envelope({ recordId: "rec-AAA" }), collidingDeps);
+    expect(first.accepted).toBe(true);
+    expect(first.duplicate).toBe(false);
+    await expect(
+      marketingLiveIngest(envelope({ recordId: "rec-BBB" }), collidingDeps),
+    ).rejects.toBeInstanceOf(MarketingIdempotencyCollisionError);
+    // Only the first record was stored; the colliding second was neither stored
+    // nor silently dropped — it surfaced loudly.
+    expect(inbox.rows.size).toBe(1);
+    // The SAME record replayed under the colliding deriver is still a genuine
+    // idempotent replay (same recordId → no error).
+    const replay = await marketingLiveIngest(envelope({ recordId: "rec-AAA" }), collidingDeps);
+    expect(replay.accepted).toBe(true);
+    expect(replay.duplicate).toBe(true);
+  });
+
   it("does NOT reach the inbox for an unknown raw type (fail-closed)", async () => {
     const inbox = makeFakeInbox();
     const res = await marketingLiveIngest(envelope({ eventType: "totally_made_up" }), inbox.deps);
@@ -429,6 +451,23 @@ describe("G3 authenticated + rate-limited receiver (fail-closed)", () => {
     );
     expect(res.status).toBe(429);
     expect(inbox.rows.size).toBe(0);
+  });
+
+  it("uses a namespaced marketing rate-limit key (does not consume the general quota)", async () => {
+    const inbox = makeFakeInbox();
+    const seen: string[] = [];
+    const depsWithLimit: MarketingInboxDeps = {
+      ...inbox.deps,
+      rateLimit: (key: string) => {
+        seen.push(key);
+        return { allowed: true, remaining: 10, resetAt: new Date("2026-02-01T11:00:00.000Z") };
+      },
+    };
+    await handleMarketingIngest(
+      { headerKey: SECRET, secret: SECRET, envelope: envelope({ workspaceId: "ws-777" }) },
+      depsWithLimit,
+    );
+    expect(seen).toEqual(["marketing:ws-777"]);
   });
 
   it("authorizeMarketingRequest is pure and fail-closed", () => {
