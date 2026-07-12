@@ -438,6 +438,25 @@ export function seedInstitutionalSchemas(): void {
   }
 }
 
+/**
+ * The single fail-closed gate for the LIVE inbound bridge path. It
+ * idempotently ensures the institutional v1 contracts are registered (so it
+ * is self-sufficient regardless of module import order), then runs the SAME
+ * `validateEvent` used everywhere else — no copied validation logic. A
+ * rejection is counted through the registry's own `rejectedCount`, the same
+ * counter surfaced by `getBridgeContractStatus`, so live rejections stay
+ * observable without any duplicate bookkeeping.
+ *
+ * The caller MUST honour the verdict: only `valid` events may be admitted
+ * downstream; invalid ones carry explicit errors and are never persisted.
+ */
+export function admitLiveEvent(event: BridgeEvent): ValidationResult {
+  seedInstitutionalSchemas(); // idempotent — safe even after a test reset
+  const validation = validateEvent(event);
+  if (!validation.valid) rejectedCount += 1;
+  return validation;
+}
+
 // Test-only: clear the registry, activity store, and counters.
 export function __resetBridgeContractsForTests(): void {
   schemas.clear();
