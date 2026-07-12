@@ -12,6 +12,7 @@
 // ============================================================
 import { Pool } from "pg";
 import type { IurgObjectInput } from "../iuc-engine";
+import { withPgTransaction } from "./pg-diagnostics";
 
 let pool: Pool | null = null;
 let schemaReady = false;
@@ -95,10 +96,7 @@ async function ensureSchema(): Promise<void> {
 
 // --- IURG objects -------------------------------------------------
 
-export async function pgUpsertObject(obj: IurgObjectInput & { id: string }): Promise<void> {
-  await ensureSchema();
-  await getPool().query(
-    `INSERT INTO onx_iurg_object (id, type, rank, verification, content_text, payload, updated_at)
+const OBJECT_UPSERT_SQL = `INSERT INTO onx_iurg_object (id, type, rank, verification, content_text, payload, updated_at)
      VALUES ($1, $2, $3, $4, $5, $6, now())
      ON CONFLICT (id) DO UPDATE SET
        type = EXCLUDED.type,
@@ -106,16 +104,27 @@ export async function pgUpsertObject(obj: IurgObjectInput & { id: string }): Pro
        verification = EXCLUDED.verification,
        content_text = EXCLUDED.content_text,
        payload = EXCLUDED.payload,
-       updated_at = now()`,
-    [
-      obj.id,
-      obj.type,
-      Math.max(1, Math.min(6, Math.trunc(obj.rank ?? 1))),
-      obj.verification ?? "UNVERIFIED",
-      obj.contentText ?? null,
-      JSON.stringify(obj),
-    ],
-  );
+       updated_at = now()`;
+
+function objectUpsertParams(obj: IurgObjectInput & { id: string }): unknown[] {
+  return [
+    obj.id,
+    obj.type,
+    Math.max(1, Math.min(6, Math.trunc(obj.rank ?? 1))),
+    obj.verification ?? "UNVERIFIED",
+    obj.contentText ?? null,
+    JSON.stringify(obj),
+  ];
+}
+
+/** Escape LIKE wildcards so a prefix is always matched literally. */
+function escapeLikePrefix(prefix: string): string {
+  return prefix.replace(/([\\%_])/g, "\\$1");
+}
+
+export async function pgUpsertObject(obj: IurgObjectInput & { id: string }): Promise<void> {
+  await ensureSchema();
+  await getPool().query(OBJECT_UPSERT_SQL, objectUpsertParams(obj));
 }
 
 export async function pgLoadAllObjects(): Promise<IurgObjectInput[]> {
@@ -149,10 +158,67 @@ export async function pgDeleteAllObjects(): Promise<void> {
 export async function pgDeleteObjectsByIdPrefix(prefix: string): Promise<void> {
   await ensureSchema();
   // Escape LIKE wildcards in the prefix so it is always a literal prefix match.
-  const escaped = prefix.replace(/([\\%_])/g, "\\$1");
+  const escaped = escapeLikePrefix(prefix);
   await getPool().query(
     `DELETE FROM onx_iurg_object WHERE id LIKE $1 ESCAPE '\\'`,
     [`${escaped}%`],
+  );
+}
+
+// --- Atomic replace (fail-closed) ---------------------------------
+// The old path did DELETE then a loop of independently-swallowed INSERTs:
+// a mid-way pg failure left Postgres partially rewritten and silently
+// divergent from the authoritative in-memory mirror. These run DELETE +
+// all INSERTs inside a SINGLE transaction via withPgTransaction, so the
+// pg side is all-or-nothing: on any failure it ROLLBACKs and propagates
+// FAIL-CLOSED (the store then absorbs it for cron availability, but pg is
+// never corrupted and the failure is recorded loudly).
+
+async function replaceWithinTransaction(
+  op: string,
+  deleteSql: string,
+  deleteParams: unknown[],
+  objects: Array<IurgObjectInput & { id: string }>,
+): Promise<void> {
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await withPgTransaction(
+      client,
+      async (tx) => {
+        await tx.query(deleteSql, deleteParams);
+        for (const obj of objects) {
+          await tx.query(OBJECT_UPSERT_SQL, objectUpsertParams(obj));
+        }
+      },
+      { op },
+    );
+  } finally {
+    client.release();
+  }
+}
+
+export async function pgReplaceObjects(
+  objects: Array<IurgObjectInput & { id: string }>,
+): Promise<void> {
+  await replaceWithinTransaction(
+    "iurg-pg.replaceObjects",
+    `DELETE FROM onx_iurg_object`,
+    [],
+    objects,
+  );
+}
+
+export async function pgReplaceObjectsByIdPrefix(
+  prefix: string,
+  objects: Array<IurgObjectInput & { id: string }>,
+): Promise<void> {
+  const escaped = escapeLikePrefix(prefix);
+  await replaceWithinTransaction(
+    "iurg-pg.replaceObjectsByPrefix",
+    `DELETE FROM onx_iurg_object WHERE id LIKE $1 ESCAPE '\\'`,
+    [`${escaped}%`],
+    objects,
   );
 }
 
