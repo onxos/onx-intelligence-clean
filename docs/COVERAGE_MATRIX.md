@@ -83,6 +83,15 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 > حملا معيار `ac-b*-merged`، وبعد الدمج (squash sha `5028c3a`) سُجِّل دليل COMMIT
 > يغطّيه، فتخرّجا إلى **منفذ ومثبت** بأثر مُتحقَّق مستقلاً — لا شهادة ذاتية مسبقة.
 
+### الفجوات التشغيلية (Operational Gaps)
+جدول مستقل عن مرآة السجل أعلاه (التي تُحسب من `ocmbr-seed.ts`). هذه بنود تسدّ
+فجوات تكامل حقيقية بين المنصات؛ حالتها **جزئية (PARTIAL)** على الفرع حتى يتحقق
+المنسق مستقلاً ويدمج ويرقّي السجل — لا يُوسم أي منها VERIFIED ذاتياً قبل الدمج.
+
+| البند | النطاق | الحالة | الدليل |
+|-------|--------|--------|--------|
+| G3 | عقود B8 لأحداث منصة التسويق (onx-marketing-platform) | 🟡 PARTIAL (فرع onxos-g3-marketing-contracts) | `api/lib/marketing-contracts.ts` يسدّ الفجوة: كانت أحداث منصة التسويق تعبر جسر `/perception/records` بمغلف `PlatformEventEnvelope` الحرفي بلا عقد B8 (B8 يغطي الأنواع المؤسسية الـ22 من onx-mono فقط). إعادة استخدام B8 لا تكرار: `seedMarketingSchemas` يسجّل عقود v1 canonical لسبعة أنواع (`marketing.creative.published` / `campaign.launched` / `campaign.paused` / `approval.requested` / `approval.rejected` / `agent_task.failed` / `error.occurred`) عبر `registerSchema`؛ `marketingEnvelopeToBridgeEvent` يحوّل المغلف الحرفي إلى `BridgeEvent` بخريطة صريحة raw→canonical **fail-closed** (نوع خام مجهول/مصدر أجنبي/حقل هوية ناقص/زمن غير ISO → رفض لا تخمين، لا يصل المتجر)؛ `eventId` مشتق حتمياً من `recordId` (FNV-1a) فإعادة نفس recordId idempotent؛ التسجيل عبر `recordActivity` (B8) بprovenance إلزامي (MemoryStore B4). مربوط في CI عبر خطوة «Marketing Event Contracts test suite (G3)» + `api/__tests__/marketing-contracts.test.ts` (15 اختباراً يعيد تشغيل الشكل الحرفي للمغلف). **معيار الدمج غير مغطى عمداً — PARTIAL حتى دمج المنسق وترقيته في السجل** |
+
 ### B0/B1 tRPC surface
 | Router | Procedures | Status |
 |--------|-----------|--------|
