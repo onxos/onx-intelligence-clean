@@ -65,6 +65,9 @@ jobs:
       - name: Evaluation & Learning test suite (B6)
         run: npx vitest run api/__tests__/evaluation-learning.test.ts
 
+      - name: Bridge Ingest Contract test suite (G1+G4)
+        run: npx vitest run api/__tests__/bridge-ingest-contract.test.ts
+
   # Resolves the recorded B4 constraint `pg-adapter-untested`: exercises the
   # real PgVectorMemoryStore against a LIVE Postgres+pgvector (no mock). This
   # job genuinely RUNS the integration suite (never skipped) because the

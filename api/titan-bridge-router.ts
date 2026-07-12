@@ -14,7 +14,13 @@ import {
   getEventStats,
   getRecentEvents,
   getAggregateTimeline,
+  type InsertEventInput,
+  type InsertEventResult,
 } from "./lib/platform-inbox-store";
+import {
+  admitLiveEvent,
+  type ValidationError,
+} from "./lib/bridge-contracts";
 import { listInsightsFromGraph } from "./lib/insights-port";
 import { recordInsightAck } from "./lib/insight-ack";
 
@@ -266,6 +272,78 @@ async function callTitan(
 }
 
 // ============================================================
+// Live ingest gate (G1) — every inbound event passes the B8 institutional
+// contract BEFORE it reaches the inbox store. Extracted from the router
+// mutation so the fail-closed behaviour is directly unit-testable with an
+// injected store (no DB, deterministic). `insert` defaults to the real
+// platform-inbox store in production.
+// ============================================================
+export interface IngestEventInput {
+  source: string;
+  eventId: number;
+  eventType: string;
+  aggregateType: string;
+  aggregateId: string;
+  occurredAt: string;
+  payload?: Record<string, unknown> | null;
+}
+
+export type IngestEventResponse =
+  | { accepted: true; duplicate: boolean; id?: number }
+  | {
+      accepted: false;
+      rejected: true;
+      eventType: string;
+      version: number | null;
+      errors: ValidationError[];
+    };
+
+/**
+ * FAIL-CLOSED live ingest: validate the event against its registered B8
+ * institutional contract, and only persist it if the contract is satisfied.
+ * An unknown event type or a missing/mistyped identity field is rejected
+ * here with explicit errors and is NEVER handed to the store. On success the
+ * response shape is unchanged (`{ accepted, duplicate, id }`); rejections add
+ * the `rejected`/`errors` fields.
+ */
+export async function ingestThroughBridgeContract(
+  input: IngestEventInput,
+  insert: (e: InsertEventInput) => Promise<InsertEventResult> = insertEvent,
+): Promise<IngestEventResponse> {
+  const validation = admitLiveEvent({
+    eventType: input.eventType,
+    source: input.source,
+    eventId: input.eventId,
+    aggregateType: input.aggregateType,
+    aggregateId: input.aggregateId,
+    occurredAt: input.occurredAt,
+    payload: input.payload ?? {},
+  });
+
+  if (!validation.valid) {
+    return {
+      accepted: false,
+      rejected: true,
+      eventType: validation.eventType,
+      version: validation.version,
+      errors: validation.errors,
+    };
+  }
+
+  const result = await insert({
+    source: input.source,
+    eventId: input.eventId,
+    eventType: input.eventType,
+    aggregateType: input.aggregateType,
+    aggregateId: input.aggregateId,
+    occurredAt: input.occurredAt,
+    payload: input.payload ?? null,
+  });
+
+  return { accepted: true, duplicate: result.duplicate, id: result.id };
+}
+
+// ============================================================
 // Titan Bridge Router
 // ============================================================
 export const titanBridgeRouter = createRouter({
@@ -375,8 +453,10 @@ export const titanBridgeRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       assertBridgeAccess(ctx);
 
-      // Race-safe idempotency handled by the store (ON CONFLICT DO NOTHING)
-      const result = await insertEvent({
+      // FAIL-CLOSED B8 contract gate: an event that does not satisfy its
+      // registered institutional contract (unknown type, missing/mistyped
+      // identity field) is rejected here and NEVER reaches the inbox.
+      return ingestThroughBridgeContract({
         source: input.source,
         eventId: input.eventId,
         eventType: input.eventType,
@@ -385,8 +465,6 @@ export const titanBridgeRouter = createRouter({
         occurredAt: input.occurredAt,
         payload: input.payload ?? null,
       });
-
-      return { accepted: true, duplicate: result.duplicate, id: result.id };
     }),
 
   // --- Phase E1 "Mind reads body": read-only inbox analytics ---
