@@ -7,6 +7,7 @@ import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { consciousnessCycles } from "../db/schema";
+import { recordPgFailure, recordPgSuccess } from "./lib/pg-diagnostics";
 
 // --- Rhythm Definitions ---
 interface Rhythm {
@@ -198,10 +199,14 @@ function executeRhythm(rhythmId: string): { actions: number; duration: number; s
   executionLogs.push(log);
   if (executionLogs.length > 10000) executionLogs.splice(0, executionLogs.length - 5000);
 
-  // Persist to DB (fire-and-forget — don't block rhythm execution)
+  // Persist to DB (fire-and-forget — don't block rhythm execution). The
+  // write stays non-blocking, but a failure is no longer silently swallowed:
+  // it is recorded loudly (structured log + correlation id + diagnostics) so
+  // a broken audit-cycle write is observable. The in-memory executionLogs
+  // remain authoritative (deliberate fail-open).
   try {
     const db = getDb();
-    db.insert(consciousnessCycles).values({
+    void db.insert(consciousnessCycles).values({
       rhythmId,
       rhythmName: rhythm.name,
       cycleNumber: rhythm.runCount,
@@ -212,9 +217,13 @@ function executeRhythm(rhythmId: string): { actions: number; duration: number; s
       anomaliesDetected: rhythm.status === "FAILING" ? 1 : 0,
       completedAt: new Date(),
       durationMs: duration,
-    }).execute().catch(() => { /* DB not configured — continue in-memory */ });
-  } catch {
-    // DB not ready — in-memory only
+    }).execute()
+      .then(() => recordPgSuccess("scheduler.consciousnessCycle"))
+      .catch((error) => recordPgFailure("scheduler.consciousnessCycle", error));
+  } catch (error) {
+    // getDb()/insert construction failed (e.g. DB not configured) — observe
+    // it instead of blind-swallowing, then continue in-memory.
+    recordPgFailure("scheduler.consciousnessCycle", error);
   }
 
   return { actions: rhythm.actions.length, duration, status: log.status };
