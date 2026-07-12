@@ -36,6 +36,8 @@ export const METHOD_IDS = [
   "git-hygiene",
   "push-early-often",
   "independent-bisect",
+  "code-review",
+  "test-fixing",
 ] as const;
 export type MethodId = (typeof METHOD_IDS)[number];
 
@@ -52,7 +54,10 @@ export type MethodRuleKind =
   | "no-charter-deviations"
   | "git-zombie-cleanup"
   | "push-after-work-unit"
-  | "bisect-before-diagnosis";
+  | "bisect-before-diagnosis"
+  | "review-before-merge"
+  | "repro-before-fix"
+  | "regression-test-with-fix";
 
 export interface MethodRule {
   kind: MethodRuleKind;
@@ -80,7 +85,8 @@ export type EvidenceType =
   | "ADR"
   | "DECISION"
   | "COMMIT"
-  | "MERGE";
+  | "MERGE"
+  | "REVIEW";
 
 export interface WorkerEvidence {
   type: EvidenceType;
@@ -310,6 +316,36 @@ const REGISTRY: Record<MethodId, Method> = {
         kind: "bisect-before-diagnosis",
         description:
           "أي تشخيص لكسر صامت يجب أن يستند إلى git bisect (على main) مع تحديد الكوميت الكاسر — لا تخمين.",
+      },
+    ],
+  },
+  "code-review": {
+    id: "code-review",
+    title: "مراجعة سطرية قبل الدمج",
+    description:
+      "لا دمج بلا دليل REVIEW مؤرّخ يسبق/يرافق دليل MERGE — المراجعة اللاحقة للدمج ختم شكلي مرفوض.",
+    rules: [
+      {
+        kind: "review-before-merge",
+        description:
+          "لكل دليل MERGE دليل REVIEW مؤرّخ في وقت لا يلي أقدم MERGE — مراجعة بعد الدمج مرفوضة.",
+      },
+    ],
+  },
+  "test-fixing": {
+    id: "test-fixing",
+    title: "إصلاح الاختبارات — استنساخ أولاً، أصلح الكود لا الاختبار",
+    description:
+      "أي FIX لاختبار فاشل يسبقه دليل RUN يستنسخ الفشل، ويرافقه دليل TEST (اختبار انحدار) — لا إصلاح أعمى ولا حذف اختبارات.",
+    rules: [
+      {
+        kind: "repro-before-fix",
+        description:
+          "يجب وجود دليل RUN (استنساخ الفشل) مؤرّخ قبل/مع أقدم دليل FIX.",
+      },
+      {
+        kind: "regression-test-with-fix",
+        description: "كل FIX يرافقه دليل TEST (اختبار انحدار) — إصلاح بلا اختبار مرفوض.",
       },
     ],
   },
@@ -649,6 +685,79 @@ const EVALUATORS: Record<MethodRuleKind, RuleEvaluator> = {
     }
     return violations;
   },
+
+  "review-before-merge": (_rule, output) => {
+    const merges = evidenceOf(output, "MERGE");
+    if (merges.length === 0) return [];
+    const reviews = evidenceOf(output, "REVIEW");
+    const violations: MethodViolation[] = [];
+    // Per-ref matching: EVERY merged ref needs its own dated REVIEW at or
+    // before that merge. Undated evidence cannot prove ordering → fail-closed.
+    for (const m of merges) {
+      const mergeDate = m.date;
+      if (!mergeDate) {
+        violations.push({
+          rule: "review-before-merge",
+          message: `دليل MERGE «${m.ref ?? "?"}» بلا تاريخ — ترتيب غير قابل للإثبات، رفض آمن.`,
+        });
+        continue;
+      }
+      const covering = reviews.filter(
+        (r) => r.ref === m.ref && r.date !== undefined && r.date <= mergeDate,
+      );
+      if (covering.length === 0) {
+        violations.push({
+          rule: "review-before-merge",
+          message: `MERGE «${m.ref ?? "?"}» بلا دليل REVIEW مطابق للـref ومؤرّخ قبله/معه — دمج بلا مراجعة سطرية (أو ختم لاحق) مرفوض.`,
+        });
+      }
+    }
+    return violations;
+  },
+
+  "repro-before-fix": (_rule, output) => {
+    const fixes = evidenceOf(output, "FIX");
+    if (fixes.length === 0) return [];
+    const datedRuns = evidenceOf(output, "RUN").filter(
+      (r) => r.date !== undefined,
+    );
+    const violations: MethodViolation[] = [];
+    // Per-fix matching: EVERY fix needs a dated reproduction RUN at or
+    // before it. Undated fixes cannot prove ordering → fail-closed.
+    for (const f of fixes) {
+      if (!f.date) {
+        violations.push({
+          rule: "repro-before-fix",
+          message: `دليل FIX «${f.ref ?? "?"}» بلا تاريخ — ترتيب غير قابل للإثبات، رفض آمن.`,
+        });
+        continue;
+      }
+      const reproBefore = datedRuns.filter((r) => (r.date as string) <= (f.date as string));
+      if (reproBefore.length === 0) {
+        violations.push({
+          rule: "repro-before-fix",
+          message: `FIX «${f.ref ?? "?"}» بلا دليل RUN يستنسخ الفشل مؤرّخاً قبله/معه — إصلاح أعمى مرفوض.`,
+        });
+      }
+    }
+    return violations;
+  },
+
+  "regression-test-with-fix": (_rule, output) => {
+    const fixes = evidenceOf(output, "FIX");
+    if (fixes.length === 0) return [];
+    const tests = evidenceOf(output, "TEST");
+    const violations: MethodViolation[] = [];
+    for (const f of fixes) {
+      if (tests.length === 0) {
+        violations.push({
+          rule: "regression-test-with-fix",
+          message: `دليل FIX «${f.ref ?? "?"}» بلا دليل TEST (اختبار انحدار) — إصلاح بلا اختبار مرفوض.`,
+        });
+      }
+    }
+    return violations;
+  },
 };
 
 // --- The public verification entry point ----------------------------------
@@ -661,7 +770,7 @@ const EVALUATORS: Record<MethodRuleKind, RuleEvaluator> = {
  */
 export function verifyMethodCompliance(
   method: MethodId | string | Method,
-  output: WorkerOutput,
+  output: WorkerOutput | null | undefined,
 ): ComplianceReport {
   const resolved =
     typeof method === "string" ? getMethod(method) : method;
@@ -686,6 +795,31 @@ export function verifyMethodCompliance(
         {
           rule: "missing-input",
           message: "مدخل مخرجات العامل ناقص — رفض آمن (fail-closed).",
+        },
+      ],
+    };
+  }
+
+  // Hollow evidence: an output object carrying NO substantive artifact at
+  // all ({} or empty collections) is self-certification without proof —
+  // rejected fail-closed, never treated as "nothing to gate".
+  const hasSubstance =
+    (output.evidence?.length ?? 0) > 0 ||
+    (output.files?.length ?? 0) > 0 ||
+    (output.scopes?.length ?? 0) > 0 ||
+    (output.commitMessages?.length ?? 0) > 0 ||
+    output.pr !== undefined ||
+    output.gitOps !== undefined ||
+    output.gitActivity !== undefined ||
+    output.diagnosis !== undefined;
+  if (!hasSubstance) {
+    return {
+      methodId: resolved.id,
+      compliant: false,
+      violations: [
+        {
+          rule: "missing-input",
+          message: "مخرجات أجوف بلا أي مصنوعات/أدلة — شهادة ذاتية بلا إثبات، رفض آمن (fail-closed).",
         },
       ],
     };

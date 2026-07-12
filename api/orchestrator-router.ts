@@ -38,6 +38,7 @@ const zTask = z.object({
   executor: zExecutorKind,
   estimatedCost: z.number().nonnegative(),
   verify: zVerify,
+  methodId: z.string().min(1).optional(),
   maxAttempts: z.number().int().positive().optional(),
   timeoutMs: z.number().int().positive().optional(),
 });

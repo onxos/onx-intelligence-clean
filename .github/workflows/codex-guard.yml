@@ -68,6 +68,23 @@ jobs:
       - name: Bridge Ingest Contract test suite (G1+G4)
         run: npx vitest run api/__tests__/bridge-ingest-contract.test.ts
 
+      # Privacy evidence: perception summaries are key-names-only, pulse
+      # endpoints expose counts only — these suites are the enforcement.
+      - name: Perception + Reflection + Revenue-Pulse test suites (privacy)
+        run: npx vitest run api/__tests__/perception-adapter.test.ts api/__tests__/reflection-cycle.test.ts api/__tests__/revenue-pulse.test.ts
+
+      # K4 evidence: method-bound tasks are verified from INDEPENDENT
+      # artifacts only (executor's methodOutput is recorded-but-ignored),
+      # hollow evidence rejects, and REVIEW/MERGE + RUN/FIX ordering is
+      # matched per-ref. Filters assert the anti-self-certify tests ran.
+      - name: Governed Methods Enforcement (K4)
+        run: |
+          npx vitest run api/__tests__/methods-library.test.ts -t "anti-self-certification"
+          npx vitest run api/__tests__/orchestrator.test.ts -t "K4"
+
+      # G6 evidence: mind-tick living cycle — inbox(B8 replay)→B5→B7 is
+      # propose-only (<=A1, autoExecutable=false), fail-closed with durable
+      # quarantine before cursor advance, lease-guarded, idempotent replay.
       - name: Mind Tick test suite (G6)
         run: npx vitest run api/__tests__/mind-tick.test.ts
 
