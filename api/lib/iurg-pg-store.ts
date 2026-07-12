@@ -12,6 +12,7 @@
 // ============================================================
 import { Pool } from "pg";
 import type { IurgObjectInput } from "../iuc-engine";
+import { withPgTransaction } from "./pg-diagnostics";
 
 let pool: Pool | null = null;
 let schemaReady = false;

@@ -8,8 +8,6 @@ import {
   pgAppendContinuity,
   pgClearContinuity,
   pgClearSnapshots,
-  pgDeleteAllObjects,
-  pgDeleteObjectsByIdPrefix,
   pgHealthStats,
   pgInsertSnapshot,
   pgLatestContinuityHash,
@@ -17,8 +15,17 @@ import {
   pgListContinuity,
   pgLoadAllObjects,
   pgObjectCounts,
+  pgReplaceObjects,
+  pgReplaceObjectsByIdPrefix,
   pgUpsertObject,
 } from "./iurg-pg-store";
+import {
+  getPgDiagnostics,
+  recordPgFailure,
+  recordPgSuccess,
+  resetPgDiagnostics,
+  type PgDiagnostics,
+} from "./pg-diagnostics";
 
 const GENESIS_HASH = "0".repeat(64);
 // The drizzle layer here is mysql2-only. Any non-MySQL DATABASE_URL used to
@@ -56,11 +63,24 @@ export interface PersistenceStatus {
   snapshotsPersisted: number;
   continuityAppended: number;
   pgErrors: number;
+  /** True when any pg operation is over the consecutive-failure threshold. */
+  degraded: boolean;
+  /** Per-operation pg failure counts (numbers only). */
+  pgErrorsByOp: PgDiagnostics["pgErrorsByOp"];
+  /** Most recent pg failure (op + code + truncated message + trace id). */
+  lastError: PgDiagnostics["lastError"];
 }
 
 /** Numbers-only persistence counters for HT-09 (health.persistence). */
 export function getPersistenceStatus(): PersistenceStatus {
-  return { mode: storeMode(), ...counters };
+  const diag = getPgDiagnostics();
+  return {
+    mode: storeMode(),
+    ...counters,
+    degraded: diag.degraded,
+    pgErrorsByOp: diag.pgErrorsByOp,
+    lastError: diag.lastError,
+  };
 }
 
 /** Called by the boot hydration path (iuc-router) to record loaded objects. */
@@ -68,8 +88,17 @@ export function recordObjectsLoadedOnBoot(count: number): void {
   if (Number.isFinite(count) && count > 0) counters.objectsLoadedOnBoot += Math.trunc(count);
 }
 
-function notePgError(): void {
+/**
+ * Record a swallowed pg failure LOUDLY: bump the legacy aggregate counter
+ * (HT-09 back-compat) AND route it through the shared diagnostics layer
+ * (structured log + correlation id + per-op metrics + degraded signal).
+ * The in-memory mirror remains authoritative so cron/boot never crash —
+ * this is a deliberate, documented fail-open (PR #18); the diagnostics make
+ * the failure observable instead of silent.
+ */
+function notePgError(op: string, error: unknown, correlationId?: string): void {
   counters.pgErrors += 1;
+  recordPgFailure(op, error, { correlationId });
 }
 
 const memoryStore = {
@@ -146,6 +175,19 @@ function stableHash(input: unknown): string {
   return createHash("sha256").update(JSON.stringify(input)).digest("hex");
 }
 
+/**
+ * Write an object to the authoritative in-memory mirror (assigning an id
+ * when missing) and return the id-stamped object. Used by the atomic pg
+ * replace paths so the memory mirror and the transactional pg write share
+ * the exact same ids.
+ */
+function rememberObject(obj: IurgObjectInput): IurgObjectInput & { id: string } {
+  const id = obj.id ?? randomUUID();
+  const withId = { ...obj, id };
+  memoryStore.objects.set(id, withId);
+  return withId;
+}
+
 export async function saveIurgObject(obj: IurgObjectInput): Promise<{ id: string }> {
   const id = obj.id ?? randomUUID();
   const mode = storeMode();
@@ -155,9 +197,9 @@ export async function saveIurgObject(obj: IurgObjectInput): Promise<{ id: string
       try {
         await pgUpsertObject({ ...obj, id });
         counters.objectsPersisted += 1;
+        recordPgSuccess("iurg.saveObject");
       } catch (error) {
-        notePgError();
-        console.error("[iurg-store] pg saveIurgObject failed (non-fatal):", (error as Error).message);
+        notePgError("iurg.saveObject", error);
       }
     }
     return { id };
@@ -201,8 +243,7 @@ export async function getIurgObjects(): Promise<IurgObjectInput[]> {
       try {
         return await pgLoadAllObjects();
       } catch (error) {
-        notePgError();
-        console.error("[iurg-store] pg getIurgObjects failed (non-fatal):", (error as Error).message);
+        notePgError("iurg.getObjects", error);
       }
     }
     return Array.from(memoryStore.objects.values());
@@ -279,9 +320,9 @@ export async function saveIucSnapshot(snapshot: IucSnapshotInput): Promise<{ id:
           snapshotHash,
         });
         counters.snapshotsPersisted += 1;
+        recordPgSuccess("iurg.saveSnapshot");
       } catch (error) {
-        notePgError();
-        console.error("[iurg-store] pg saveIucSnapshot failed (non-fatal):", (error as Error).message);
+        notePgError("iurg.saveSnapshot", error);
       }
     }
     return { id, snapshotHash };
@@ -324,8 +365,7 @@ export async function appendContinuityLog(event: ContinuityLogInput): Promise<{ 
       try {
         previousHash = (await pgLatestContinuityHash()) ?? GENESIS_HASH;
       } catch (error) {
-        notePgError();
-        console.error("[iurg-store] pg latest continuity hash failed (non-fatal):", (error as Error).message);
+        notePgError("iurg.latestContinuityHash", error);
       }
     }
   }
@@ -364,9 +404,9 @@ export async function appendContinuityLog(event: ContinuityLogInput): Promise<{ 
           createdAt,
         });
         counters.continuityAppended += 1;
+        recordPgSuccess("iurg.appendContinuity");
       } catch (error) {
-        notePgError();
-        console.error("[iurg-store] pg appendContinuityLog failed (non-fatal):", (error as Error).message);
+        notePgError("iurg.appendContinuity", error);
       }
     }
   } else {
@@ -393,8 +433,7 @@ export async function getLatestIucSnapshot() {
         const row = await pgLatestSnapshot();
         if (row) return row;
       } catch (error) {
-        notePgError();
-        console.error("[iurg-store] pg getLatestIucSnapshot failed (non-fatal):", (error as Error).message);
+        notePgError("iurg.latestSnapshot", error);
       }
     }
     const row = memoryStore.snapshots[memoryStore.snapshots.length - 1];
@@ -432,8 +471,7 @@ export async function getIurgObjectCounts(): Promise<Partial<Record<IurgObjectTy
         }
         return pgCounts;
       } catch (error) {
-        notePgError();
-        console.error("[iurg-store] pg getIurgObjectCounts failed (non-fatal):", (error as Error).message);
+        notePgError("iurg.objectCounts", error);
       }
     }
     const counts: Partial<Record<IurgObjectType, number>> = {};
@@ -466,8 +504,7 @@ export async function listContinuityLog(limit = 100) {
       try {
         return await pgListContinuity(limit);
       } catch (error) {
-        notePgError();
-        console.error("[iurg-store] pg listContinuityLog failed (non-fatal):", (error as Error).message);
+        notePgError("iurg.listContinuity", error);
       }
     }
     return memoryStore.continuity.slice(-Math.max(0, limit)).reverse();
@@ -488,8 +525,7 @@ export async function getIucHealthStats(): Promise<{
       try {
         return await pgHealthStats();
       } catch (error) {
-        notePgError();
-        console.error("[iurg-store] pg getIucHealthStats failed (non-fatal):", (error as Error).message);
+        notePgError("iurg.healthStats", error);
       }
     }
     return {
@@ -533,12 +569,20 @@ export async function replaceIurgObjects(objects: IurgObjectInput[]): Promise<vo
   if (mode !== "mysql") {
     memoryStore.objects.clear();
     if (mode === "pg") {
+      // Atomic pg replace: DELETE + all INSERTs run in ONE transaction, so a
+      // mid-way pg failure rolls back and NEVER leaves Postgres half-rewritten
+      // (silent divergence from the memory mirror). The memory mirror is
+      // populated first and stays authoritative for availability (fail-open),
+      // but the pg side is all-or-nothing and any failure is recorded loudly.
+      const withIds = objects.map((obj) => rememberObject(obj));
       try {
-        await pgDeleteAllObjects();
+        await pgReplaceObjects(withIds);
+        counters.objectsPersisted += withIds.length;
+        recordPgSuccess("iurg.replaceObjects");
       } catch (error) {
-        notePgError();
-        console.error("[iurg-store] pg replaceIurgObjects clear failed (non-fatal):", (error as Error).message);
+        notePgError("iurg.replaceObjects", error);
       }
+      return;
     }
     for (const obj of objects) {
       await saveIurgObject(obj);
@@ -561,12 +605,16 @@ export async function replaceIurgObjectsByIdPrefix(prefix: string, objects: Iurg
       }
     }
     if (mode === "pg") {
+      // Atomic prefix replace: DELETE ... LIKE prefix + INSERTs in ONE tx.
+      const withIds = objects.map((obj) => rememberObject(obj));
       try {
-        await pgDeleteObjectsByIdPrefix(prefix);
+        await pgReplaceObjectsByIdPrefix(prefix, withIds);
+        counters.objectsPersisted += withIds.length;
+        recordPgSuccess("iurg.replaceObjectsByPrefix");
       } catch (error) {
-        notePgError();
-        console.error("[iurg-store] pg replaceIurgObjectsByIdPrefix clear failed (non-fatal):", (error as Error).message);
+        notePgError("iurg.replaceObjectsByPrefix", error);
       }
+      return;
     }
     for (const obj of objects) {
       await saveIurgObject(obj);
@@ -589,8 +637,7 @@ export async function clearContinuityLogEntries(): Promise<void> {
       try {
         await pgClearContinuity();
       } catch (error) {
-        notePgError();
-        console.error("[iurg-store] pg clearContinuityLogEntries failed (non-fatal):", (error as Error).message);
+        notePgError("iurg.clearContinuity", error);
       }
     }
     return;
@@ -607,8 +654,7 @@ export async function clearIucSnapshots(): Promise<void> {
       try {
         await pgClearSnapshots();
       } catch (error) {
-        notePgError();
-        console.error("[iurg-store] pg clearIucSnapshots failed (non-fatal):", (error as Error).message);
+        notePgError("iurg.clearSnapshots", error);
       }
     }
     return;
@@ -627,4 +673,5 @@ export function __resetIurgStoreForTests(): void {
   counters.snapshotsPersisted = 0;
   counters.continuityAppended = 0;
   counters.pgErrors = 0;
+  resetPgDiagnostics();
 }
