@@ -4,9 +4,11 @@
 // Covers: contract replay (B8) at read, row→RawInput transform,
 // full cycle inbox→B5 contradictions→B7 suggestions, independent
 // cursor (never corrupts the perception adapter's), malformed-row
-// fail-closed skip, restart determinism, pg-failure silent skip,
-// no-execution guarantee (autoExecutable=false, A1 ceiling), and
-// the mindTick tRPC surface.
+// DURABLE quarantine (DLQ) before cursor advance — halt on write
+// failure, idempotent cursor replay, lease no-overlap, structured
+// cron failure metrics, restart determinism, pg-failure counted
+// skip, no-execution guarantee (autoExecutable=false, A1 ceiling),
+// and the mindTick tRPC surface.
 // ============================================================
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -32,14 +34,20 @@ import {
   MIND_TICK_SOURCE_CONFIDENCE,
   MIND_TICK_PATTERN_MIN,
   MIND_TICK_PATTERN_STRUCTURAL_THRESHOLD,
+  MIND_TICK_QUARANTINE_KIND,
   replayContract,
   toMindInput,
+  quarantineCorrelationId,
   runMindTick,
+  recordMindTickCronFailure,
   getMindTickStatus,
   getLastMindTickResult,
+  listMindTickQuarantine,
+  __setMindTickQuarantineStoreForTests,
   __resetMindTickForTests,
 } from "../lib/mind-tick";
 import { SUGGESTION_CEILING } from "../lib/zero-input";
+import { InMemoryMemoryStore, type MemoryStore } from "../lib/persistent-memory";
 import type { PerceptionSourceRow } from "../lib/platform-inbox-store";
 
 const caller = appRouter.createCaller({} as never);
@@ -111,8 +119,29 @@ beforeEach(() => {
   __resetMindTickForTests();
   __resetBridgeContractsForTests();
   queryMock.mockReset();
+  // Explicit in-memory quarantine store so tests can inspect the DLQ.
+  quarantine = new InMemoryMemoryStore();
+  __setMindTickQuarantineStoreForTests(quarantine);
   process.env.PLATFORM_INBOX_DATABASE_URL = "postgres://test:test@localhost:5432/onx";
 });
+
+let quarantine: InMemoryMemoryStore;
+
+/** A quarantine double whose writes always fail (durability lost). */
+function failingQuarantineStore(): MemoryStore {
+  const boom = async (): Promise<never> => {
+    throw new Error("quarantine storage unavailable");
+  };
+  return {
+    put: boom,
+    get: async () => null,
+    correct: boom,
+    forget: boom,
+    search: async () => [],
+    export: async () => ({ records: [], count: 0, forgottenCount: 0 }),
+    list: async () => [],
+  };
+}
 
 describe("replayContract (B8 reuse at read time)", () => {
   it("admits a real institutional row through the SAME validateEvent contract", () => {
@@ -183,7 +212,7 @@ describe("runMindTick (full cycle: inbox → B5 → B7)", () => {
 
     expect(result.read).toBe(6);
     expect(result.valid).toBe(6);
-    expect(result.skipped).toBe(0);
+    expect(result.quarantined).toBe(0);
     expect(result.contradictions).toBe(1);
     expect(result.patterns).toEqual([
       { eventType: "ops.monitor.alert", count: 4, threshold: MIND_TICK_PATTERN_STRUCTURAL_THRESHOLD },
@@ -254,7 +283,7 @@ describe("runMindTick (full cycle: inbox → B5 → B7)", () => {
     expect(getMindTickStatus().ticksTotal).toBe(2);
   });
 
-  it("skips malformed rows fail-closed and advances past them", async () => {
+  it("quarantines malformed rows DURABLY (reason + correlation id) before advancing", async () => {
     mockSchemaCalls();
     queryMock.mockResolvedValueOnce({
       rows: [
@@ -270,10 +299,104 @@ describe("runMindTick (full cycle: inbox → B5 → B7)", () => {
 
     expect(result.read).toBe(4);
     expect(result.valid).toBe(1);
-    expect(result.skipped).toBe(3);
-    // the cursor moved PAST the malformed rows — they never wedge the feed
+    expect(result.quarantined).toBe(3);
+    expect(result.halted).toBe(false);
+    // the cursor moved PAST the quarantined rows — they never wedge the
+    // feed, but they are NOT lost: each landed in the durable DLQ.
     expect(getMindTickStatus().lastProcessedId).toBe(4);
-    expect(getMindTickStatus().skippedTotal).toBe(3);
+    expect(getMindTickStatus().quarantinedTotal).toBe(3);
+
+    const dlq = await listMindTickQuarantine();
+    expect(dlq).toHaveLength(3);
+    expect(dlq.every((r) => r.kind === MIND_TICK_QUARANTINE_KIND)).toBe(true);
+    const byId = new Map(dlq.map((r) => [r.id, JSON.parse(r.content) as Record<string, unknown>]));
+    // idempotent correlation ids derived from row identity
+    expect(byId.get("qtn-platform-60")?.reasons).toEqual(["eventType:UNKNOWN_EVENT_TYPE"]);
+    expect(byId.get("qtn-platform-61")?.reasons).toContain("aggregateId:MISSING_FIELD");
+    expect(byId.get("qtn-platform-62")?.reasons).toContain("occurredAt:MISSING_FIELD");
+    // identity fields only — no payload values in the DLQ
+    expect(dlq.every((r) => !r.content.includes("payload"))).toBe(true);
+  });
+
+  it("HALTS the cursor when the quarantine write fails — nothing is lost silently", async () => {
+    __setMindTickQuarantineStoreForTests(failingQuarantineStore());
+    mockSchemaCalls();
+    queryMock.mockResolvedValueOnce({
+      rows: [
+        rawRow(), // valid → processed, cursor may pass
+        rawRow({ id: "2", event_id: "60", event_type: "mystery.unknown.event" }), // quarantine FAILS
+        rawRow({ id: "3", event_id: "61" }), // deferred — never reached
+      ],
+      rowCount: 3,
+    });
+
+    const result = await runMindTick(FIXED_CLOCK);
+
+    expect(result.halted).toBe(true);
+    expect(result.quarantined).toBe(0);
+    expect(result.deferred).toBe(2);
+    // cursor stopped BEFORE the unquarantinable row: id 1, not 2 or 3
+    const status = getMindTickStatus();
+    expect(status.lastProcessedId).toBe(1);
+    expect(status.quarantineFailures).toBe(1);
+    expect(status.lastError).toContain("quarantine storage unavailable");
+
+    // next tick re-reads from the halted cursor — the row is retried
+    queryMock.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    await runMindTick(FIXED_CLOCK);
+    const [, params] = queryMock.mock.calls[5] as [string, unknown[]];
+    expect(params).toEqual([1, MIND_TICK_BATCH_LIMIT]);
+  });
+
+  it("replays the cursor idempotently: re-reading the same batch after a restart duplicates nothing", async () => {
+    // first pass: 1 valid + 1 malformed → 1 DLQ record
+    mockSchemaCalls();
+    const batch = [
+      rawRow(),
+      rawRow({ id: "2", event_id: "60", event_type: "mystery.unknown.event" }),
+    ];
+    queryMock.mockResolvedValueOnce({ rows: batch, rowCount: 2 });
+    const first = await runMindTick(FIXED_CLOCK);
+    expect(first.quarantined).toBe(1);
+    expect(getMindTickStatus().lastProcessedId).toBe(2);
+
+    // process restart: in-memory cursor lost, DURABLE quarantine kept
+    const survivingDlq = quarantine;
+    __resetMindTickForTests();
+    __resetForTests();
+    __resetBridgeContractsForTests();
+    __setMindTickQuarantineStoreForTests(survivingDlq);
+    queryMock.mockReset();
+    mockSchemaCalls();
+    queryMock.mockResolvedValueOnce({ rows: batch, rowCount: 2 });
+
+    const replay = await runMindTick(FIXED_CLOCK);
+
+    // same outcome, no halt: the DUPLICATE DLQ id counts as already
+    // durable, the cursor advances identically, and the DLQ still has
+    // exactly ONE record for the malformed row — no duplication.
+    expect(replay.quarantined).toBe(1);
+    expect(replay.halted).toBe(false);
+    expect(replay.valid).toBe(first.valid);
+    expect(replay.suggestions).toEqual(first.suggestions);
+    expect(getMindTickStatus().lastProcessedId).toBe(2);
+    const dlq = await listMindTickQuarantine();
+    expect(dlq).toHaveLength(1);
+    expect(dlq[0].id).toBe("qtn-platform-60");
+  });
+
+  it("derives deterministic correlation ids even for structurally broken rows", () => {
+    expect(quarantineCorrelationId(sampleRow({ eventId: 60 }), 0, 3)).toBe("qtn-platform-60");
+    expect(
+      quarantineCorrelationId(sampleRow({ source: "", eventId: null as never, id: 7 }), 0, 3),
+    ).toBe("qtn-row-7");
+    expect(
+      quarantineCorrelationId(
+        sampleRow({ source: "", eventId: null as never, id: Number.NaN }),
+        5,
+        3,
+      ),
+    ).toBe("qtn-cursor-5-pos-3");
   });
 
   it("reports insufficient data when no contradiction or pattern emerges", async () => {
@@ -303,6 +426,7 @@ describe("runMindTick (full cycle: inbox → B5 → B7)", () => {
     __resetMindTickForTests();
     __resetForTests();
     __resetBridgeContractsForTests();
+    __setMindTickQuarantineStoreForTests(new InMemoryMemoryStore());
     queryMock.mockReset();
     mockSchemaCalls();
     queryMock.mockResolvedValueOnce({ rows: signalBatch(), rowCount: 6 });
@@ -314,7 +438,8 @@ describe("runMindTick (full cycle: inbox → B5 → B7)", () => {
     expect(second.ranAt).toBe(first.ranAt);
   });
 
-  it("NEVER throws when pg is unavailable — silent skip with counters", async () => {
+  it("NEVER throws when pg is unavailable — counted skip with a STRUCTURED error", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     queryMock.mockRejectedValue(new Error("connection refused"));
 
     await expect(runMindTick(FIXED_CLOCK)).resolves.toBeDefined();
@@ -323,6 +448,65 @@ describe("runMindTick (full cycle: inbox → B5 → B7)", () => {
     expect(status.lastError).toContain("connection refused");
     expect(status.lastProcessedId).toBe(0);
     expect(status.suggestionsTotal).toBe(0);
+    // machine-parsable evidence, not a bare console line
+    const line = errSpy.mock.calls.map((c) => String(c[0])).find((l) => l.includes("inbox-read-failed"));
+    expect(line).toBeDefined();
+    expect(JSON.parse(line as string)).toMatchObject({
+      module: "mind-tick",
+      event: "inbox-read-failed",
+    });
+    errSpy.mockRestore();
+  });
+
+  it("rejects overlapping ticks via the lease — never interleaved, always counted", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockSchemaCalls();
+    let releaseRead: (v: { rows: unknown[]; rowCount: number }) => void = () => {};
+    let signalReadStarted: () => void = () => {};
+    const readStarted = new Promise<void>((r) => { signalReadStarted = r; });
+    queryMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseRead = resolve;
+          signalReadStarted();
+        }),
+    );
+
+    const inFlight = runMindTick(FIXED_CLOCK); // holds the lease
+    await readStarted; // in-flight tick is now blocked mid-read
+    const overlap = await runMindTick(FIXED_CLOCK); // rejected
+
+    expect(overlap.read).toBe(0);
+    expect(getMindTickStatus().leaseRejected).toBe(1);
+    const line = errSpy.mock.calls.map((c) => String(c[0])).find((l) => l.includes("lease-rejected"));
+    expect(JSON.parse(line as string)).toMatchObject({ module: "mind-tick", event: "lease-rejected", holder: "tick-1" });
+
+    releaseRead({ rows: signalBatch(), rowCount: 6 });
+    const first = await inFlight;
+    // the in-flight tick completed untouched; only ONE tick processed rows
+    expect(first.read).toBe(6);
+    expect(getMindTickStatus().ticksTotal).toBe(1);
+    expect(getMindTickStatus().processedTotal).toBe(6);
+    errSpy.mockRestore();
+  });
+
+  it("records cron failures as structured errors + metric + readiness evidence", () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    recordMindTickCronFailure(new Error("scheduler exploded"), FIXED_CLOCK);
+
+    const status = getMindTickStatus();
+    expect(status.cronFailures).toBe(1);
+    expect(status.lastCronError).toBe("scheduler exploded");
+    const line = errSpy.mock.calls.map((c) => String(c[0])).find((l) => l.includes("cron-tick-failed"));
+    expect(JSON.parse(line as string)).toMatchObject({
+      module: "mind-tick",
+      event: "cron-tick-failed",
+      error: "scheduler exploded",
+      cronFailures: 1,
+      at: "2026-07-12T10:00:00.000Z",
+    });
+    errSpy.mockRestore();
   });
 
   it("requests at most the batch limit per tick (cycle budget)", async () => {
@@ -350,7 +534,8 @@ describe("mindTick tRPC surface", () => {
       lastProcessedId: 6,
       processedTotal: 6,
       validTotal: 6,
-      skippedTotal: 0,
+      quarantinedTotal: 0,
+      quarantineFailures: 0,
       contradictionsTotal: 1,
       patternsTotal: 1,
       suggestionsTotal: 2,
@@ -358,6 +543,9 @@ describe("mindTick tRPC surface", () => {
       autoEligibleTotal: 1,
       ticksTotal: 1,
       ticksSkipped: 0,
+      leaseRejected: 0,
+      cronFailures: 0,
+      lastCronError: null,
       batchLimit: MIND_TICK_BATCH_LIMIT,
       ceiling: "A1",
     });
@@ -379,10 +567,30 @@ describe("mindTick tRPC surface", () => {
   });
 
   it("tick runs one guarded cycle on demand and never throws on pg failure", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     queryMock.mockRejectedValue(new Error("boom"));
 
     const res = await caller.mindTick.tick();
     expect(res.suggestions).toEqual([]);
     expect(getMindTickStatus().ticksSkipped).toBe(1);
+    errSpy.mockRestore();
+  });
+
+  it("quarantine exposes the DLQ audit records (reasons + correlation ids)", async () => {
+    mockSchemaCalls();
+    queryMock.mockResolvedValueOnce({
+      rows: [rawRow({ event_type: "mystery.unknown.event" })],
+      rowCount: 1,
+    });
+    await runMindTick(FIXED_CLOCK);
+
+    const dlq = await caller.mindTick.quarantine();
+    expect(dlq).toHaveLength(1);
+    expect(dlq[0].id).toBe("qtn-platform-42");
+    expect(JSON.parse(dlq[0].content)).toMatchObject({
+      correlationId: "qtn-platform-42",
+      eventType: "mystery.unknown.event",
+      reasons: ["eventType:UNKNOWN_EVENT_TYPE"],
+    });
   });
 });

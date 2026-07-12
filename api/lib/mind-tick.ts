@@ -35,8 +35,26 @@
 // in-memory proposals + counters. It never writes events back to the
 // inbox, so its own output can never re-enter its input.
 //
-// SAFETY: like runPerceptionSyncTick, runMindTick NEVER throws. A pg
-// failure is a silent skip; a malformed row bumps skipped counters.
+// FAIL-CLOSED, NOT FAIL-SILENT:
+//   - runMindTick NEVER throws (cron-safe like runPerceptionSyncTick),
+//     but nothing is lost silently: a malformed row is written to a
+//     DURABLE quarantine (DLQ, B4 MemoryStore) with rejection reasons
+//     and an idempotent correlation id BEFORE the cursor may advance
+//     past it. If the quarantine write fails, the cursor HALTS at that
+//     row and the rest of the batch is deferred to the next tick.
+//   - The cursor advances only past rows with a processed or
+//     durably-quarantined outcome. Replay after a restart re-hits the
+//     same quarantine ids (DUPLICATE = already durable = advance).
+//   - A pg read failure is a counted, structured-logged skip.
+//   - Cron-level failures are recorded via recordMindTickCronFailure:
+//     structured JSON log + cronFailures metric + lastCronError
+//     readiness evidence in the status surface. Never a bare console
+//     line that nobody counts.
+//
+// LEASE: an in-process lease (holder + acquiredAt) guards the cycle —
+// overlapping ticks are rejected and counted (leaseRejected), never
+// interleaved. Single-runtime by design, same execution model as the
+// perception adapter's cron.
 // ============================================================
 
 import { getEventsAfterId, type PerceptionSourceRow } from "./platform-inbox-store";
@@ -62,6 +80,12 @@ import {
   type EventPattern,
 } from "./zero-input";
 import type { Provenance } from "./persistent-memory";
+import {
+  createMemoryStore,
+  MemoryError,
+  type MemoryStore,
+  type MemoryRecord,
+} from "./persistent-memory";
 
 /** Cycle budget: at most this many inbox rows are read per tick. */
 export const MIND_TICK_BATCH_LIMIT = 200;
@@ -91,6 +115,9 @@ export const MIND_TICK_PATTERN_STRUCTURAL_THRESHOLD = 10;
 
 const MAX_ERROR_LENGTH = 200;
 
+/** B4 memory kind under which quarantined (DLQ) rows are stored. */
+export const MIND_TICK_QUARANTINE_KIND = "mind-tick-quarantine";
+
 /** status-of is functional: one aggregate cannot hold two different
  *  states at the same instant — that is exactly a contradiction. */
 function mindTickOntology(): Ontology {
@@ -103,7 +130,8 @@ export interface MindTickStatus {
   lastProcessedId: number;
   processedTotal: number;
   validTotal: number;
-  skippedTotal: number;
+  quarantinedTotal: number;
+  quarantineFailures: number;
   contradictionsTotal: number;
   patternsTotal: number;
   suggestionsTotal: number;
@@ -111,6 +139,9 @@ export interface MindTickStatus {
   autoEligibleTotal: number;
   ticksTotal: number;
   ticksSkipped: number;
+  leaseRejected: number;
+  cronFailures: number;
+  lastCronError: string | null;
   lastRunAt: string | null;
   lastError: string | null;
   batchLimit: number;
@@ -122,7 +153,12 @@ export interface MindTickResult {
   ranAt: string;
   read: number;
   valid: number;
-  skipped: number;
+  /** Malformed rows durably quarantined (DLQ) this cycle — never lost. */
+  quarantined: number;
+  /** true when a quarantine write failed: the cursor HALTED at that row. */
+  halted: boolean;
+  /** Rows left unprocessed because of a halt — retried next tick. */
+  deferred: number;
   contradictions: number;
   patterns: EventPattern[];
   signals: number;
@@ -136,7 +172,8 @@ const state = {
   lastProcessedId: 0,
   processedTotal: 0,
   validTotal: 0,
-  skippedTotal: 0,
+  quarantinedTotal: 0,
+  quarantineFailures: 0,
   contradictionsTotal: 0,
   patternsTotal: 0,
   suggestionsTotal: 0,
@@ -144,10 +181,30 @@ const state = {
   autoEligibleTotal: 0,
   ticksTotal: 0,
   ticksSkipped: 0,
+  leaseRejected: 0,
+  cronFailures: 0,
+  lastCronError: null as string | null,
   lastRunAt: null as string | null,
   lastError: null as string | null,
-  running: false,
 };
+
+/** In-process lease guarding the cycle — overlapping ticks are rejected
+ *  and counted, never interleaved. Single-runtime execution model, same
+ *  as the perception adapter's cron. */
+const lease = {
+  held: false,
+  holder: null as string | null,
+  acquiredAt: null as string | null,
+};
+
+/** Durable quarantine (DLQ) store — pg-backed via DATABASE_URL when
+ *  configured (B4 PgVectorMemoryStore), else in-memory. Lazy singleton. */
+let quarantineStore: MemoryStore | null = null;
+
+function getQuarantineStore(): MemoryStore {
+  if (!quarantineStore) quarantineStore = createMemoryStore();
+  return quarantineStore;
+}
 
 let lastResult: MindTickResult | null = null;
 
@@ -156,6 +213,12 @@ export type Clock = () => Date;
 function truncateError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return message.slice(0, MAX_ERROR_LENGTH);
+}
+
+/** Structured, machine-parsable error line — never a bare string that
+ *  nobody counts. Every call site also bumps a metric counter. */
+function logStructured(event: string, detail: Record<string, unknown>): void {
+  console.error(JSON.stringify({ module: "mind-tick", event, ...detail }));
 }
 
 function sanitizeIdPart(value: string): string {
@@ -249,7 +312,9 @@ function emptyResult(ranAt: string): MindTickResult {
     ranAt,
     read: 0,
     valid: 0,
-    skipped: 0,
+    quarantined: 0,
+    halted: false,
+    deferred: 0,
     contradictions: 0,
     patterns: [],
     signals: 0,
@@ -259,50 +324,149 @@ function emptyResult(ranAt: string): MindTickResult {
 }
 
 /**
+ * Idempotent quarantine correlation id: derived from the row's own
+ * identity when present, else from the deterministic batch position
+ * after the current cursor — identical on every replay of the batch.
+ */
+export function quarantineCorrelationId(
+  row: PerceptionSourceRow,
+  cursor: number,
+  position: number,
+): string {
+  if (typeof row.source === "string" && row.source.length > 0 && row.eventId != null) {
+    return `qtn-${sanitizeIdPart(row.source)}-${row.eventId}`;
+  }
+  if (Number.isFinite(row.id)) return `qtn-row-${row.id}`;
+  return `qtn-cursor-${cursor}-pos-${position}`;
+}
+
+/**
+ * Durable quarantine (DLQ) write for a malformed row — MUST succeed (or
+ * already exist) BEFORE the cursor may advance past the row. Returns
+ * true when the row is durably quarantined; false when the write failed
+ * (caller halts the cursor at this row — nothing is lost silently).
+ * A DUPLICATE means an earlier tick/restart already quarantined this
+ * exact row — idempotent replay, already durable, safe to advance.
+ */
+async function quarantineRow(
+  row: PerceptionSourceRow,
+  validation: ValidationResult | null,
+  correlationId: string,
+): Promise<boolean> {
+  const reasons = validation
+    ? validation.errors.map((e) => `${e.field}:${e.code}`)
+    : ["row:STRUCTURAL_INVALID"];
+  const recordedAt =
+    (typeof row.occurredAt === "string" && row.occurredAt) ||
+    (typeof row.receivedAt === "string" && row.receivedAt) ||
+    "1970-01-01T00:00:00.000Z";
+  try {
+    await getQuarantineStore().put({
+      id: correlationId,
+      kind: MIND_TICK_QUARANTINE_KIND,
+      // Identity fields + rejection reasons only — payload values never
+      // leave Postgres, so nothing sensitive can land in the DLQ.
+      content: JSON.stringify({
+        correlationId,
+        rowId: Number.isFinite(row.id) ? row.id : null,
+        source: typeof row.source === "string" ? row.source : null,
+        eventId: row.eventId ?? null,
+        eventType: typeof row.eventType === "string" ? row.eventType : null,
+        reasons,
+      }),
+      provenance: {
+        source: "platform-inbox",
+        method: "mind-tick-quarantine",
+        recordedAt,
+        confidence: 1,
+      },
+    });
+    return true;
+  } catch (error) {
+    if (error instanceof MemoryError && error.code === "DUPLICATE") return true;
+    state.quarantineFailures += 1;
+    state.lastError = truncateError(error);
+    logStructured("quarantine-write-failed", {
+      correlationId,
+      error: truncateError(error),
+    });
+    return false;
+  }
+}
+
+/**
  * One living-mind cycle. NEVER throws — every failure is absorbed into
- * the counters, exactly like runPerceptionSyncTick.
- * @param clock injectable wall clock — used ONLY for run timestamps
- *              (lastRunAt / ranAt), never in decision logic.
+ * counters + structured logs, and malformed rows land in the durable
+ * quarantine BEFORE the cursor advances. Guarded by an in-process
+ * lease: overlapping calls are rejected and counted, never interleaved.
+ * @param clock injectable wall clock — used ONLY for run/lease
+ *              timestamps (lastRunAt / ranAt), never in decision logic.
  */
 export async function runMindTick(clock: Clock = () => new Date()): Promise<MindTickResult> {
   const ranAt = clock().toISOString();
-  if (state.running) return lastResult ?? emptyResult(ranAt);
-  state.running = true;
+  if (lease.held) {
+    state.leaseRejected += 1;
+    logStructured("lease-rejected", { holder: lease.holder, acquiredAt: lease.acquiredAt });
+    return lastResult ?? emptyResult(ranAt);
+  }
+  lease.held = true;
+  lease.holder = `tick-${state.ticksTotal + 1}`;
+  lease.acquiredAt = ranAt;
   try {
     state.ticksTotal += 1;
     state.lastRunAt = ranAt;
 
+    const cursorAtStart = state.lastProcessedId;
     let rows: PerceptionSourceRow[];
     try {
-      rows = await getEventsAfterId(state.lastProcessedId, MIND_TICK_BATCH_LIMIT);
+      rows = await getEventsAfterId(cursorAtStart, MIND_TICK_BATCH_LIMIT);
     } catch (error) {
-      // pg unavailable (no DATABASE_URL locally, network blip…) → silent skip
+      // pg unavailable (no DATABASE_URL locally, network blip…) →
+      // counted skip with a structured error — not a silent one.
       state.ticksSkipped += 1;
       state.lastError = truncateError(error);
+      logStructured("inbox-read-failed", { error: truncateError(error), ranAt });
       return emptyResult(ranAt);
     }
 
-    // (1) Contract replay: fail-closed per-row admission via B8.
+    // (1) Contract replay: fail-closed per-row admission via B8. The
+    // cursor advances ONLY past rows with a processed outcome (valid)
+    // or a durably-quarantined outcome. A failed quarantine write halts
+    // the cursor at that row; the remainder is deferred to next tick.
     const valid: PerceptionSourceRow[] = [];
-    let skipped = 0;
-    for (const row of rows) {
-      const admissible =
+    let quarantined = 0;
+    let halted = false;
+    let deferred = 0;
+    for (let i = 0; i < rows.length; i += 1) {
+      const row = rows[i];
+      const structural =
         Number.isFinite(row.id) &&
         typeof row.source === "string" &&
-        row.source.length > 0 &&
-        replayContract(row).valid;
-      if (admissible) valid.push(row);
-      else skipped += 1;
+        row.source.length > 0;
+      const validation = structural ? replayContract(row) : null;
+      if (validation?.valid) {
+        valid.push(row);
+      } else {
+        const correlationId = quarantineCorrelationId(row, cursorAtStart, i);
+        const durable = await quarantineRow(row, validation, correlationId);
+        if (!durable) {
+          halted = true;
+          deferred = rows.length - i;
+          break;
+        }
+        quarantined += 1;
+      }
       state.processedTotal += 1;
       if (Number.isFinite(row.id)) {
         state.lastProcessedId = Math.max(state.lastProcessedId, row.id);
       }
     }
     state.validTotal += valid.length;
-    state.skippedTotal += skipped;
+    state.quarantinedTotal += quarantined;
 
     // (2)–(5) B5 pipeline → signals → B7 proposals. Any engine-level
-    // throw is absorbed: the cursor already advanced, nothing escapes.
+    // throw is absorbed with a structured error: the cursor already
+    // advanced over processed rows, nothing escapes the cycle.
     let contradictionsCount = 0;
     let patterns: EventPattern[] = [];
     let suggestions: Suggestion[] = [];
@@ -328,6 +492,7 @@ export async function runMindTick(clock: Clock = () => new Date()): Promise<Mind
       suggestions = await engine.generate(signals);
     } catch (error) {
       state.lastError = truncateError(error);
+      logStructured("pipeline-failed", { error: truncateError(error), ranAt });
     }
 
     state.contradictionsTotal += contradictionsCount;
@@ -342,7 +507,9 @@ export async function runMindTick(clock: Clock = () => new Date()): Promise<Mind
       ranAt,
       read: rows.length,
       valid: valid.length,
-      skipped,
+      quarantined,
+      halted,
+      deferred,
       contradictions: contradictionsCount,
       patterns,
       signals: signalsCount,
@@ -353,10 +520,29 @@ export async function runMindTick(clock: Clock = () => new Date()): Promise<Mind
   } catch (error) {
     // Belt and braces: nothing above should throw, but nothing may escape.
     state.lastError = truncateError(error);
+    logStructured("tick-failed", { error: truncateError(error), ranAt });
     return emptyResult(ranAt);
   } finally {
-    state.running = false;
+    lease.held = false;
+    lease.holder = null;
+    lease.acquiredAt = null;
   }
+}
+
+/**
+ * Cron-level failure hook (boot.ts catch): structured error + metric +
+ * readiness evidence — a cron failure is never a bare console line.
+ * runMindTick never throws by design, so this firing at all is itself
+ * a signal worth counting.
+ */
+export function recordMindTickCronFailure(error: unknown, clock: Clock = () => new Date()): void {
+  state.cronFailures += 1;
+  state.lastCronError = truncateError(error);
+  logStructured("cron-tick-failed", {
+    error: truncateError(error),
+    cronFailures: state.cronFailures,
+    at: clock().toISOString(),
+  });
 }
 
 /** Counters only — no event payloads or contents are ever exposed here. */
@@ -365,7 +551,8 @@ export function getMindTickStatus(): MindTickStatus {
     lastProcessedId: state.lastProcessedId,
     processedTotal: state.processedTotal,
     validTotal: state.validTotal,
-    skippedTotal: state.skippedTotal,
+    quarantinedTotal: state.quarantinedTotal,
+    quarantineFailures: state.quarantineFailures,
     contradictionsTotal: state.contradictionsTotal,
     patternsTotal: state.patternsTotal,
     suggestionsTotal: state.suggestionsTotal,
@@ -373,6 +560,9 @@ export function getMindTickStatus(): MindTickStatus {
     autoEligibleTotal: state.autoEligibleTotal,
     ticksTotal: state.ticksTotal,
     ticksSkipped: state.ticksSkipped,
+    leaseRejected: state.leaseRejected,
+    cronFailures: state.cronFailures,
+    lastCronError: state.lastCronError,
     lastRunAt: state.lastRunAt,
     lastError: state.lastError,
     batchLimit: MIND_TICK_BATCH_LIMIT,
@@ -385,12 +575,30 @@ export function getLastMindTickResult(): MindTickResult | null {
   return lastResult;
 }
 
-// Test-only: reset cursor/counters/last result
+/** DLQ audit surface: every durably-quarantined row with its rejection
+ *  reasons and correlation id (identity fields only, never payloads). */
+export async function listMindTickQuarantine(): Promise<MemoryRecord[]> {
+  try {
+    return await getQuarantineStore().list(MIND_TICK_QUARANTINE_KIND);
+  } catch (error) {
+    state.lastError = truncateError(error);
+    logStructured("quarantine-list-failed", { error: truncateError(error) });
+    return [];
+  }
+}
+
+// Test-only: inject a quarantine store (in-memory / failing double)
+export function __setMindTickQuarantineStoreForTests(store: MemoryStore | null): void {
+  quarantineStore = store;
+}
+
+// Test-only: reset cursor/counters/lease/last result
 export function __resetMindTickForTests(): void {
   state.lastProcessedId = 0;
   state.processedTotal = 0;
   state.validTotal = 0;
-  state.skippedTotal = 0;
+  state.quarantinedTotal = 0;
+  state.quarantineFailures = 0;
   state.contradictionsTotal = 0;
   state.patternsTotal = 0;
   state.suggestionsTotal = 0;
@@ -398,8 +606,14 @@ export function __resetMindTickForTests(): void {
   state.autoEligibleTotal = 0;
   state.ticksTotal = 0;
   state.ticksSkipped = 0;
+  state.leaseRejected = 0;
+  state.cronFailures = 0;
+  state.lastCronError = null;
   state.lastRunAt = null;
   state.lastError = null;
-  state.running = false;
+  lease.held = false;
+  lease.holder = null;
+  lease.acquiredAt = null;
+  quarantineStore = null;
   lastResult = null;
 }

@@ -21,7 +21,7 @@ import {
 import { markIucTick, setIucCronStatus } from "./lib/iuc-runtime";
 import { runPerceptionSyncTick } from "./lib/perception-adapter";
 import { runReflectionTick } from "./lib/reflection-cycle";
-import { runMindTick } from "./lib/mind-tick";
+import { runMindTick, recordMindTickCronFailure } from "./lib/mind-tick";
 import { hydratePersistedIurgGraph } from "./iuc-router";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
@@ -141,11 +141,13 @@ if (env.isProduction) {
         console.error("[reflection-cycle] tick failed (non-fatal):", err);
       }
       // G6: living mind cycle — inbox → B5 contradictions → B7 proposals.
-      // runMindTick never throws by design; guarded anyway.
+      // runMindTick never throws by design; a catch here is itself a
+      // countable failure: structured error + cronFailures metric +
+      // lastCronError readiness evidence — never a silent non-fatal.
       try {
         await runMindTick();
       } catch (err) {
-        console.error("[mind-tick] tick failed (non-fatal):", err);
+        recordMindTickCronFailure(err);
       }
     });
     // Wave 6-b boot order: (1) hydrate persisted IURG objects from

@@ -12,12 +12,17 @@ import {
   runMindTick,
   getMindTickStatus,
   getLastMindTickResult,
+  listMindTickQuarantine,
 } from "./lib/mind-tick";
 
 export const mindTickRouter = createRouter({
   status: publicQuery.query(() => getMindTickStatus()),
 
   last: publicQuery.query(() => getLastMindTickResult()),
+
+  // DLQ audit: durably-quarantined rows (reasons + correlation ids,
+  // identity fields only — payload values never leave Postgres).
+  quarantine: publicQuery.query(() => listMindTickQuarantine()),
 
   // runMindTick never throws by design — a pg failure is a counted skip.
   tick: publicQuery.mutation(() => runMindTick()),
