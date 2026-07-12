@@ -50,6 +50,7 @@ import { bridgeContractsRouter } from "./bridge-contracts-router";
 import { realityEngineRouter } from "./reality-engine-router";
 import { zeroInputRouter } from "./zero-input-router";
 import { evaluationLearningRouter } from "./evaluation-learning-router";
+import { mindTickRouter } from "./mind-tick-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -137,6 +138,8 @@ export const appRouter = createRouter({
   zeroInput: zeroInputRouter,
   // B6 — Evaluation & Learning: deterministic golden sets + fail-closed regression gates + OCMBR RUN evidence
   evaluationLearning: evaluationLearningRouter,
+  // G6 — Mind Tick: living cycle inbox→B5 contradictions→B7 proposals (propose-only, A1 ceiling, fail-closed)
+  mindTick: mindTickRouter,
   // Platform contract aliases
   bridge: titanBridgeRouter,
   corpusQuery: corpusQueryRouter,
