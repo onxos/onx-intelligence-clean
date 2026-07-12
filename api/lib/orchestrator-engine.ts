@@ -25,6 +25,7 @@
 // ============================================================
 import { evaluateClaim, scanText, type ClaimVerdict } from "./codex-guard";
 import { type MaturityState } from "./ocmbr-engine";
+import { requireMethod, type WorkerOutput } from "./methods-library";
 
 // --- Executors ------------------------------------------------------------
 
@@ -55,6 +56,14 @@ export interface ExecutionResult {
   cost: number;
   /** true when the executor could not produce a result yet (e.g. human). */
   pending?: boolean;
+  /**
+   * The executor's OWN structured method-evidence claim. Like
+   * `claimedComplete`, it is recorded and NEVER trusted: for method-bound
+   * tasks the verifier gathers evidence exclusively from the store's
+   * registered MethodEvidenceSource (repo/CI/PR/runtime artifacts) — a
+   * flattering self-supplied methodOutput cannot move a task to verified.
+   */
+  methodOutput?: WorkerOutput;
 }
 
 /** The swappable executor contract (charter rule #3). */
@@ -188,6 +197,13 @@ export interface TaskSpec {
   estimatedCost: number;
   /** The independent verification check for this task's output. */
   verify: VerificationCheck;
+  /**
+   * Governed method (B2-β methods library) this task must follow.
+   * Validated FAIL-CLOSED at plan time via requireMethod (unknown method
+   * rejects the whole mandate) and enforced at verification time via
+   * verifyMethodCompliance on the executor's actual methodOutput.
+   */
+  methodId?: string;
   /** Max execution attempts before the task is abandoned. Default 2. */
   maxAttempts?: number;
   /** Timeout (ms) after which a running task is a straggler. Default 1000. */
@@ -301,6 +317,12 @@ export function planMandate(spec: MandateSpec): MandatePlan {
         );
       }
       seenTaskIds.add(task.id);
+      // Method binding is validated up front: an unknown method must
+      // reject the mandate at PLAN time (fail-closed), not surface later
+      // as a silent runtime pass. Reuses B2-β requireMethod as-is.
+      if (task.methodId !== undefined) {
+        requireMethod(task.methodId, task.id); // throws MethodError
+      }
       totalTasks += 1;
       estimatedCost += Math.max(0, task.estimatedCost);
     }

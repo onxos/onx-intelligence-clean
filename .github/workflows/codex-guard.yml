@@ -68,6 +68,20 @@ jobs:
       - name: Bridge Ingest Contract test suite (G1+G4)
         run: npx vitest run api/__tests__/bridge-ingest-contract.test.ts
 
+      # Privacy evidence: perception summaries are key-names-only, pulse
+      # endpoints expose counts only — these suites are the enforcement.
+      - name: Perception + Reflection + Revenue-Pulse test suites (privacy)
+        run: npx vitest run api/__tests__/perception-adapter.test.ts api/__tests__/reflection-cycle.test.ts api/__tests__/revenue-pulse.test.ts
+
+      # K4 evidence: method-bound tasks are verified from INDEPENDENT
+      # artifacts only (executor's methodOutput is recorded-but-ignored),
+      # hollow evidence rejects, and REVIEW/MERGE + RUN/FIX ordering is
+      # matched per-ref. Filters assert the anti-self-certify tests ran.
+      - name: Governed Methods Enforcement (K4)
+        run: |
+          npx vitest run api/__tests__/methods-library.test.ts -t "anti-self-certification"
+          npx vitest run api/__tests__/orchestrator.test.ts -t "K4"
+
   # Resolves the recorded B4 constraint `pg-adapter-untested`: exercises the
   # real PgVectorMemoryStore against a LIVE Postgres+pgvector (no mock). This
   # job genuinely RUNS the integration suite (never skipped) because the
