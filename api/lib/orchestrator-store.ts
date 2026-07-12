@@ -39,7 +39,7 @@ import {
   registerCapability,
 } from "./ocmbr-store";
 import { type MaturityState } from "./ocmbr-engine";
-import { verifyMethodCompliance } from "./methods-library";
+import { verifyMethodCompliance, type WorkerOutput } from "./methods-library";
 
 const DEFAULT_MAX_ATTEMPTS = 2;
 const DEFAULT_TIMEOUT_MS = 1000;
@@ -96,6 +96,7 @@ interface Store {
   executors: Map<ExecutorKind, Executor>;
   decisions: Decision[];
   seq: number;
+  methodEvidenceSource?: MethodEvidenceSource;
 }
 
 const store: Store = {
@@ -190,6 +191,25 @@ function recordRejectionEvidence(
 /** Register / replace a swappable executor (charter rule #3). */
 export function registerExecutor(executor: Executor): void {
   store.executors.set(executor.kind, executor);
+}
+
+/**
+ * INDEPENDENT method-evidence collector. For method-bound tasks the
+ * verifier gathers WorkerOutput artifacts (repo / CI / PR / runtime)
+ * from THIS source — never from the executor's own ExecutionResult.
+ * An executor attaching a flattering `methodOutput` to its result is
+ * recorded but ignored, exactly like `claimedComplete` (anti
+ * self-certification). No source registered → method-bound tasks are
+ * rejected fail-closed.
+ */
+export type MethodEvidenceSource = (
+  taskId: string,
+) => WorkerOutput | undefined;
+
+export function registerMethodEvidenceSource(
+  source: MethodEvidenceSource,
+): void {
+  store.methodEvidenceSource = source;
 }
 
 export function availableExecutors(): Set<ExecutorKind> {
@@ -350,13 +370,28 @@ export async function runTask(
   // --- INDEPENDENT verification (never trust the self-certification) ---
   let verification = independentlyVerify(result, task.spec.verify);
 
-  // Method-bound tasks (K4): the output must ALSO comply with the
-  // declared B2-β method. Fail-closed — a missing methodOutput is a
-  // missing-input violation inside verifyMethodCompliance, never a pass.
+  // Method-bound tasks (K4): the work must ALSO comply with the declared
+  // B2-β method, proven by INDEPENDENTLY collected artifacts. The
+  // executor's own `result.methodOutput` is recorded-but-ignored (same
+  // anti-self-certification stance as `claimedComplete`): evidence comes
+  // only from the registered MethodEvidenceSource (repo/CI/PR/runtime).
+  // No source or no evidence → missing-input → REJECTED, never a pass.
   if (verification.verdict === "VERIFIED" && task.spec.methodId !== undefined) {
+    const independentEvidence = store.methodEvidenceSource
+      ? store.methodEvidenceSource(taskId)
+      : undefined;
+    if (result.methodOutput !== undefined) {
+      log(
+        task.mandateId,
+        "verify",
+        "منفّذ أرفق methodOutput ذاتياً — سُجّل وتم تجاهله؛ الدليل يُجمَع من مصدر مستقل فقط.",
+        false,
+        taskId,
+      );
+    }
     const compliance = verifyMethodCompliance(
       task.spec.methodId,
-      result.methodOutput,
+      independentEvidence,
     );
     if (!compliance.compliant) {
       const details = compliance.violations
@@ -367,7 +402,7 @@ export async function runTask(
         verdict: "REJECTED",
         passedCheck: false,
         actualState: "PARTIAL",
-        reason: `رُفض: المخرجات تخالف المنهج المعتمد «${task.spec.methodId}» — ${details}`,
+        reason: `رُفض: الدليل المستقل يخالف المنهج المعتمد «${task.spec.methodId}» — ${details}`,
       };
     }
   }
@@ -650,5 +685,6 @@ export function __resetOrchestratorForTests(): void {
   store.executors.clear();
   store.decisions.length = 0;
   store.seq = 0;
+  store.methodEvidenceSource = undefined;
   ensureDefaults();
 }

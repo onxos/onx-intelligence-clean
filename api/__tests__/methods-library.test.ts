@@ -609,6 +609,85 @@ describe("test-fixing — reproduce first, fix the code not the test (K4)", () =
   });
 
   it("ACCEPTS output with no fix at all (nothing to gate)", () => {
-    expect(verifyMethodCompliance("test-fixing", { evidence: [] }).compliant).toBe(true);
+    const output: WorkerOutput = {
+      evidence: [{ type: "CODE", ref: "api/x.ts", date: "2026-07-12T08:00:00Z" }],
+    };
+    expect(verifyMethodCompliance("test-fixing", output).compliant).toBe(true);
+  });
+});
+
+describe("hollow evidence & per-ref matching — anti-self-certification (K4)", () => {
+  it("REJECTS a hollow output ({}) — self-certification without proof", () => {
+    const result = verifyMethodCompliance("code-review", {});
+    expect(result.compliant).toBe(false);
+    expect(result.violations.map((v) => v.rule)).toContain("missing-input");
+  });
+
+  it("REJECTS an output whose collections are all empty (no substantive artifact)", () => {
+    const result = verifyMethodCompliance("test-fixing", {
+      evidence: [],
+      files: [],
+    });
+    expect(result.compliant).toBe(false);
+    expect(result.violations.map((v) => v.rule)).toContain("missing-input");
+  });
+
+  it("REJECTS a review of ONE ref used to license merging ANOTHER (per-ref)", () => {
+    const output: WorkerOutput = {
+      evidence: [
+        { type: "REVIEW", ref: "pr-1", date: "2026-07-12T09:00:00Z" },
+        { type: "MERGE", ref: "pr-2", date: "2026-07-12T10:00:00Z" },
+      ],
+    };
+    const result = verifyMethodCompliance("code-review", output);
+    expect(result.compliant).toBe(false);
+    expect(result.violations.map((v) => v.rule)).toContain("review-before-merge");
+  });
+
+  it("REJECTS when only SOME merged refs carry their own prior review", () => {
+    const output: WorkerOutput = {
+      evidence: [
+        { type: "REVIEW", ref: "pr-1", date: "2026-07-12T09:00:00Z" },
+        { type: "MERGE", ref: "pr-1", date: "2026-07-12T10:00:00Z" },
+        { type: "MERGE", ref: "pr-2", date: "2026-07-12T10:30:00Z" },
+      ],
+    };
+    expect(verifyMethodCompliance("code-review", output).compliant).toBe(false);
+  });
+
+  it("REJECTS an undated MERGE (ordering unprovable → fail-closed)", () => {
+    const output: WorkerOutput = {
+      evidence: [
+        { type: "REVIEW", ref: "pr-1", date: "2026-07-12T09:00:00Z" },
+        { type: "MERGE", ref: "pr-1" },
+      ],
+    };
+    expect(verifyMethodCompliance("code-review", output).compliant).toBe(false);
+  });
+
+  it("REJECTS a FIX dated before ANY reproduction RUN even when another FIX is covered", () => {
+    const output: WorkerOutput = {
+      evidence: [
+        { type: "FIX", ref: "api/a.ts", date: "2026-07-12T10:00:00Z" },
+        { type: "RUN", ref: "repro", date: "2026-07-12T11:00:00Z" },
+        { type: "TEST", ref: "api/__tests__/a.test.ts", date: "2026-07-12T09:00:00Z" },
+        { type: "FIX", ref: "api/b.ts", date: "2026-07-12T12:00:00Z" },
+      ],
+    };
+    const result = verifyMethodCompliance("test-fixing", output);
+    expect(result.compliant).toBe(false);
+    expect(result.violations.map((v) => v.rule)).toContain("repro-before-fix");
+  });
+
+  it("ACCEPTS multiple merges when EACH ref has its own dated prior review", () => {
+    const output: WorkerOutput = {
+      evidence: [
+        { type: "REVIEW", ref: "pr-1", date: "2026-07-12T09:00:00Z" },
+        { type: "MERGE", ref: "pr-1", date: "2026-07-12T10:00:00Z" },
+        { type: "REVIEW", ref: "pr-2", date: "2026-07-12T10:15:00Z" },
+        { type: "MERGE", ref: "pr-2", date: "2026-07-12T10:30:00Z" },
+      ],
+    };
+    expect(verifyMethodCompliance("code-review", output).compliant).toBe(true);
   });
 });

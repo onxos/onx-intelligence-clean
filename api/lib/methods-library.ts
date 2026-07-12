@@ -690,73 +690,73 @@ const EVALUATORS: Record<MethodRuleKind, RuleEvaluator> = {
     const merges = evidenceOf(output, "MERGE");
     if (merges.length === 0) return [];
     const reviews = evidenceOf(output, "REVIEW");
-    if (reviews.length === 0) {
-      return [
-        {
+    const violations: MethodViolation[] = [];
+    // Per-ref matching: EVERY merged ref needs its own dated REVIEW at or
+    // before that merge. Undated evidence cannot prove ordering → fail-closed.
+    for (const m of merges) {
+      const mergeDate = m.date;
+      if (!mergeDate) {
+        violations.push({
           rule: "review-before-merge",
-          message: "دليل MERGE بلا أي دليل REVIEW — دمج بلا مراجعة سطرية مرفوض.",
-        },
-      ];
-    }
-    const earliestReview = earliest(reviews.map((r) => r.date));
-    const earliestMerge = earliest(merges.map((m) => m.date));
-    if (
-      earliestReview !== undefined &&
-      earliestMerge !== undefined &&
-      earliestReview > earliestMerge
-    ) {
-      return [
-        {
+          message: `دليل MERGE «${m.ref ?? "?"}» بلا تاريخ — ترتيب غير قابل للإثبات، رفض آمن.`,
+        });
+        continue;
+      }
+      const covering = reviews.filter(
+        (r) => r.ref === m.ref && r.date !== undefined && r.date <= mergeDate,
+      );
+      if (covering.length === 0) {
+        violations.push({
           rule: "review-before-merge",
-          message: "أقدم REVIEW مؤرّخ بعد أقدم MERGE — مراجعة لاحقة للدمج (ختم شكلي) مرفوضة.",
-        },
-      ];
+          message: `MERGE «${m.ref ?? "?"}» بلا دليل REVIEW مطابق للـref ومؤرّخ قبله/معه — دمج بلا مراجعة سطرية (أو ختم لاحق) مرفوض.`,
+        });
+      }
     }
-    return [];
+    return violations;
   },
 
   "repro-before-fix": (_rule, output) => {
     const fixes = evidenceOf(output, "FIX");
     if (fixes.length === 0) return [];
-    const runs = evidenceOf(output, "RUN");
-    if (runs.length === 0) {
-      return [
-        {
+    const datedRuns = evidenceOf(output, "RUN").filter(
+      (r) => r.date !== undefined,
+    );
+    const violations: MethodViolation[] = [];
+    // Per-fix matching: EVERY fix needs a dated reproduction RUN at or
+    // before it. Undated fixes cannot prove ordering → fail-closed.
+    for (const f of fixes) {
+      if (!f.date) {
+        violations.push({
           rule: "repro-before-fix",
-          message: "دليل FIX بلا دليل RUN يستنسخ الفشل — إصلاح أعمى مرفوض.",
-        },
-      ];
-    }
-    const earliestRun = earliest(runs.map((r) => r.date));
-    const earliestFix = earliest(fixes.map((f) => f.date));
-    if (
-      earliestRun !== undefined &&
-      earliestFix !== undefined &&
-      earliestRun > earliestFix
-    ) {
-      return [
-        {
+          message: `دليل FIX «${f.ref ?? "?"}» بلا تاريخ — ترتيب غير قابل للإثبات، رفض آمن.`,
+        });
+        continue;
+      }
+      const reproBefore = datedRuns.filter((r) => (r.date as string) <= (f.date as string));
+      if (reproBefore.length === 0) {
+        violations.push({
           rule: "repro-before-fix",
-          message: "أقدم RUN (استنساخ) مؤرّخ بعد أقدم FIX — الاستنساخ لم يسبق الإصلاح.",
-        },
-      ];
+          message: `FIX «${f.ref ?? "?"}» بلا دليل RUN يستنسخ الفشل مؤرّخاً قبله/معه — إصلاح أعمى مرفوض.`,
+        });
+      }
     }
-    return [];
+    return violations;
   },
 
   "regression-test-with-fix": (_rule, output) => {
     const fixes = evidenceOf(output, "FIX");
     if (fixes.length === 0) return [];
     const tests = evidenceOf(output, "TEST");
-    if (tests.length === 0) {
-      return [
-        {
+    const violations: MethodViolation[] = [];
+    for (const f of fixes) {
+      if (tests.length === 0) {
+        violations.push({
           rule: "regression-test-with-fix",
-          message: "دليل FIX بلا دليل TEST (اختبار انحدار) — إصلاح بلا اختبار مرفوض.",
-        },
-      ];
+          message: `دليل FIX «${f.ref ?? "?"}» بلا دليل TEST (اختبار انحدار) — إصلاح بلا اختبار مرفوض.`,
+        });
+      }
     }
-    return [];
+    return violations;
   },
 };
 
@@ -795,6 +795,31 @@ export function verifyMethodCompliance(
         {
           rule: "missing-input",
           message: "مدخل مخرجات العامل ناقص — رفض آمن (fail-closed).",
+        },
+      ],
+    };
+  }
+
+  // Hollow evidence: an output object carrying NO substantive artifact at
+  // all ({} or empty collections) is self-certification without proof —
+  // rejected fail-closed, never treated as "nothing to gate".
+  const hasSubstance =
+    (output.evidence?.length ?? 0) > 0 ||
+    (output.files?.length ?? 0) > 0 ||
+    (output.scopes?.length ?? 0) > 0 ||
+    (output.commitMessages?.length ?? 0) > 0 ||
+    output.pr !== undefined ||
+    output.gitOps !== undefined ||
+    output.gitActivity !== undefined ||
+    output.diagnosis !== undefined;
+  if (!hasSubstance) {
+    return {
+      methodId: resolved.id,
+      compliant: false,
+      violations: [
+        {
+          rule: "missing-input",
+          message: "مخرجات أجوف بلا أي مصنوعات/أدلة — شهادة ذاتية بلا إثبات، رفض آمن (fail-closed).",
         },
       ],
     };

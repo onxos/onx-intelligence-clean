@@ -57,10 +57,11 @@ export interface ExecutionResult {
   /** true when the executor could not produce a result yet (e.g. human). */
   pending?: boolean;
   /**
-   * Structured method-evidence (B2-β WorkerOutput) for method-bound tasks.
-   * The verifier inspects it via verifyMethodCompliance — a method-bound
-   * task with NO methodOutput is rejected fail-closed, never assumed
-   * compliant.
+   * The executor's OWN structured method-evidence claim. Like
+   * `claimedComplete`, it is recorded and NEVER trusted: for method-bound
+   * tasks the verifier gathers evidence exclusively from the store's
+   * registered MethodEvidenceSource (repo/CI/PR/runtime artifacts) — a
+   * flattering self-supplied methodOutput cannot move a task to verified.
    */
   methodOutput?: WorkerOutput;
 }

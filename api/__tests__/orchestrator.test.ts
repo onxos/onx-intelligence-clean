@@ -35,6 +35,7 @@ import {
   createMandate,
   getTask,
   registerExecutor,
+  registerMethodEvidenceSource,
   reassignStragglers,
   runMandate,
 } from "../lib/orchestrator-store";
@@ -509,41 +510,17 @@ describe("K4 — TaskSpec.methodId is enforced through the methods library", () 
     expect(plan.totalTasks).toBeGreaterThan(0);
   });
 
-  it("a method-bound task is verified for method compliance: violations REJECT it", async () => {
+  it("IGNORES the executor's self-supplied methodOutput: a flattering claim cannot beat independent artifacts", async () => {
     const spec = mandate();
     const task = spec.waves[0].tasks[0];
     task.methodId = "code-review";
-    // Executor output that self-reports a merge with NO review evidence.
+    // The executor LIES: it attaches a fully-compliant methodOutput...
     registerExecutor({
       kind: "llm-gateway",
       execute: (req) => ({
         taskId: req.taskId,
         executor: "llm-gateway" as ExecutorKind,
-        output: "merged pr-1 without review",
-        claimedComplete: true,
-        cost: 1,
-        methodOutput: {
-          evidence: [{ type: "MERGE", ref: "pr-1", date: "2026-07-12T10:00:00Z" }],
-        },
-      }),
-    });
-    task.executor = "llm-gateway";
-    task.verify = { mustInclude: "merged" };
-    createMandate(spec);
-    await runMandate(spec.id);
-    expect(getTask(task.id)!.state).not.toBe("verified");
-  });
-
-  it("a method-bound task passes when the actual output complies with the method", async () => {
-    const spec = mandate();
-    const task = spec.waves[0].tasks[0];
-    task.methodId = "code-review";
-    registerExecutor({
-      kind: "llm-gateway",
-      execute: (req) => ({
-        taskId: req.taskId,
-        executor: "llm-gateway" as ExecutorKind,
-        output: "reviewed then merged pr-1",
+        output: "merged pr-1",
         claimedComplete: true,
         cost: 1,
         methodOutput: {
@@ -554,19 +531,70 @@ describe("K4 — TaskSpec.methodId is enforced through the methods library", () 
         },
       }),
     });
+    // ...but the INDEPENDENT artifact collector (repo/CI/PR) shows the
+    // merge happened with no review at all.
+    registerMethodEvidenceSource(() => ({
+      evidence: [{ type: "MERGE", ref: "pr-1", date: "2026-07-12T10:00:00Z" }],
+    }));
     task.executor = "llm-gateway";
     task.verify = { mustInclude: "merged" };
+    createMandate(spec);
+    await runMandate(spec.id);
+    expect(getTask(task.id)!.state).not.toBe("verified");
+  });
+
+  it("VERIFIES a method-bound task from independent artifacts even when the executor supplies nothing", async () => {
+    const spec = mandate();
+    const task = spec.waves[0].tasks[0];
+    task.methodId = "code-review";
+    // Plain mock executor: no methodOutput claim at all.
+    task.verify = { mustInclude: "mock" };
+    // Independent artifacts show a review dated before the merge, per ref.
+    registerMethodEvidenceSource(() => ({
+      evidence: [
+        { type: "REVIEW", ref: "pr-1", date: "2026-07-12T09:00:00Z" },
+        { type: "MERGE", ref: "pr-1", date: "2026-07-12T10:00:00Z" },
+      ],
+    }));
     createMandate(spec);
     await runMandate(spec.id);
     expect(getTask(task.id)!.state).toBe("verified");
   });
 
-  it("a method-bound task with NO methodOutput is rejected (fail-closed, no silent pass)", async () => {
+  it("REJECTS a method-bound task when NO independent evidence source is registered (fail-closed)", async () => {
     const spec = mandate();
     const task = spec.waves[0].tasks[0];
     task.methodId = "code-review";
-    // mock executor produces no methodOutput at all
     task.verify = { mustInclude: "mock" };
+    createMandate(spec);
+    await runMandate(spec.id);
+    expect(getTask(task.id)!.state).not.toBe("verified");
+  });
+
+  it("REJECTS hollow independent evidence ({} — self-certification without proof)", async () => {
+    const spec = mandate();
+    const task = spec.waves[0].tasks[0];
+    task.methodId = "code-review";
+    task.verify = { mustInclude: "mock" };
+    registerMethodEvidenceSource(() => ({}));
+    createMandate(spec);
+    await runMandate(spec.id);
+    expect(getTask(task.id)!.state).not.toBe("verified");
+  });
+
+  it("REJECTS per-ref gaps: a review covering one PR does not license merging another", async () => {
+    const spec = mandate();
+    const task = spec.waves[0].tasks[0];
+    task.methodId = "code-review";
+    task.verify = { mustInclude: "mock" };
+    registerMethodEvidenceSource(() => ({
+      evidence: [
+        { type: "REVIEW", ref: "pr-1", date: "2026-07-12T09:00:00Z" },
+        { type: "MERGE", ref: "pr-1", date: "2026-07-12T10:00:00Z" },
+        // pr-2 merged with no review of its own → must reject.
+        { type: "MERGE", ref: "pr-2", date: "2026-07-12T10:30:00Z" },
+      ],
+    }));
     createMandate(spec);
     await runMandate(spec.id);
     expect(getTask(task.id)!.state).not.toBe("verified");
