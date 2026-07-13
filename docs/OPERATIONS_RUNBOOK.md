@@ -471,6 +471,54 @@ in the same commit — the sixth Truth Gate (`verify:corpus`) then blocks any la
 
 ---
 
+## ترقية الذخيرة كأداة عاملة مرتكبة (STE-K-16)
+
+الموجة K-10 وثّقت المسار؛ الموجة K-16 حوّلته إلى **كود عامل مرتكب مختبَر**. لا يعاد بناء
+منطق K-10 المقاس — يُستدعى كما هو.
+
+- **النواة النقية** `api/lib/corpus-upgrade.ts`: بلا شبكة/DB/أسرار.
+  - `validateAuthenticDocs(docs)` — بوابة بنية + provenance حقيقي: يرفض domain/title/body/source
+    الفارغ، و`source` يساوي وسم البذرة، و`body` يتضمن الوسم (كي لا تُحسب أصيلة زوراً).
+  - `toAuthenticSearchDocs(docs)` — يوسم كل وثيقة **غير-قالبية** ويلحق `Source: <source>` إن
+    غاب، فيبقى provenance مرئياً لكل وثيقة.
+  - `previewUpgrade(current, authentic)` — يقيس البصمة قبل/بعد ويعيد
+    `{before, after, flipped, reachedReal, addedAuthentic, remainingTemplated, shaChanged}`.
+- **أداة المشغّل** `scripts/ingest-corpus.ts` عبر `npm run ingest:corpus -- <docs.json>`:
+  - **وضع المعاينة (افتراضي، keyless، حتمي)**: يتحقق ويقيس الإفصاح المنفرد للوثائق الأصيلة
+    (يثبت أنها تقرأ `REAL` وحدها) ويطبع خطوات إعادة التثبيت (re-pin) بلا تخزين.
+  - **وضع `--persist`**: يودع عبر جسر `corpusQuery.ingest` المصرّح فقط (يتطلب
+    `ONX_HOST` + `ONX_BRIDGE_KEY` من المشغّل — لا يُخزَّن في الريبو أبداً)، دفعات ≤500.
+  - `docs.json` = مصفوفة `{ id?, domain, title, body, source }`.
+- **إعادة التثبيت جزء من المسار لا التفاف عليه**: الاستيعاب الأصيل يغيّر sha256 المانيفست
+  شرعياً = أساس جديد مقصود. الخطوة 3 (`verify:corpus -- --write`) والخطوة 6 (ارتكاب المانيفست
+  في نفس commit) من قسم K-10 هي إجراء re-pin المعتمد، والبوابة السادسة تمنع أي عبث بعده.
+- **صدق الحالة الحية (بند و في K-16)**: السطح المنشور يبقى `disclosure:"DEMO"` بصدق حتى يوفّر
+  المؤسس أرشيف REC-06 الأصيل (19,012 وثيقة) ويستبدل البذرة القالبية فعلاً. هذه الأداة **لا
+  تلفّق** الانقلاب — تقيسه. المختلط يبقى `DEMO` تحفّظاً (لا REAL كاذب).
+
+## Corpus upgrade as working committed code (STE-K-16) [EN]
+
+K-10 documented the path; K-16 turns it into **working, committed, tested code** without
+rebuilding the measured K-10 logic. Pure core `api/lib/corpus-upgrade.ts` (no network/DB/
+secrets): `validateAuthenticDocs` (rejects empty fields, `source` equal to the seed marker,
+or `body` embedding the marker), `toAuthenticSearchDocs` (tags every doc non-templated and
+appends `Source: <source>` so provenance stays visible), and `previewUpgrade(current,
+authentic)` returning `{before, after, flipped, reachedReal, remainingTemplated,
+shaChanged}`. Operator tool `scripts/ingest-corpus.ts` via `npm run ingest:corpus --
+<docs.json>`: preview mode (default, keyless, deterministic) validates + MEASURES the
+authentic set's standalone disclosure (proves it reads `REAL`) and prints the exact re-pin
+steps, storing nothing; `--persist` ingests through the authorized fail-closed
+`corpusQuery.ingest` bridge (requires operator-provided `ONX_HOST` + `ONX_BRIDGE_KEY`,
+never in the repo), batches ≤500. Re-pin is part of the path, not a workaround: authentic
+ingest legitimately changes the manifest sha256 (intended new baseline); `verify:corpus --
+--write` + committing the manifest in the same commit is the sanctioned re-pin, and the
+sixth Truth Gate blocks tampering afterward. **Honest live state:** the deployed surface
+stays `disclosure:"DEMO"` until the founder-provided REC-06 archive (19,012 docs) actually
+replaces the templated seed — the tool measures the flip, it never fabricates it; mixed
+stays conservatively `DEMO`.
+
+---
+
 ## و) توطيد المشغّل + مسح حقيقة البيئة — STE-K-12
 
 > **مبدأ هذا القسم**: كل رقم وشكل أدناه **مقاس** من الكود (`ملف:سطر`) أو من نداء حي فعلي
