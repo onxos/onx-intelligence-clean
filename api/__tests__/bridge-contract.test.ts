@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { appRouter } from "../router";
 import {
   registerSchema,
@@ -20,6 +20,9 @@ import {
 } from "../lib/bridge-contracts";
 import type { Provenance } from "../lib/persistent-memory";
 import type { PerceptionSourceRow } from "../lib/platform-inbox-store";
+import { assertBridgeAccess } from "../bridge-guard";
+import { env } from "../lib/env";
+import { TRPCError } from "@trpc/server";
 
 const caller = appRouter.createCaller({} as never);
 
@@ -74,7 +77,70 @@ describe("Bridge contract security", () => {
 });
 
 // ============================================================
-// B8 — Bridge Contracts: versioned schema registry + full fail-closed
+// STE-K-08 hardening — the bridge gate fails closed with HONEST auth
+// status codes (TRPCError → 401/403), not a 500 that masks an auth
+// rejection as a server error. Live smoke asserts this against the
+// deployment; here we lock it deterministically in CI.
+// ============================================================
+describe("bridge-guard fail-closed HTTP semantics (STE-K-08)", () => {
+  const saved = { enabled: env.bridgeEnabled, secret: env.bridgeSharedSecret };
+  function ctxWith(key: string | null) {
+    return {
+      req: { headers: { get: (h: string) => (h === "x-onx-bridge-key" ? key : null) } },
+    } as never;
+  }
+  afterEach(() => {
+    env.bridgeEnabled = saved.enabled;
+    env.bridgeSharedSecret = saved.secret;
+  });
+
+  it("missing/invalid key → TRPCError UNAUTHORIZED (401)", () => {
+    env.bridgeEnabled = true;
+    env.bridgeSharedSecret = "the-secret";
+    try {
+      assertBridgeAccess(ctxWith(null));
+      throw new Error("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(TRPCError);
+      expect((e as TRPCError).code).toBe("UNAUTHORIZED");
+      expect((e as TRPCError).message).toMatch(/BRIDGE_UNAUTHORIZED/);
+    }
+    expect(() => assertBridgeAccess(ctxWith("wrong-key"))).toThrow(/BRIDGE_UNAUTHORIZED/);
+  });
+
+  it("bridge disabled → TRPCError FORBIDDEN (403)", () => {
+    env.bridgeEnabled = false;
+    try {
+      assertBridgeAccess(ctxWith("anything"));
+      throw new Error("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(TRPCError);
+      expect((e as TRPCError).code).toBe("FORBIDDEN");
+      expect((e as TRPCError).message).toMatch(/BRIDGE_DISABLED/);
+    }
+  });
+
+  it("secret not configured → TRPCError FORBIDDEN (403)", () => {
+    env.bridgeEnabled = true;
+    env.bridgeSharedSecret = "";
+    try {
+      assertBridgeAccess(ctxWith("anything"));
+      throw new Error("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(TRPCError);
+      expect((e as TRPCError).code).toBe("FORBIDDEN");
+      expect((e as TRPCError).message).toMatch(/BRIDGE_SECRET_NOT_CONFIGURED/);
+    }
+  });
+
+  it("valid key → passes (no throw)", () => {
+    env.bridgeEnabled = true;
+    env.bridgeSharedSecret = "the-secret";
+    expect(() => assertBridgeAccess(ctxWith("the-secret"))).not.toThrow();
+  });
+});
+
+// ============================================================
 // validation for all institutional types + unified activity log
 // (provenance, reuses B4 MemoryStore) + perception-adapter linkage.
 // ============================================================

@@ -220,11 +220,13 @@ export function checkAskCited(
   };
 }
 
-// Fail-closed proof. The bridge guard throws a plain Error, which
-// tRPC maps to INTERNAL_SERVER_ERROR (httpStatus 500) — NOT a 401/403.
-// The honest contract is: the mutation is REJECTED (never executed)
-// and the error carries a BRIDGE_ marker. We assert reality, not the
-// wished status code.
+// Fail-closed proof. The bridge guard now throws a TRPCError, so over
+// HTTP a keyless mutation surfaces as UNAUTHORIZED (401) / FORBIDDEN
+// (403) — the honest auth codes. The core contract is: the mutation is
+// REJECTED (never executed) and the error carries a BRIDGE_ marker. We
+// assert the hardened 401/403, but a deployment still running the older
+// build (plain Error → 500) is also a genuine fail-closed rejection, so
+// we accept any 4xx/5xx rejection and record the observed code honestly.
 export function checkBridgeFailClosed(
   status: number,
   unwrapped: { ok: boolean; error?: { message: string; httpStatus: number } },
@@ -235,12 +237,17 @@ export function checkBridgeFailClosed(
   const msg = unwrapped.error?.message ?? "";
   if (!/BRIDGE_/.test(msg))
     return { name, passed: false, detail: `rejected but no BRIDGE_ marker: ${msg.slice(0, 60)}` };
-  if (status < 400)
-    return { name, passed: false, detail: `rejection must be an error status, got ${status}` };
+  const http = unwrapped.error?.httpStatus || status;
+  if (http < 400)
+    return { name, passed: false, detail: `rejection must be an error status, got ${http}` };
+  const hardened = http === 401 || http === 403;
+  const marker = msg.split(":")[0];
   return {
     name,
     passed: true,
-    detail: `rejected (${msg.split(":")[0]}, httpStatus=${unwrapped.error?.httpStatus}) — mutation never ran`,
+    detail: hardened
+      ? `rejected ${http} (${marker}) — mutation never ran, hardened fail-closed`
+      : `rejected ${http} (${marker}) — mutation never ran; legacy build (pre-401 hardening)`,
   };
 }
 

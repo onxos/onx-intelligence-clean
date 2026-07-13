@@ -99,7 +99,7 @@ function liveFetch(overrides: Partial<Record<string, SmokeResponse>> = {}): Fetc
       return overrides.askCited ?? trpcOk(LIVE_ASK_CITED);
     }
     if (url.includes("corpusQuery.ingest") && init?.method === "POST")
-      return overrides.bridge ?? trpcErr("BRIDGE_UNAUTHORIZED: Missing or invalid x-onx-bridge-key", 500);
+      return overrides.bridge ?? trpcErr("BRIDGE_UNAUTHORIZED: Missing or invalid x-onx-bridge-key", 401);
     throw new Error(`unexpected url ${url}`);
   };
 }
@@ -114,9 +114,9 @@ describe("smoke-live helpers", () => {
 
   it("unwraps success and error envelopes", () => {
     expect(unwrapTrpc({ result: { data: { json: { a: 1 } } } })).toEqual({ ok: true, data: { a: 1 } });
-    const e = unwrapTrpc({ error: { json: { message: "BRIDGE_UNAUTHORIZED: x", data: { httpStatus: 500 } } } });
+    const e = unwrapTrpc({ error: { json: { message: "BRIDGE_UNAUTHORIZED: x", data: { httpStatus: 401 } } } });
     expect(e.ok).toBe(false);
-    expect(e.error?.httpStatus).toBe(500);
+    expect(e.error?.httpStatus).toBe(401);
     expect(e.error?.message).toContain("BRIDGE_");
   });
 
@@ -172,9 +172,19 @@ describe("smoke-live contract evaluators", () => {
     expect(checkAskCited(200, { ...LIVE_ASK_CITED, citations: [] }).passed).toBe(false);
   });
 
-  it("bridge fail-closed passes on rejected BRIDGE_ error", () => {
+  it("bridge fail-closed passes on hardened 401/403 BRIDGE_ errors", () => {
+    const u401 = unwrapTrpc({ error: { json: { message: "BRIDGE_UNAUTHORIZED: x", data: { httpStatus: 401 } } } });
+    const r401 = checkBridgeFailClosed(401, u401);
+    expect(r401.passed).toBe(true);
+    expect(r401.detail).toMatch(/hardened/);
+    const u403 = unwrapTrpc({ error: { json: { message: "BRIDGE_DISABLED: x", data: { httpStatus: 403 } } } });
+    expect(checkBridgeFailClosed(403, u403).passed).toBe(true);
+  });
+  it("bridge fail-closed still passes on a legacy 500 rejection (honest tolerance)", () => {
     const u = unwrapTrpc({ error: { json: { message: "BRIDGE_UNAUTHORIZED: x", data: { httpStatus: 500 } } } });
-    expect(checkBridgeFailClosed(500, u).passed).toBe(true);
+    const r = checkBridgeFailClosed(500, u);
+    expect(r.passed).toBe(true);
+    expect(r.detail).toMatch(/legacy/);
   });
   it("bridge fail-closed FAILS if the mutation succeeded (open bridge)", () => {
     expect(checkBridgeFailClosed(200, { ok: true }).passed).toBe(false);
