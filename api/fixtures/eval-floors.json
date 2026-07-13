@@ -1,0 +1,5 @@
+{
+  "intentAccuracy": 0.9556,
+  "refusalHonesty": 0.9778,
+  "retrievalHitAtK": 1
+}

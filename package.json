@@ -16,6 +16,7 @@
     "seed:corpus": "tsx scripts/seed-corpus.ts",
     "corpus:manifest": "tsx --tsconfig tsconfig.server.json scripts/corpus-dedup-manifest.ts",
     "verify:self": "tsx --tsconfig tsconfig.server.json scripts/self-verify.ts",
+    "eval:golden":  "tsx --tsconfig tsconfig.server.json scripts/eval-golden.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push"

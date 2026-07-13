@@ -57,3 +57,12 @@ jobs:
       # is asserted-but-unmeasured. The exit code IS the honest gate.
       - name: OSVA self-verification gate
         run: npm run verify:self
+
+      # Gate 5 — golden evaluation ratchet (STE-K-06). Runs the
+      # deterministic intelligence line over the golden set and gates
+      # measured quality (intentAccuracy / refusalHonesty /
+      # retrievalHitAtK) against committed floors in
+      # api/fixtures/eval-floors.json. Below any floor → exit 1. Like
+      # the other gates it needs NO secrets (DEMO corpus, in-memory).
+      - name: Golden evaluation ratchet gate
+        run: npm run eval:golden
