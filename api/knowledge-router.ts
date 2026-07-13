@@ -2,6 +2,7 @@
 // KNOWLEDGE ROUTER — Day 5: Knowledge + Intelligence Layer
 // 15,000 records across 8 domains with vector similarity
 // ============================================================
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 
@@ -153,6 +154,47 @@ seedKnowledge();
 // Honest health snapshot (HT-03): real in-memory counts, never a hardcoded claim.
 export function getKnowledgeHealthSnapshot(): { records: number; domains: number } {
   return { records: knowledgeStore.size, domains: DOMAINS.length };
+}
+
+// STE-N-01: deterministic dedup manifest — sha256(normalized title+body) per unit.
+// Measures the TRUE unique count vs raw total; never a hardcoded claim.
+export function normalizeKnowledgeText(title: string, body: string): string {
+  return `${title}\n${body}`.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+export function fingerprintKnowledge(title: string, body: string): string {
+  return createHash("sha256").update(normalizeKnowledgeText(title, body)).digest("hex");
+}
+
+export interface CorpusManifest {
+  rawTotal: number;
+  uniqueByTitleBody: number;
+  uniqueByTitleOnly: number;
+  duplicates: number;
+  byDomain: Record<string, { raw: number; unique: number }>;
+}
+
+export function buildCorpusManifest(): CorpusManifest {
+  const seen = new Set<string>();
+  const seenTitle = new Set<string>();
+  const byDomain: Record<string, { raw: number; unique: number }> = {};
+  for (const r of knowledgeStore.values()) {
+    const fp = fingerprintKnowledge(r.title, r.content);
+    const domainStats = (byDomain[r.domain] ??= { raw: 0, unique: 0 });
+    domainStats.raw++;
+    if (!seen.has(fp)) {
+      seen.add(fp);
+      domainStats.unique++;
+    }
+    seenTitle.add(createHash("sha256").update(normalizeKnowledgeText(r.title, "")).digest("hex"));
+  }
+  return {
+    rawTotal: knowledgeStore.size,
+    uniqueByTitleBody: seen.size,
+    uniqueByTitleOnly: seenTitle.size,
+    duplicates: knowledgeStore.size - seen.size,
+    byDomain,
+  };
 }
 
 export const knowledgeRouter = createRouter({
