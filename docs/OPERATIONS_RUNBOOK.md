@@ -16,6 +16,7 @@
 - [د) استيعاب أرشيف 19,012 — REC-06](#د-استيعاب-أرشيف-19012--rec-06)
 - [هـ) verify:self وعدّة OSVA + كتيبات الطوارئ](#هـ-verifyself-وعدة-osva)
 - [English condensed mirror](#english-condensed-mirror)
+- [و) توطيد المشغّل + مسح حقيقة البيئة — STE-K-12](#و-توطيد-المشغل--مسح-حقيقة-البيئة--ste-k-12)
 
 > **ملاحظة تقنية عامة (تنطبق على كل أمثلة curl أدناه)**: واجهة tRPC تستخدم محوّل
 > `superjson` (`api/middleware.ts:12`) على المسار `/api/trpc` (`api/boot.ts:59`)، لذا:
@@ -467,3 +468,144 @@ templated seed (kn_*) so the templated count reaches 0 — the measurement is th
 verify:corpus` green + `corpusQuery.manifest` shows `disclosure:"REAL"` + `onx.selfVerify`
 raises the corpus item to `IMPLEMENTED_PROVEN`; (6) commit the new `corpus-manifest.json`
 in the same commit — the sixth Truth Gate (`verify:corpus`) then blocks any later tamper.
+
+---
+
+## و) توطيد المشغّل + مسح حقيقة البيئة — STE-K-12
+
+> **مبدأ هذا القسم**: كل رقم وشكل أدناه **مقاس** من الكود (`ملف:سطر`) أو من نداء حي فعلي
+> ضد `https://onx-intelligence-clean.onrender.com` وقت كتابة الموجة 20 (الخدمة على
+> `commit 87c66e2`). لا عبارة متمناة واحدة.
+
+### و.1) خارطة الخدمة الحية (مقاسة)
+
+| العنصر | القيمة | المرجع |
+| --- | --- | --- |
+| الرابط الحي | `https://onx-intelligence-clean.onrender.com` | `api/lib/smoke-contracts.ts:342` (`DEFAULT_BASE_URL`) |
+| الفرع الموجَّه | `onxos-ste01-deploy-readiness` | Render service → branch |
+| `/health` (HTTP مباشر) | `{status,uptime,bootTime,commit,env,timestamp}` | `api/boot.ts:38-47` |
+| `/commit` (HTTP مباشر) | `{commit,service,bootTime,timestamp}` | `api/boot.ts:48-55` |
+| مصدر حقل `commit` | `RENDER_GIT_COMMIT \|\| COMMIT_SHA \|\| GIT_SHA \|\| "unknown"` (ليس سراً) | `api/boot.ts:25-32` |
+| مسار tRPC | `/api/trpc/*` بمحوّل `superjson` | `api/boot.ts:57-64` + `api/middleware.ts:12` |
+
+**مخرج `/health` حي مقاس** (الموجة 20):
+```json
+{"status":"ALIVE","uptime":437.4,"bootTime":"2026-07-13T18:45:31.662Z",
+ "commit":"87c66e2a38c0b2ad2ec7b8262ddd54633bd2a90d","env":"production", ...}
+```
+
+**شكل مغلف tRPC/superjson المقاس** (يجب أن يعرفه المشغّل لفكّ أي سطح عام):
+- **query** = `GET /api/trpc/<proc>?input=<url-encoded {"json":<value|null>}>`
+- **نجاح** = `{"result":{"data":{"json":<value>}}}`
+- **خطأ** = `{"error":{"json":{"message":..,"data":{"httpStatus":..}}}}`
+
+الأسطح العامة الحية المقاسة: `providers.status`، `onx.selfVerify`، `corpusQuery.manifest`،
+`ask.onx`، `health.ready/status/*` (كلها `publicQuery` — `api/health-router.ts:189-320`).
+
+### و.2) تشغيل الدخان الحي — العقود الثمانية (`npm run smoke:live`)
+
+المُشغّل: `scripts/smoke-live.ts` (خارج CI عمداً — يحتاج شبكة وبيئة حية، ملاحظة في رأس
+الملف `scripts/smoke-live.ts:1-6`). المنطق النقي في `api/lib/smoke-contracts.ts`، المُشغّل
+`runSmoke` (`api/lib/smoke-contracts.ts:370-477`). البيئة: `BASE_URL` (افتراضي الرابط أعلاه،
+`scripts/smoke-live.ts:31`)، و`EXPECT_COMMIT` أو `EXPECTED_SHA` (`scripts/smoke-live.ts:34`).
+
+| # | العقد | ماذا يثبت | ماذا يعني فشله للمشغّل | المرجع |
+| --- | --- | --- | --- | --- |
+| 1 | `health_live` | الخدمة حية (`ALIVE`) وحقل `commit` موجود؛ ومع `EXPECT_COMMIT` = تطابق النشر | الخدمة ساقطة أو نشرت commit غير متوقع | `smoke-contracts.ts:192-215` |
+| 2 | `honest_status_selfverify` | OSVA: بنود بأحكام خماسية، بصمة sha256، و`claimsAsserted=0` | ادّعاء غير مقاس تسلّل — تحقيق فوري | `smoke-contracts.ts:217-243` |
+| 3 | `rate_limit_disclosure` | سطح قراءة عام يصرّح `rateLimit.persistence="PER_INSTANCE_UNPERSISTED"` | غياب تصريح الحدّ = انحراف صدق | `smoke-contracts.ts:245-260` |
+| 4 | `ask_onx_honest_refusal` | سؤال خارج الذخيرة → `INSUFFICIENT_EVIDENCE`، `answer=null`، صفر استشهاد، `DEMO` | تلفيق/حشو بلا دليل — كسر عقيدة | `smoke-contracts.ts:262-282` |
+| 5 | `ask_onx_cited_answer` | سؤال داخل الذخيرة → `ANSWERED` باستشهادات + إفصاح `DEMO` | إجابة بلا استشهاد أو بلا إفصاح | `smoke-contracts.ts:284-307` |
+| 6 | `corpus_manifest_truth` | بصمة الكوربوس المنشور == المرتكب في `corpus-manifest.json` | محتوى معرفي منشور يخالف العقد المرتكب | `smoke-contracts.ts:137-190` |
+| 7 | `bridge_fail_closed` | طفرة جسر بلا مفتاح مرفوضة (401/403 + علامة `BRIDGE_`) ولم تُنفَّذ | الجسر مفتوح بلا مفتاح — ثغرة حرجة | `smoke-contracts.ts:316-338` |
+| 8 | `no_key_leak` | لا مفتاح مزوّد كامل في أي استجابة | تسريب سرّ — إيقاف وتدوير فوري | `smoke-contracts.ts:458-463` |
+
+**دلالات الطزاجة (`EXPECT_COMMIT` / PENDING) — درس K-08** (`smoke-contracts.ts:169-189`, `:384`):
+- بنية العقد 6 (disclosure/provenance/docCount/domainCount) تُطابق **دائماً**.
+- `sha256` يُطابق **strict** فقط عند `deployFresh` (health.commit == `EXPECT_COMMIT`).
+- بلا طزاجة مؤكدة واختلاف sha → **PENDING pass** يبلّغ **البصمتين معاً** (لا تمرير بالتمني، لا فشل غامض)؛ أعد التشغيل بـ`EXPECT_COMMIT` بعد أن يعيد Render النشر.
+- مع `EXPECT_COMMIT` مطابق + sha مختلف = **خرق حقيقي** (فشل).
+
+### و.3) مسح حقيقة البيئة (مرآة C-07§3) — كل قراءة `process.env` في كود الإنتاج
+
+المصدر المركزي `api/lib/env.ts:11-22`. التصنيف: **إلزامي** (منتج بلا افتراضي)،
+**اختياري/بافتراضي**، **بيئي منصّة**.
+
+| المتغير | الحالة | الافتراضي/السلوك عند الغياب | القراءة (`ملف:سطر`) |
+| --- | --- | --- | --- |
+| `NODE_ENV` | بيئي | `"development"`؛ `=production` يفعّل شبكة الأمان | `env.ts:14`، `boot.ts:44,69`، `boot.ts:71` |
+| `PORT` | بيئي | `"3000"` | `boot.ts:121` |
+| `RENDER_GIT_COMMIT`/`COMMIT_SHA`/`GIT_SHA` | بيئي (Render يحقنه) | `"unknown"` (حقل commit فقط) | `boot.ts:27-29` |
+| `APP_ID` / `APP_SECRET` | إلزامي إنتاج | تحذير `[env]` بلا إيقاف | `env.ts:12-13` |
+| `DATABASE_URL` | اختياري-حرج | `sqlite:///app/db/onx-pilot.db`؛ غير-postgres → مخازن pg تُبلّغ `UNAVAILABLE`/`UNPERSISTED` | `env.ts:17`، `health-router.ts:59,126`، `knowledge-router.ts:212`، `corpus-pg-store.ts:17,23`، `iurg-pg-store.ts:21`، `iurg-store.ts:46`، `truth-ledger.ts:47,53`، `persistent-memory.ts:368,425`، `drizzle.config.ts:4` |
+| `PLATFORM_INBOX_DATABASE_URL` | اختياري | يسقط إلى `DATABASE_URL` | `platform-inbox-store.ts:13` |
+| `BRIDGE_ENABLED` | اختياري (أمان) | `"false"` → الجسر مقفل | `env.ts:15` |
+| `BRIDGE_SHARED_SECRET` | اختياري (أمان) | `""` → الجسر fail-closed | `env.ts:16` |
+| `OPENAI_API_KEY` | اختياري | `""` → مزوّد `MISSING_KEY`/`gpt4oEnabled=false` | `env.ts:21`، `health-router.ts:106`، `knowledge-router.ts:470`، `ai-brain-router.ts:14,345`، `titan-bridge-router.ts:38`، `voice-router.ts:14`، `vet-intelligence-router.ts:15,286` |
+| `ANTHROPIC/GEMINI/GOOGLE/GROQ/DEEPSEEK/QWEN/DASHSCOPE/TOGETHER/LLAMA/KIMI/MOONSHOT_API_KEY` | اختياري | `MISSING_KEY` في `providers.status` | سجلّ المزودين (مقاس حياً في `providers.status.envKeys`) |
+| `KIMI_AUTH_URL` / `KIMI_OPEN_URL` | اختياري | نقاط Kimi الافتراضية | `env.ts:18-19` |
+| `OWNER_UNION_ID` | اختياري | `""` | `env.ts:20` |
+| `APP_URL` | اختياري | `http://localhost:3000` (روابط إعادة التعيين) | `password-reset-router.ts:102,179` |
+
+**هل `DATABASE_URL` مستخدم فعلاً؟ — نعم، مقاس حياً**: نداء `health.ready` الحي يعيد مكوّن
+`{"name":"Database","status":"HEALTHY"}` — و`checkDatabase` ينفّذ `SELECT 1` حقيقياً ضد
+Postgres ويعيد `UNAVAILABLE` لو لم يكن postgres (`health-router.ts:57-72`). إذًا قاعدة
+`onx_intelligence` على Render مضبوطة ومتصلة فعلاً — لا ادعاء.
+
+### و.4) عمليات مفتاح الجسر (`BRIDGE_SHARED_SECRET`)
+
+التفاصيل الكاملة (تفعيل/تدوير/إيقاف طارئ) في **القسم (ب)** أعلاه — لا تكرار. الحقيقة المقاسة
+الموجة 20: `providers.status` الحي يعيد `"enabled":true,"hasSharedSecret":true` — أي الجسر
+**مفعّل ومزوّد بسرّ على الإنتاج**، والعقد الحي `bridge_fail_closed` يثبت أن طفرة بلا مفتاح
+تُرفض 401 (`api/bridge-guard.ts` يرمي `TRPCError code:"UNAUTHORIZED"`). دلالات الرموز:
+`401 BRIDGE_UNAUTHORIZED` (مفتاح خاطئ)، `BRIDGE_DISABLED` (معطّل)،
+`BRIDGE_SECRET_NOT_CONFIGURED` (بلا سرّ) — `api/bridge-guard.ts:6,10,13-15`.
+
+### و.5) حقيقة rate-limit — تبعات `PER_INSTANCE_UNPERSISTED` للمشغّل
+
+الحدّ: `PUBLIC_READ_LIMIT=60` طلب / `PUBLIC_READ_WINDOW_SEC=60` ثانية
+(`api/lib/rate-limiter.ts:24-28`)، والثابت `RATE_LIMIT_PERSISTENCE="PER_INSTANCE_UNPERSISTED"`
+(`rate-limiter.ts:31`) يُصرَّح في **كل** استجابة عامة (مقاس: `rateLimit.persistence` في
+`providers.status`). تبعات للمشغّل:
+- العدّاد **في ذاكرة كل نسخة (instance)**، **يتصفّر عند كل إقلاع/إعادة نشر**، ولا يُشارَك بين نسخ متعددة.
+- ليس حماية أمنية موزّعة — هو ضبط إساءة أساسي per-instance. للحماية الجادّة أضف طبقة حافة (WAF/بوابة) — موثّق بصدق كحدّ لا كوعد.
+- `/health` و`/commit` **معفيان** (فحوصات Render)؛ مسارات الجسر محمية بالمفتاح لا بالحدّ.
+
+### و.6) عمليات manifest الكوربوس — معنى انحراف sha256
+
+العقد المرتكب `corpus-manifest.json` (الجذر): `sha256=6fc2bed8…372f08`، `docCount=22500`،
+19 نطاقاً، `disclosure="DEMO"`، `provenance="TEMPLATED_SEED"` (مقاس حياً من
+`corpusQuery.manifest`). البصمة فوق أسطر الهوية المرتّبة `id\u0000domain\u0000title` فقط
+(الجسم العشوائي مستبعَد) — حتمية عبر الإقلاع لكنها تكشف add/remove/relabel.
+
+**عند اختلاف sha256:**
+- **مقصود** (استوعبت/عدّلت الذخيرة): أعد التوليد `npm run verify:corpus -- --write` وارتكب
+  الـmanifest الجديد في **نفس commit** التغيير — البوابة السادسة `verify:corpus` تحرسه بعدها.
+- **غير مقصود** (لم تلمس الذخيرة وتغيّرت البصمة): **تحقيق فوري** — عبث محتمل أو انحراف بذرة.
+- **الربط الحي**: العقد الثامن `corpus_manifest_truth` (`npm run smoke:live`) يقارن البصمة
+  **المنشورة** بالمرتكبة؛ اختلاف على نشر طازج مؤكّد (`EXPECT_COMMIT` مطابق) = خرق حقيقي؛
+  اختلاف بلا طزاجة = PENDING يبلّغ البصمتين (أعد بعد إعادة نشر Render).
+
+### و.7) أساسيات الحوادث
+
+1. **honest-status أولاً**: عند أي شكّ ابدأ بـ`onx.selfVerify` و`health.ready/status` —
+   لا مكوّن يدّعي صحة غير مقاسة (`claimsAsserted=0` عقد حي).
+2. **أرضيات golden سلك تعثّر لا يُخفَض أبداً**: `api/fixtures/eval-floors.json` =
+   `intentAccuracy=1.0`، `refusalHonesty=1.0`، `retrievalHitAtK=1.0`. أي هبوط تحتها →
+   `eval:golden` exit 1 (البوابة الخامسة في `.github/workflows/truth-gates.yml`). **ممنوع
+   خفض الأرضية لتمرير رن** — الأرضية تُرفَع بالقياس الصادق فقط (سقاطة لا سقف).
+3. **كتيبات الطوارئ التفصيلية**: انظر القسم (هـ) — «متى يقلق المشغّل» + كتيبات OSVA.
+
+> **English mirror (STE-K-12):** This section is measured, not wished. Live map (و.1):
+> service `onx-intelligence-clean.onrender.com`, branch `onxos-ste01-deploy-readiness`,
+> `/health` shape at `api/boot.ts:38-47`, tRPC/superjson envelope at `api/boot.ts:57-64`.
+> Eight live smoke contracts (و.2) in `api/lib/smoke-contracts.ts` with per-contract
+> proof/failure meaning + `EXPECT_COMMIT`/PENDING freshness semantics (`:169-189,:384`).
+> Environment truth scan (و.3): every `process.env` read from `api/lib/env.ts:11-22` and
+> callers, classified required/optional/default. **`DATABASE_URL` is genuinely used** —
+> live `health.ready` returns `Database: HEALTHY` (real `SELECT 1`, `health-router.ts:57-72`).
+> Bridge ops (و.4) → section B; live `hasSharedSecret:true`. Rate-limit truth (و.5):
+> `PER_INSTANCE_UNPERSISTED`, 60/60s, resets on boot, not distributed. Corpus sha256 drift
+> (و.6): intended → `verify:corpus --write` + commit; unintended → investigate; tied to the
+> live `corpus_manifest_truth` contract. Incidents (و.7): honest-status first; golden floors
+> 1.0×3 are a tripwire that is never lowered.
