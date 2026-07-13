@@ -92,4 +92,23 @@ describe("intent engine (STE-K-02)", () => {
       caller.intentEngine.analyze({ content: "bridge intent dry-run" }),
     ).rejects.toThrow(/BRIDGE_DISABLED/);
   });
+
+  it("STE-K-07 weather negative signals: «الطقس/rain» drops the weak booking cue → INFO", () => {
+    // "tomorrow/غدا" alone weakly triggers BOOKING; weather vocabulary
+    // must cancel it so weather questions become honest INFO fallback.
+    const ar = classifyIntent("كيف حالة الطقس غدا في الرياض").results[0];
+    expect(ar.intent).toBe("INFO");
+    expect(ar.fallback).toBe(true);
+    const en = classifyIntent("will it rain tomorrow afternoon").results[0];
+    expect(en.intent).toBe("INFO");
+    expect(en.fallback).toBe(true);
+  });
+
+  it("STE-K-07 anti-overfit: genuine bookings with «tomorrow/غدا» still classify BOOKING", () => {
+    // The weather fix must NOT blunt real booking cues.
+    expect(classifyIntent("ابغى احجز موعد بكرة الساعة خمسة").results[0].intent).toBe("BOOKING");
+    expect(classifyIntent("أريد حجز موعد غدا للكشف").results[0].intent).toBe("BOOKING");
+    expect(classifyIntent("book an appointment tomorrow morning").results[0].intent).toBe("BOOKING");
+    expect(classifyIntent("schedule a visit for tomorrow please").results[0].intent).toBe("BOOKING");
+  });
 });

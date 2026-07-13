@@ -26,6 +26,8 @@ import {
   composeAnswer,
   RELEVANCE_THRESHOLD,
   DEFAULT_TOP_K,
+  RELEVANCE_FLOOR_BY_INTENT,
+  OPERATIONAL_FLOOR,
 } from "../lib/answer-composer";
 import { appRouter } from "../router";
 import { __resetCorpusIngestMemoryForTests } from "../corpus-query-router";
@@ -123,5 +125,23 @@ describe("answer composer (STE-K-04 / ask.onx)", () => {
         units: [{ domain: "SCIENCE", title: "x", body: "y", source: "z" }],
       }),
     ).rejects.toThrow();
+  });
+
+  it("STE-K-07 operational intents refuse incidental lexical hits (co-en-1 gap)", async () => {
+    // "bad service" lexically matches "Mobility as a Service" (high BM25),
+    // but COMPLAINT is a clinic-operational intent the DEMO knowledge
+    // corpus cannot serve → honest refusal, not an answer.
+    const result = await composeAnswer("I want to file a complaint bad service");
+    expect(result.intent).toBe("COMPLAINT");
+    expect(result.status).toBe("INSUFFICIENT_EVIDENCE");
+    expect(result.answer).toBeNull();
+    expect(result.citations).toHaveLength(0);
+    expect(result.refusal).toContain("لا دليل كافٍ");
+    // topScore can be high (spurious lexical hit) yet still refuses.
+    expect(result.topScore).toBeGreaterThan(RELEVANCE_THRESHOLD);
+    // Operational floors declared and unreachable for these intents.
+    expect(RELEVANCE_FLOOR_BY_INTENT.COMPLAINT).toBe(OPERATIONAL_FLOOR);
+    expect(RELEVANCE_FLOOR_BY_INTENT.EMERGENCY).toBe(RELEVANCE_THRESHOLD);
+    expect(RELEVANCE_FLOOR_BY_INTENT.INFO).toBe(RELEVANCE_THRESHOLD);
   });
 });

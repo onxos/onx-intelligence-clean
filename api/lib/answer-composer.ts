@@ -26,6 +26,26 @@ import { buildCorpusManifest } from "../knowledge-router";
 export const RELEVANCE_THRESHOLD = 1.0;
 export const DEFAULT_TOP_K = 5;
 
+// Per-intent relevance floor (STE-K-07). The DEMO seed is general
+// KNOWLEDGE, so clinic-OPERATIONAL intents (booking / pricing /
+// complaint / results / refill) have no genuine evidence here — an
+// incidental lexical hit ("bad service" → "Mobility as a Service")
+// must NOT become an answer. Their floor is unreachable until an
+// authentic clinic corpus lands (STE-REC-06). EMERGENCY and INFO
+// keep the base floor: medical first-aid and general knowledge ARE
+// legitimately answerable from a knowledge corpus (see the seeded
+// EMERGENCY proof in answer-composer.test.ts).
+export const OPERATIONAL_FLOOR = Number.POSITIVE_INFINITY;
+export const RELEVANCE_FLOOR_BY_INTENT: Record<IntentId, number> = {
+  EMERGENCY: RELEVANCE_THRESHOLD,
+  INFO: RELEVANCE_THRESHOLD,
+  BOOKING: OPERATIONAL_FLOOR,
+  PRICING: OPERATIONAL_FLOOR,
+  COMPLAINT: OPERATIONAL_FLOOR,
+  RESULTS: OPERATIONAL_FLOOR,
+  REFILL: OPERATIONAL_FLOOR,
+};
+
 export type AnswerStatus = "ANSWERED" | "INSUFFICIENT_EVIDENCE";
 
 export interface AnswerCitation {
@@ -106,16 +126,23 @@ export async function composeAnswer(
     topScore,
   };
 
-  // Honest refusal: no fabrication, no padding.
-  if (topScore < RELEVANCE_THRESHOLD) {
+  // Honest refusal: no fabrication, no padding. The relevance bar is
+  // per-intent (operational intents have no evidence in a knowledge
+  // corpus), so an incidental lexical hit never becomes an answer.
+  const effectiveFloor = RELEVANCE_FLOOR_BY_INTENT[intent] ?? RELEVANCE_THRESHOLD;
+  if (topScore < effectiveFloor) {
+    const refusal = Number.isFinite(effectiveFloor)
+      ? `لا دليل كافٍ في الذخيرة للإجابة على هذا السؤال ` +
+        `(أعلى صلة ${topScore} < العتبة ${effectiveFloor}). ` +
+        `لا يُقدَّم جواب ملفّق.`
+      : `لا دليل كافٍ: الذخيرة الحالية (DEMO، معرفة عامة) لا تحوي محتوى ` +
+        `تشغيلياً/عيادياً يخدم نية «${intent}»؛ أي تطابق معجمي عابر لا يُعدّ دليلاً. ` +
+        `لا يُقدَّم جواب ملفّق (سيتغير هذا عند وصول ذخيرة العيادة الأصيلة — STE-REC-06).`;
     return {
       ...base,
       status: "INSUFFICIENT_EVIDENCE",
       answer: null,
-      refusal:
-        `لا دليل كافٍ في الذخيرة للإجابة على هذا السؤال ` +
-        `(أعلى صلة ${topScore} < العتبة ${RELEVANCE_THRESHOLD}). ` +
-        `لا يُقدَّم جواب ملفّق.`,
+      refusal,
       citations: [],
     };
   }

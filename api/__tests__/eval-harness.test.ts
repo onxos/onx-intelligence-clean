@@ -51,23 +51,16 @@ describe("STE-K-06 golden evaluation harness", () => {
     expect(gate.passed).toBe(true);
     expect(gate.failures).toHaveLength(0);
 
-    const above: EvalFloors = {
-      intentAccuracy: Math.min(1, r.intentAccuracy + 0.01),
-      refusalHonesty: r.refusalHonesty,
-      retrievalHitAtK: r.retrievalHitAtK,
-    };
-    const failGate = checkFloors(r, above);
+    // Gate logic is tested as a pure function so it holds even when
+    // measured metrics saturate at 1.0 (no headroom to add above).
+    const synthetic = { ...r, intentAccuracy: 0.9, refusalHonesty: 0.9, retrievalHitAtK: 0.9 };
+    const failGate = checkFloors(synthetic, { intentAccuracy: 0.95, refusalHonesty: 0.9, retrievalHitAtK: 0.9 });
     expect(failGate.passed).toBe(false);
     expect(failGate.failures.some((f) => f.metric === "intentAccuracy")).toBe(true);
 
-    const below: EvalFloors = {
-      intentAccuracy: Math.max(0, r.intentAccuracy - 0.5),
-      refusalHonesty: Math.max(0, r.refusalHonesty - 0.5),
-      retrievalHitAtK: Math.max(0, r.retrievalHitAtK - 0.5),
-    };
-    const adviseGate = checkFloors(r, below);
+    const adviseGate = checkFloors(synthetic, { intentAccuracy: 0.5, refusalHonesty: 0.9, retrievalHitAtK: 0.9 });
     expect(adviseGate.passed).toBe(true);
-    expect(adviseGate.advisories.length).toBeGreaterThan(0);
+    expect(adviseGate.advisories.some((a) => a.metric === "intentAccuracy")).toBe(true);
   }, 60000);
 
   it("golden set fully covers the seven canonical intents", () => {

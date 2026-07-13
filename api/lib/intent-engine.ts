@@ -34,6 +34,7 @@ interface IntentRule {
   nameEn: string;
   keywords: WeightedTerm[];
   phrases: WeightedTerm[]; // matched on the space-joined normalized token stream
+  negatives?: WeightedTerm[]; // subtract when present — kills false positives
 }
 
 const norm = (s: string): string => tokenizeNormalize(s).join(" ");
@@ -74,6 +75,16 @@ const RULES: IntentRule[] = [
     phrases: [
       ...kw(4, "ابغى موعد", "أبغى موعد", "أريد موعد", "احتاج موعد",
         "book an appointment", "make an appointment"),
+    ],
+    // Negative signals: weather questions leak into BOOKING via the
+    // weak time-word "tomorrow/غدا" (weight 1). Weather vocabulary
+    // cancels that lone signal so such queries fall to the honest INFO
+    // fallback. Real bookings never carry weather terms, so genuine
+    // "book … tomorrow" requests (score ≥ appointment/موعد weight) are
+    // unaffected — proven by anti-overfit golden cases.
+    negatives: [
+      ...kw(2, "طقس", "الطقس", "مطر", "تمطر", "أمطار", "غيم", "غائم", "الجو"),
+      ...kw(2, "weather", "rain", "rains", "raining", "forecast", "cloudy", "sunny"),
     ],
   },
   {
@@ -140,6 +151,7 @@ const RULES: IntentRule[] = [
 export interface IntentTrace {
   keywords: Array<{ term: string; weight: number }>;
   phrases: Array<{ phrase: string; weight: number }>;
+  negatives?: Array<{ term: string; weight: number }>;
 }
 
 export interface IntentResult {
@@ -186,6 +198,16 @@ export function classifyIntent(text: string, topN = 3): IntentClassification {
       if (p.term.length > 0 && joined.includes(p.term)) {
         score += p.weight;
         trace.phrases.push({ phrase: p.term, weight: p.weight });
+      }
+    }
+    // Negative signals subtract — they cancel false-positive triggers
+    // (e.g. weather words neutralizing the weak "tomorrow" booking cue).
+    if (rule.negatives) {
+      for (const nterm of rule.negatives) {
+        if (tokenSet.has(nterm.term)) {
+          score -= nterm.weight;
+          (trace.negatives ??= []).push({ term: nterm.term, weight: nterm.weight });
+        }
       }
     }
     if (score > 0) {

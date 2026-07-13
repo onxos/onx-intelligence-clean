@@ -84,6 +84,15 @@ export const GOLDEN_SET: GoldenCase[] = [
   { id: "rj-cooking-ar", question: "كيف أطبخ كبسة لحم لذيذة", expectedIntent: "INFO", expectRefusal: true, note: "cooking" },
   { id: "rj-cooking-en", question: "best recipe for chocolate cake", expectedIntent: "INFO", expectRefusal: true, note: "cooking" },
 
+  // ---- ANTI-OVERFIT: real bookings that DO contain "tomorrow/غدا"
+  //      must still classify BOOKING (the weather negative-signal fix
+  //      must not blunt genuine booking cues). expectRefusal:true —
+  //      operational intent, no clinic corpus (honest refusal). ----
+  { id: "ao-book-ar-1", question: "ابغى احجز موعد بكرة الساعة خمسة", expectedIntent: "BOOKING", expectRefusal: true, note: "anti-overfit gulf" },
+  { id: "ao-book-ar-2", question: "أريد حجز موعد غدا للكشف", expectedIntent: "BOOKING", expectRefusal: true, note: "anti-overfit tomorrow" },
+  { id: "ao-book-en-1", question: "book an appointment tomorrow morning", expectedIntent: "BOOKING", expectRefusal: true, note: "anti-overfit tomorrow" },
+  { id: "ao-book-en-2", question: "schedule a visit for tomorrow please", expectedIntent: "BOOKING", expectRefusal: true, note: "anti-overfit tomorrow" },
+
   // ---- RETRIEVAL cases: unique English topic terms → real domain
   //      hit. No intent keywords → INFO fallback; corpus HAS evidence
   //      so these must ANSWER (expectRefusal:false). ----
