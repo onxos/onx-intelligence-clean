@@ -14,6 +14,7 @@
     "test": "vitest run",
     "guard:scan": "tsx scripts/codex-guard-scan.ts",
     "seed:corpus": "tsx scripts/seed-corpus.ts",
+    "corpus:manifest": "tsx --tsconfig tsconfig.server.json scripts/corpus-dedup-manifest.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push"
