@@ -26,7 +26,7 @@ import { getInsightAckCounters } from "./lib/insight-ack";
 // STE-01 W2 honesty contract: every component check below is computed
 // live at query time. No hardcoded "connected"/"indexed" claims — a
 // missing resource reports UNAVAILABLE, a broken one UNHEALTHY.
-interface ComponentHealth {
+export interface ComponentHealth {
   name: string;
   status: "HEALTHY" | "DEGRADED" | "UNHEALTHY" | "UNAVAILABLE";
   latency: number;
@@ -152,7 +152,8 @@ function checkConstitution(): ComponentHealth {
   };
 }
 
-async function collectComponents(): Promise<ComponentHealth[]> {
+// Exported for OSVA self-verification (STE-V-01, api/lib/self-verify.ts).
+export async function collectComponents(): Promise<ComponentHealth[]> {
   return [
     await checkDatabase(),
     checkRuntime(),

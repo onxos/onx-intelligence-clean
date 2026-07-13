@@ -30,6 +30,7 @@ import { domainServicesRouter } from "./domain-services-router";
 import { corpusQueryRouter } from "./corpus-query-router";
 import { intentEngineRouter } from "./intent-engine-router";
 import { providersRouter } from "./providers-router";
+import { onxRouter } from "./onx-router";
 import { iucRouter } from "./iuc-router";
 import { measurementRouter } from "./measurement-router";
 import { ficRouter } from "./fic-router";
@@ -146,6 +147,7 @@ export const appRouter = createRouter({
   corpusQuery: corpusQueryRouter,
   intentEngine: intentEngineRouter,
   providers: providersRouter,
+  onx: onxRouter,
 });
 
 export type AppRouter = typeof appRouter;
