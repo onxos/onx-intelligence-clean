@@ -7,15 +7,20 @@
 //   on actual success (to be run when keys arrive, STE-REC-03).
 // ============================================================
 import { createRouter, publicQuery } from "./middleware";
+import { enforceRateLimit } from "./lib/rate-limiter";
 import { assertBridgeAccess, getBridgeState } from "./bridge-guard";
 import { getProviderStates, liveValidateProviders } from "./lib/provider-registry";
 
 export const providersRouter = createRouter({
-  status: publicQuery.query(() => ({
-    bridge: "providers",
-    ...getBridgeState(),
-    providers: getProviderStates(),
-  })),
+  status: publicQuery.query(({ ctx }) => {
+    const rateLimit = enforceRateLimit(ctx);
+    return {
+      bridge: "providers",
+      rateLimit,
+      ...getBridgeState(),
+      providers: getProviderStates(),
+    };
+  }),
 
   liveValidate: publicQuery.mutation(async ({ ctx }) => {
     assertBridgeAccess(ctx);

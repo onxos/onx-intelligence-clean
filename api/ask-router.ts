@@ -8,6 +8,7 @@
 // ============================================================
 import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
+import { enforceRateLimit } from "./lib/rate-limiter";
 import { composeAnswer } from "./lib/answer-composer";
 
 export const askRouter = createRouter({
@@ -17,8 +18,12 @@ export const askRouter = createRouter({
       topK: z.number().min(1).max(20).default(5),
       domain: z.string().optional(),
     }))
-    .query(async ({ input }) => ({
-      access: "PUBLIC_READ" as const,
-      ...(await composeAnswer(input.question, { topK: input.topK, domain: input.domain })),
-    })),
+    .query(async ({ ctx, input }) => {
+      const rateLimit = enforceRateLimit(ctx);
+      return {
+        access: "PUBLIC_READ" as const,
+        rateLimit,
+        ...(await composeAnswer(input.question, { topK: input.topK, domain: input.domain })),
+      };
+    }),
 });

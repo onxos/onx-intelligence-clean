@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
+import { enforceRateLimit } from "./lib/rate-limiter";
 import { fingerprintKnowledge, knowledgeRouter } from "./knowledge-router";
 import { assertBridgeAccess, getBridgeState } from "./bridge-guard";
 import {
@@ -84,11 +85,15 @@ export const corpusQueryRouter = createRouter({
       limit: z.number().min(1).max(50).default(10),
       offset: z.number().min(0).max(10000).default(0),
     }))
-    .query(async ({ input }) => ({
-      bridge: "corpusQuery",
-      access: "PUBLIC_READ" as const,
-      ...(await searchCorpus(input.query, input)),
-    })),
+    .query(async ({ ctx, input }) => {
+      const rateLimit = enforceRateLimit(ctx);
+      return {
+        bridge: "corpusQuery",
+        access: "PUBLIC_READ" as const,
+        rateLimit,
+        ...(await searchCorpus(input.query, input)),
+      };
+    }),
 
   // STE-N-02: real ingest endpoint — normalize → fingerprint →
   // dedup → insert. Ready to receive the authentic archive

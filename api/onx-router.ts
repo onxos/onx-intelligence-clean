@@ -7,6 +7,7 @@
 // ============================================================
 import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
+import { enforceRateLimit } from "./lib/rate-limiter";
 import { buildSelfVerification } from "./lib/self-verify";
 import { assertBridgeAccess } from "./bridge-guard";
 import { getTruthHistory, recordTruthSnapshot } from "./lib/truth-ledger";
@@ -24,5 +25,8 @@ export const onxRouter = createRouter({
   // read, summary fields only (no secrets anywhere in the chain).
   truthHistory: publicQuery
     .input(z.object({ limit: z.number().min(1).max(100).default(20) }))
-    .query(async ({ input }) => getTruthHistory(input.limit)),
+    .query(async ({ ctx, input }) => {
+      const rateLimit = enforceRateLimit(ctx);
+      return { rateLimit, ...(await getTruthHistory(input.limit)) };
+    }),
 });

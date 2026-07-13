@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
+import { enforceRateLimit } from "./lib/rate-limiter";
 import { intelligenceRouter } from "./intelligence-router";
 import { assertBridgeAccess, getBridgeState } from "./bridge-guard";
 import { classifyIntent } from "./lib/intent-engine";
@@ -18,11 +19,15 @@ export const intentEngineRouter = createRouter({
       text: z.string().min(1).max(2000),
       topN: z.number().min(1).max(7).default(3),
     }))
-    .query(({ input }) => ({
-      bridge: "intentEngine",
-      access: "PUBLIC_READ" as const,
-      ...classifyIntent(input.text, input.topN),
-    })),
+    .query(({ ctx, input }) => {
+      const rateLimit = enforceRateLimit(ctx);
+      return {
+        bridge: "intentEngine",
+        access: "PUBLIC_READ" as const,
+        rateLimit,
+        ...classifyIntent(input.text, input.topN),
+      };
+    }),
 
   governance: publicQuery.query(async ({ ctx }) => {
     assertBridgeAccess(ctx);
