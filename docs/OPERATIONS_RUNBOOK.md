@@ -597,36 +597,39 @@ Postgres ويعيد `UNAVAILABLE` لو لم يكن postgres (`health-router.ts:5
    خفض الأرضية لتمرير رن** — الأرضية تُرفَع بالقياس الصادق فقط (سقاطة لا سقف).
 3. **كتيبات الطوارئ التفصيلية**: انظر القسم (هـ) — «متى يقلق المشغّل» + كتيبات OSVA.
 
-### و.8) عمليات سجل الحقيقة (Truth Ledger) — الحالة الحية المقاسة (STE-K-13)
+### و.8) عمليات سجل الحقيقة (Truth Ledger) — الحالة الحية المقاسة (STE-K-13 → K-14)
 
 سجل الحقيقة (`api/lib/truth-ledger.ts`) يخزّن لقطات OSVA زمنياً ليصبح انحراف الحقيقة
-قابلاً للكشف عبر الزمن. **الحقيقة المقاسة الموجة 21 (جرد صادق أولاً):**
+قابلاً للكشف عبر الزمن.
 
-- **مسار الالتقاط موجود لكنه غير حيّ على الويب**: الدالة `recordTruthSnapshot`
-  (`truth-ledger.ts:93`) تُستدعى كل 5 دقائق **فقط** من العامل المستقل `scheduler-worker.ts:60`
-  (croner `*/5 * * * *`، `scheduler-worker.ts:40`). لكن هذا العامل هو خدمة `onx-scheduler`
-  المعلَنة `branch: main` و**`autoDeploy: false`** (`render.yaml:179,196`) → **غير منشورة حياً**.
-- **كرون الويب الداخلي لا يلتقط**: كرون خدمة الويب (`api/boot.ts:83-104`) يشغّل
-  living-loop/perception/reflection لكنه **لا يستدعي `recordTruthSnapshot`** — لا التقاط تلقائي على الإنتاج.
-- **المسار اليدوي فقط**: طفرة `onx.truthSnapshot` (`api/onx-router.ts:19-22`) خلف الجسر
-  fail-closed (`assertBridgeAccess`) — تحتاج مفتاح الجسر.
-- **القياس الحي (نداء واحد لـ`onx.truthHistory`)**:
-  ```json
-  {"persistence":"POSTGRES","count":0,"snapshots":[]}
-  ```
-  أي **السجل فارغ على الإنتاج** — مدعوم بـPostgres (الجدول يُنشأ عبر `ensureSchema`،
-  `truth-ledger.ts:67-79`) لكن **بصفر صفوف** لأن لا مجدول حي يسجّل. **هذا اكتشاف صادق
-  يُوثّق (نمط المنصة C-08 حرفياً)، لا خرق** — الكود سليم والقدرة جاهزة، ينقصها فقط تفعيل التشغيل.
+**تاريخ الفجوة (STE-K-13، جرد صادق):** قبل الموجة 22 كان السجل **فارغاً على الإنتاج** لأن
+المُسجّل الوحيد كان العامل المستقل `scheduler-worker.ts:60` (خدمة `onx-scheduler`، `branch: main`
++ **`autoDeploy: false`** — `render.yaml:179,196`) **غير المنشور حياً**؛ وكرون الويب لم يكن يلتقط.
+
+**الإغلاق (STE-K-14 — الالتقاط الحي من كرون الويب):** بدل نشر خدمة منفصلة، وُصِل الالتقاط
+بكرون خدمة الويب القائم:
+- `api/boot.ts:83-110` (كرون `*/5 * * * *`) يستدعي الآن `maybeRecordTruthSnapshot()` كل tick.
+- **الإيقاع ساعي** (`TRUTH_SNAPSHOT_INTERVAL_MS = 3600000`، `truth-snapshot-cron.ts:31`) —
+  **مبرّر**: انحراف الحقيقة يتتبّع النشر/تغيّر القدرات لا الدقائق؛ الالتقاط كل 5 دقائق يكتب
+  ~288 صفاً شبه متطابق يومياً ويُنمّي سجل Postgres بلا إشارة. بوابة ساعية (24/يوم) تلتقط بصدق وبكلفة زهيدة.
+- **غير قاتل** (`truth-snapshot-cron.ts:52-64`): فشل الالتقاط يُسجَّل server-side و**لا يرمي أبداً** —
+  الحلقة والخدمة تنجوان من أي كتابة سجل فاسدة (نمط cron الصادق S-10). عند الفشل لا تتقدّم البوابة
+  → يُعاد المحاولة في الـtick التالي بدل ابتلاع ساعة كاملة.
+- **المسار اليدوي باقٍ**: طفرة `onx.truthSnapshot` (`api/onx-router.ts:19-22`) خلف الجسر fail-closed.
+- **الازدواج آمن بلا حارس** (`truth-snapshot-cron.ts:20-25`): إن نُشر `onx-scheduler` لاحقاً يلتقط أيضاً —
+  كل لقطة صف مستقل بمعرّفه وطابعه الزمني (لا مفتاح فريد يُنتهك)، وراية `drift` تبقى صحيحة
+  (بصمتان متطابقتان → `drift:false`).
+
+**القياس الحي (نداء واحد لـ`onx.truthHistory` بعد دورة كرون واحدة على الإنتاج):**
+```json
+{"persistence":"POSTGRES","count":1,"snapshots":[{"id":..,"fingerprint":"<sha256>","claimsMeasured":19,"claimsAsserted":0,"drift":false}]}
+```
+أول لقطة حقيقية في تاريخ الإنتاج — مدعومة بـPostgres، ببصمة sha256 وراية drift. (يُحدَّث الرقم مع تراكم اللقطات.)
 
 **العقد التاسع `truth_ledger_read`** (`api/lib/smoke-contracts.ts` — نداء واحد لـ`onx.truthHistory`):
 يؤكد بنية السطح (`persistence` ∈ {POSTGRES, UNPERSISTED}، تطابق `count` مع طول `snapshots`،
-وكل لقطة تحمل بصمة sha256 + عدّادين رقميين + راية `drift` منطقية). **السجل الفارغ حالة صادقة
-مقبولة ومُبلَّغة** لا فشل.
-
-**كيف يُفعّل المشغّل الالتقاط التلقائي** (موجة تشغيل مستقبلية، ليست تغيير كود):
-1. انشر العامل `onx-scheduler` (بدّل `autoDeploy: true` أو انشره يدوياً من لوحة Render) —
-   لكن انتبه لتحذير الازدواج في `scheduler-worker.ts:13-16` (لا يُشغَّل مع كرون ويب يلتقط أيضاً).
-2. أو التقاط يدوي عند الطلب: طفرة `onx.truthSnapshot` بترويسة `x-onx-bridge-key` (القسم ب).
+وكل لقطة تحمل بصمة sha256 + عدّادين رقميين + راية `drift` منطقية). السجل الفارغ يبقى حالة صادقة
+مقبولة (قبل أول دورة كرون)، والمأهول يُبلَّغ بعدد لقطاته وراياته.
 
 **دلالات راية `drift` للمشغّل** (`truth-ledger.ts:138-146`) — نفس منطق انحراف الكوربوس (و.6):
 - `drift: true` يعني بصمة اللقطة اختلفت عن سابقتها المباشرة زمنياً — **تغيّرت الحقيقة المقاسة**.
@@ -648,11 +651,11 @@ Postgres ويعيد `UNAVAILABLE` لو لم يكن postgres (`health-router.ts:5
 > live `corpus_manifest_truth` contract. Incidents (و.7): honest-status first; golden floors
 > 1.0×3 are a tripwire that is never lowered.
 >
-> **STE-K-13 (و.8):** Truth-ledger ops. Honest measured state: the live ledger is EMPTY
-> (`onx.truthHistory` → `{persistence:"POSTGRES",count:0,snapshots:[]}`). Capture exists but
-> isn't live — `recordTruthSnapshot` runs only in the `onx-scheduler` worker
-> (`scheduler-worker.ts:60`) which is `autoDeploy:false`/`branch:main` (`render.yaml:179,196`);
-> the web cron (`boot.ts:83-104`) does not snapshot. This is an honest C-08 discovery, not a
-> breach. Ninth live contract `truth_ledger_read` accepts an empty ledger and reports it, and
-> validates snapshot/fingerprint/drift structure when populated. Drift semantics mirror و.6:
-> intended → new baseline; unintended → investigate via `onx.selfVerify`.
+> **STE-K-13/K-14 (و.8):** Truth-ledger ops. K-13 found the live ledger EMPTY (the recorder
+> worker `onx-scheduler` was `autoDeploy:false`/`branch:main`, render.yaml:179,196; the web cron
+> didn't snapshot) — an honest C-08 discovery. K-14 closes it: the live web cron
+> (`boot.ts:83-110`) now calls `maybeRecordTruthSnapshot()` each tick, hourly-gated
+> (`truth-snapshot-cron.ts:31`, justified: drift tracks deploys not minutes) and NON-FATAL
+> (`:52-64`, never throws — S-10 survival). Double-capture with `onx-scheduler` is safe (rows
+> independent by id+timestamp). Ninth live contract `truth_ledger_read` accepts an empty ledger
+> and validates snapshot/fingerprint/drift structure when populated. Drift semantics mirror و.6.

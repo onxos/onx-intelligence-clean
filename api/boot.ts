@@ -14,6 +14,7 @@ import { runLivingLoopTick } from "./lib/runtime-loop-tick";
 import { markIucTick, setIucCronStatus } from "./lib/iuc-runtime";
 import { runPerceptionSyncTick } from "./lib/perception-adapter";
 import { runReflectionTick } from "./lib/reflection-cycle";
+import { maybeRecordTruthSnapshot } from "./lib/truth-snapshot-cron";
 import { hydratePersistedIurgGraph } from "./iuc-router";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
@@ -101,6 +102,12 @@ if (env.isProduction) {
       } catch (err) {
         console.error("[reflection-cycle] tick failed (non-fatal):", err);
       }
+      // STE-K-14: capture a truth-ledger snapshot from the LIVE web
+      // cron (closes the K-13 gap where the ledger was empty because
+      // the recording worker was never deployed). Hourly-gated inside
+      // this 5-min tick and non-fatal — maybeRecordTruthSnapshot never
+      // throws, so a bad ledger write can never kill the loop.
+      await maybeRecordTruthSnapshot();
     });
     // Wave 6-b boot order: (1) hydrate persisted IURG objects from
     // Postgres into the in-memory graph, THEN (2) replay the inbox via
