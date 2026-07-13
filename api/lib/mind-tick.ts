@@ -38,10 +38,20 @@
 // FAIL-CLOSED, NOT FAIL-SILENT:
 //   - runMindTick NEVER throws (cron-safe like runPerceptionSyncTick),
 //     but nothing is lost silently: a malformed row is written to a
-//     DURABLE quarantine (DLQ, B4 MemoryStore) with rejection reasons
-//     and an idempotent correlation id BEFORE the cursor may advance
-//     past it. If the quarantine write fails, the cursor HALTS at that
-//     row and the rest of the batch is deferred to the next tick.
+//     DURABLE quarantine (DLQ) with rejection reasons and an idempotent
+//     correlation id BEFORE the cursor may advance past it. If the
+//     quarantine write fails, the cursor HALTS at that row and the rest
+//     of the batch is deferred to the next tick.
+//     ZERO NEW SCHEMA: the DLQ reuses the B4 MemoryStore seam
+//     (createMemoryStore) — pg-backed onx_memory_record when
+//     DATABASE_URL is set, under the dedicated kind
+//     "mind-tick-quarantine". No new table in this change, no
+//     drizzle-kit push, no migration coordination required.
+//     Durability is PROVEN per write, never assumed: the pg adapter
+//     absorbs write errors into its pgErrors counter, so quarantineRow
+//     checks the pgErrors delta after each put — a failed pg write
+//     (including a missing table in prod) HALTS the cursor fail-closed
+//     and surfaces in quarantineFailures, instead of a fake success.
 //   - The cursor advances only past rows with a processed or
 //     durably-quarantined outcome. Replay after a restart re-hits the
 //     same quarantine ids (DUPLICATE = already durable = advance).
@@ -83,6 +93,7 @@ import type { Provenance } from "./persistent-memory";
 import {
   createMemoryStore,
   MemoryError,
+  PgVectorMemoryStore,
   type MemoryStore,
   type MemoryRecord,
 } from "./persistent-memory";
@@ -361,7 +372,18 @@ async function quarantineRow(
     (typeof row.receivedAt === "string" && row.receivedAt) ||
     "1970-01-01T00:00:00.000Z";
   try {
-    await getQuarantineStore().put({
+    // Idempotent replay pre-check: an earlier tick/restart may have
+    // already durably quarantined this exact row — already durable,
+    // safe to advance, and the DLQ keeps exactly one record.
+    const store = getQuarantineStore();
+    const existing = await store.get(correlationId);
+    if (existing) return true;
+    // Durability proof seam: the pg adapter absorbs write failures into
+    // its pgErrors counter — snapshot it so a silent pg failure below
+    // (e.g. missing table in prod) is DETECTED, not mistaken for durable.
+    const pgErrorsBefore =
+      store instanceof PgVectorMemoryStore ? store.getStatus().pgErrors : null;
+    await store.put({
       id: correlationId,
       kind: MIND_TICK_QUARANTINE_KIND,
       // Identity fields + rejection reasons only — payload values never
@@ -381,8 +403,26 @@ async function quarantineRow(
         confidence: 1,
       },
     });
+    if (pgErrorsBefore !== null) {
+      const after = (store as PgVectorMemoryStore).getStatus();
+      if (after.pgErrors > pgErrorsBefore) {
+        // pg write silently failed inside the adapter — durability NOT
+        // proven. Surface it and halt the cursor fail-closed.
+        state.quarantineFailures += 1;
+        state.lastError = `quarantine pg write failed (pgErrors=${after.pgErrors})`;
+        logStructured("quarantine-write-failed", {
+          correlationId,
+          error: "pg persist absorbed a write error — durability not proven",
+          pgErrors: after.pgErrors,
+        });
+        return false;
+      }
+    }
     return true;
   } catch (error) {
+    // DUPLICATE from a concurrent-writer race means the record IS
+    // durably stored — durability proven, not a fail-open pass.
+    // codex-guard:allow DUPLICATE proves durable persistence (fail-closed satisfied)
     if (error instanceof MemoryError && error.code === "DUPLICATE") return true;
     state.quarantineFailures += 1;
     state.lastError = truncateError(error);
@@ -390,6 +430,7 @@ async function quarantineRow(
       correlationId,
       error: truncateError(error),
     });
+    // fail-closed: durability NOT proven → caller halts the cursor here
     return false;
   }
 }

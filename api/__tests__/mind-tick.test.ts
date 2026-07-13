@@ -47,7 +47,11 @@ import {
   __resetMindTickForTests,
 } from "../lib/mind-tick";
 import { SUGGESTION_CEILING } from "../lib/zero-input";
-import { InMemoryMemoryStore, type MemoryStore } from "../lib/persistent-memory";
+import {
+  InMemoryMemoryStore,
+  PgVectorMemoryStore,
+  type MemoryStore,
+} from "../lib/persistent-memory";
 import type { PerceptionSourceRow } from "../lib/platform-inbox-store";
 
 const caller = appRouter.createCaller({} as never);
@@ -346,6 +350,40 @@ describe("runMindTick (full cycle: inbox → B5 → B7)", () => {
     await runMindTick(FIXED_CLOCK);
     const [, params] = queryMock.mock.calls[5] as [string, unknown[]];
     expect(params).toEqual([1, MIND_TICK_BATCH_LIMIT]);
+  });
+
+  it("detects a SILENTLY absorbed pg write failure (pgErrors delta) and halts — durability is proven, never assumed", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    // Real pg adapter wired to a dead query: persist() absorbs the error
+    // into pgErrors and put() still resolves — the exact prod hazard of a
+    // missing onx_memory_record table. The delta check must catch it.
+    const deadPg = new PgVectorMemoryStore({
+      query: async () => {
+        throw new Error("relation onx_memory_record does not exist");
+      },
+    });
+    __setMindTickQuarantineStoreForTests(deadPg);
+    mockSchemaCalls();
+    queryMock.mockResolvedValueOnce({
+      rows: [rawRow({ event_type: "mystery.unknown.event" })],
+      rowCount: 1,
+    });
+
+    const result = await runMindTick(FIXED_CLOCK);
+
+    expect(result.halted).toBe(true);
+    expect(result.quarantined).toBe(0);
+    const status = getMindTickStatus();
+    expect(status.lastProcessedId).toBe(0); // cursor did NOT advance
+    expect(status.quarantineFailures).toBe(1);
+    const line = errSpy.mock.calls
+      .map((c) => String(c[0]))
+      .find((l) => l.includes("quarantine-write-failed"));
+    expect(JSON.parse(line as string)).toMatchObject({
+      module: "mind-tick",
+      event: "quarantine-write-failed",
+    });
+    errSpy.mockRestore();
   });
 
   it("replays the cursor idempotently: re-reading the same batch after a restart duplicates nothing", async () => {
