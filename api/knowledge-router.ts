@@ -5,6 +5,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
+import { invalidateCorpusSearchIndex, registerCorpusSource } from "./lib/corpus-search";
 
 // --- Knowledge Types ---
 type KnowledgeDomain =
@@ -150,6 +151,17 @@ function seedKnowledge() {
 
 // Seed on module load
 seedKnowledge();
+
+// STE-K-01: expose the in-memory knowledge store to the BM25
+// corpus search index (lazy build; invalidated on mutation).
+registerCorpusSource("knowledgeStore", () =>
+  Array.from(knowledgeStore.values()).map((r) => ({
+    id: r.id,
+    domain: r.domain,
+    title: r.title,
+    body: r.content,
+  })),
+);
 
 // Honest health snapshot (HT-03): real in-memory counts, never a hardcoded claim.
 export function getKnowledgeHealthSnapshot(): { records: number; domains: number } {
@@ -427,6 +439,7 @@ export const knowledgeRouter = createRouter({
         lastAccessed: new Date(),
       };
       knowledgeStore.set(id, record);
+      invalidateCorpusSearchIndex();
       return { added: true, id, domain: input.domain };
     }),
 

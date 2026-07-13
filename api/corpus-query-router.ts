@@ -5,16 +5,39 @@ import { assertBridgeAccess, getBridgeState } from "./bridge-guard";
 import {
   insertCorpusUnits,
   isCorpusPersistenceConfigured,
+  loadAllCorpusUnits,
   type CorpusUnitInput,
 } from "./lib/corpus-pg-store";
+import {
+  invalidateCorpusSearchIndex,
+  registerCorpusSource,
+  searchCorpus,
+} from "./lib/corpus-search";
 
 // In-memory dedup fallback when no postgres DATABASE_URL is
 // configured — honest UNPERSISTED declaration, lost on restart.
 const memoryFingerprints = new Set<string>();
+const memoryUnits: CorpusUnitInput[] = [];
 
 export function __resetCorpusIngestMemoryForTests(): void {
   memoryFingerprints.clear();
+  memoryUnits.length = 0;
+  invalidateCorpusSearchIndex();
 }
+
+// STE-K-01: expose both corpus stores to the BM25 search index —
+// in-memory ingested units always, postgres units when configured.
+registerCorpusSource("ingestMemory", () =>
+  memoryUnits.map((u) => ({
+    id: `mem_${u.fingerprint.slice(0, 24)}`,
+    domain: u.domain,
+    title: u.title,
+    body: u.body,
+  })),
+);
+registerCorpusSource("corpusPg", async () =>
+  isCorpusPersistenceConfigured() ? await loadAllCorpusUnits() : [],
+);
 
 export const corpusQueryRouter = createRouter({
   status: publicQuery.query(() => ({
@@ -50,6 +73,23 @@ export const corpusQueryRouter = createRouter({
       };
     }),
 
+  // STE-K-01: rankedSearch — deterministic BM25 retrieval, PUBLIC
+  // read (pattern of `status`: no secrets exposed, read-only).
+  // The legacy bridge-guarded `search` contract above is preserved
+  // untouched (fail-closed proven in bridge-contract.test.ts).
+  rankedSearch: publicQuery
+    .input(z.object({
+      query: z.string().max(500),
+      domain: z.string().optional(),
+      limit: z.number().min(1).max(50).default(10),
+      offset: z.number().min(0).max(10000).default(0),
+    }))
+    .query(async ({ input }) => ({
+      bridge: "corpusQuery",
+      access: "PUBLIC_READ" as const,
+      ...(await searchCorpus(input.query, input)),
+    })),
+
   // STE-N-02: real ingest endpoint — normalize → fingerprint →
   // dedup → insert. Ready to receive the authentic archive
   // (STE-REC-06) the moment it is recovered. Fail-closed bridge.
@@ -81,6 +121,7 @@ export const corpusQueryRouter = createRouter({
 
       if (isCorpusPersistenceConfigured()) {
         const result = await insertCorpusUnits(batch);
+        if (result.accepted > 0) invalidateCorpusSearchIndex();
         return {
           bridge: "corpusQuery",
           persistence: "POSTGRES" as const,
@@ -95,8 +136,10 @@ export const corpusQueryRouter = createRouter({
       for (const unit of batch) {
         if (memoryFingerprints.has(unit.fingerprint)) continue;
         memoryFingerprints.add(unit.fingerprint);
+        memoryUnits.push(unit);
         accepted++;
       }
+      if (accepted > 0) invalidateCorpusSearchIndex();
       return {
         bridge: "corpusQuery",
         persistence: "UNPERSISTED" as const,

@@ -91,6 +91,23 @@ export async function insertCorpusUnits(units: CorpusUnitInput[]): Promise<Corpu
   return { accepted, duplicates: units.length - accepted, total: units.length };
 }
 
+// STE-K-01: load persisted units for the BM25 search index.
+export interface CorpusUnitRow {
+  id: string;
+  domain: string;
+  title: string;
+  body: string;
+}
+
+export async function loadAllCorpusUnits(): Promise<CorpusUnitRow[]> {
+  await ensureSchema();
+  const p = getPool();
+  const result = await p.query(
+    `SELECT id, domain, title, body FROM onx_knowledge_corpus ORDER BY id`,
+  );
+  return result.rows ?? [];
+}
+
 export async function countCorpusUnits(): Promise<number> {
   await ensureSchema();
   const p = getPool();
