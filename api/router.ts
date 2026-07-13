@@ -31,6 +31,7 @@ import { corpusQueryRouter } from "./corpus-query-router";
 import { intentEngineRouter } from "./intent-engine-router";
 import { providersRouter } from "./providers-router";
 import { onxRouter } from "./onx-router";
+import { askRouter } from "./ask-router";
 import { iucRouter } from "./iuc-router";
 import { measurementRouter } from "./measurement-router";
 import { ficRouter } from "./fic-router";
@@ -148,6 +149,8 @@ export const appRouter = createRouter({
   intentEngine: intentEngineRouter,
   providers: providersRouter,
   onx: onxRouter,
+  // K4 — ask.onx: deterministic cited answer (intent + BM25 fused)
+  ask: askRouter,
 });
 
 export type AppRouter = typeof appRouter;
