@@ -273,6 +273,16 @@ if (process.env.NODE_ENV !== "test") {
   }, 5000); // Start 5s after module load
 }
 
+// Honest health snapshot (HT-03): real rhythm state, never a hardcoded claim.
+export function getRhythmHealthSnapshot(): { total: number; active: number; failing: number } {
+  const rhythms = Array.from(RHYTHMS.values());
+  return {
+    total: rhythms.length,
+    active: rhythms.filter((r) => r.active).length,
+    failing: rhythms.filter((r) => r.status === "FAILING").length,
+  };
+}
+
 export const schedulerRouter = createRouter({
   // SCH-01: start — Start a rhythm
   start: publicQuery

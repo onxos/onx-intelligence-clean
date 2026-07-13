@@ -150,6 +150,11 @@ function seedKnowledge() {
 // Seed on module load
 seedKnowledge();
 
+// Honest health snapshot (HT-03): real in-memory counts, never a hardcoded claim.
+export function getKnowledgeHealthSnapshot(): { records: number; domains: number } {
+  return { records: knowledgeStore.size, domains: DOMAINS.length };
+}
+
 export const knowledgeRouter = createRouter({
   // KN-01: search — Full-text + vector hybrid search
   search: publicQuery
