@@ -2,12 +2,27 @@ import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 import { intelligenceRouter } from "./intelligence-router";
 import { assertBridgeAccess, getBridgeState } from "./bridge-guard";
+import { classifyIntent } from "./lib/intent-engine";
 
 export const intentEngineRouter = createRouter({
   status: publicQuery.query(() => ({
     bridge: "intentEngine",
     ...getBridgeState(),
   })),
+
+  // STE-K-02: SAFE deterministic classification — PUBLIC read
+  // (rankedSearch pattern: no secrets, no keys needed, zero LLM).
+  // The bridge-guarded `analyze` path below is preserved untouched.
+  classify: publicQuery
+    .input(z.object({
+      text: z.string().min(1).max(2000),
+      topN: z.number().min(1).max(7).default(3),
+    }))
+    .query(({ input }) => ({
+      bridge: "intentEngine",
+      access: "PUBLIC_READ" as const,
+      ...classifyIntent(input.text, input.topN),
+    })),
 
   governance: publicQuery.query(async ({ ctx }) => {
     assertBridgeAccess(ctx);
