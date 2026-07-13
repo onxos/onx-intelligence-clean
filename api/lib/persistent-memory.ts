@@ -20,6 +20,7 @@
 //
 // Honest naming: this is a storage layer, not a mind.
 // ============================================================
+import { newCorrelationId, recordPgFailure, recordPgSuccess } from "./pg-diagnostics";
 
 export interface Provenance {
   /** Where the memory came from (e.g. "reflection-cycle", "founder"). */
@@ -349,10 +350,14 @@ export class PgVectorMemoryStore implements MemoryStore {
         ],
       );
       this.status.pgWrites += 1;
-    } catch {
+      recordPgSuccess("memory.persist");
+    } catch (error) {
       // Fail-safe: a dead/absent database never breaks the store — the
-      // deterministic mirror already holds the authoritative copy.
+      // deterministic mirror already holds the authoritative copy. But the
+      // failure is no longer silent: it is recorded loudly (structured log +
+      // correlation id + global diagnostics) so it is observable.
       this.status.pgErrors += 1;
+      recordPgFailure("memory.persist", error, { correlationId: newCorrelationId() });
     }
   }
 
@@ -366,7 +371,10 @@ export class PgVectorMemoryStore implements MemoryStore {
       const pool = new mod.Pool({ connectionString: cs });
       this.queryFn = (text, params) => pool.query(text, params);
       return this.queryFn;
-    } catch {
+    } catch (error) {
+      // Best-effort pool creation: record the failure loudly, then degrade
+      // to the deterministic mirror instead of swallowing it silently.
+      recordPgFailure("memory.resolvePool", error, { correlationId: newCorrelationId() });
       return null;
     }
   }

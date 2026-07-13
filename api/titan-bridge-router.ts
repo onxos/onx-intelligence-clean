@@ -14,6 +14,7 @@ import {
   getEventStats,
   getRecentEvents,
   getAggregateTimeline,
+  getInboxRecordIdByEventId,
   type InsertEventInput,
   type InsertEventResult,
 } from "./lib/platform-inbox-store";
@@ -21,6 +22,12 @@ import {
   admitLiveEvent,
   type ValidationError,
 } from "./lib/bridge-contracts";
+import {
+  marketingLiveIngest,
+  MarketingIdempotencyCollisionError,
+  type PlatformEventEnvelope,
+  type MarketingInboxDeps,
+} from "./lib/marketing-contracts";
 import { listInsightsFromGraph } from "./lib/insights-port";
 import { recordInsightAck } from "./lib/insight-ack";
 
@@ -465,6 +472,61 @@ export const titanBridgeRouter = createRouter({
         occurredAt: input.occurredAt,
         payload: input.payload ?? null,
       });
+    }),
+
+  // --- Platform bridge contract: ingestMarketingEvent (G3 — marketing bridge) ---
+  // The onx-marketing-platform forwards a literal PlatformEventEnvelope. This
+  // authenticated, rate-limited receiver reuses the SAME bridge secret and rate
+  // limiter as `ingestEvent`, converts the envelope through the fail-closed G3
+  // contract, and lands it in the SAME `onx_platform_event_inbox` the minds read.
+  // A genuine idempotency collision surfaces as an explicit error, never a silent
+  // duplicate drop.
+  ingestMarketingEvent: publicQuery
+    .input(z.object({
+      recordId: z.string().min(1).max(200),
+      workspaceId: z.string().min(1).max(200),
+      requesterId: z.string().min(1).max(200),
+      sourceType: z.string().min(1).max(200),
+      sourceId: z.string().min(1).max(200),
+      eventType: z.string().min(1).max(200),
+      rawPayload: z.record(z.string(), z.unknown()).default({}),
+      traceId: z.string().min(1).max(200),
+      occurredAt: z.string().datetime(),
+      metadata: z.object({
+        origin: z.string().min(1).max(200),
+        entityType: z.string().min(1).max(200),
+        entityId: z.string().min(1).max(200),
+      }),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      assertBridgeAccess(ctx);
+
+      // Namespaced rate-limit bucket: marketing traffic gets its own quota and
+      // does NOT consume the general `ingestEvent`/`consult` allowance.
+      const rateCheck = rateLimiter.checkLimit(`marketing:${input.workspaceId}`);
+      if (!rateCheck.allowed) {
+        throw new Error(
+          `RATE_LIMIT_EXCEEDED: ${rateCheck.remaining} remaining, resets at ${rateCheck.resetAt.toISOString()}`,
+        );
+      }
+
+      const deps: MarketingInboxDeps = {
+        insert: insertEvent,
+        lookupRecordId: getInboxRecordIdByEventId,
+      };
+
+      try {
+        const res = await marketingLiveIngest(input as PlatformEventEnvelope, deps);
+        if (!res.accepted) {
+          return { accepted: false as const, rejected: true as const, errors: res.errors ?? [] };
+        }
+        return { accepted: true as const, duplicate: !!res.duplicate, id: res.id, eventId: res.eventId };
+      } catch (error) {
+        if (error instanceof MarketingIdempotencyCollisionError) {
+          throw new Error(`IDEMPOTENCY_COLLISION: eventId ${error.eventId} maps to two distinct records`);
+        }
+        throw error;
+      }
     }),
 
   // --- Phase E1 "Mind reads body": read-only inbox analytics ---

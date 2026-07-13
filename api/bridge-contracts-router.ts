@@ -26,9 +26,13 @@ import {
   seedInstitutionalSchemas,
   type BridgeEvent,
 } from "./lib/bridge-contracts";
+import { seedMarketingSchemas } from "./lib/marketing-contracts";
 
 // Seed the canonical institutional contracts once at import time.
 seedInstitutionalSchemas();
+// G3: register the marketing bridge contracts on the same B8 registry so
+// marketing.* events forwarded from onx-marketing-platform validate + log.
+seedMarketingSchemas();
 
 const zEvent = z.object({
   eventType: z.string().min(1),
