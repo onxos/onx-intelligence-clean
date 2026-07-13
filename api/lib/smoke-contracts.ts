@@ -103,6 +103,92 @@ export function assertNoKeyLeak(raw: string): string | null {
 
 // --- Pure contract evaluators (unit-tested directly) --------
 
+// Shared commit-equality: accept full or prefix match (short SHAs
+// are legitimate on /health vs a full expected SHA).
+export function commitMatches(a: string | undefined, b: string | undefined): boolean {
+  if (!a || !b) return false;
+  return a === b || a.startsWith(b) || b.startsWith(a);
+}
+
+// The committed corpus-manifest.json contract — injected (never read
+// from fs inside contract logic) so the evaluator stays pure and
+// unit-testable. Only the fields we assert against the live surface.
+export interface CorpusManifestContract {
+  disclosure: string;
+  provenance: string;
+  docCount: number;
+  domains: string[];
+  sha256: string;
+}
+
+// STE-K-11: prove the DEPLOYED corpus manifest matches the committed
+// contract corpus-manifest.json — i.e. the knowledge content shipped
+// live is byte-identical (by content-identity sha256) to what CI
+// pinned. `deployFresh` is true when /health confirmed the live
+// commit equals EXPECT_COMMIT.
+//
+// HONEST FRESHNESS TOLERANCE (K-08 doctrine): if the live deploy is
+// NOT confirmed fresh, a sha mismatch is an EXPECTED content-freshness
+// lag, not a breach — we report BOTH fingerprints and pass with a
+// pending note (never pass by wishing, never fail ambiguously). With a
+// confirmed-fresh deploy, a sha mismatch is a REAL breach → fail. The
+// structural invariants (disclosure/provenance/docCount/domainCount)
+// must always match: those do not drift with freshness.
+export function checkCorpusManifestTruth(
+  status: number,
+  live: {
+    disclosure?: string;
+    provenance?: string;
+    docCount?: number;
+    domains?: string[];
+    sha256?: string;
+  },
+  committed: CorpusManifestContract | null,
+  deployFresh: boolean,
+): ContractResult {
+  const name = "corpus_manifest_truth";
+  if (status !== 200) return { name, passed: false, detail: `expected 200, got ${status}` };
+  if (!committed)
+    return { name, passed: false, detail: "no committed corpus-manifest.json injected" };
+  if (!/^[0-9a-f]{64}$/.test(String(live?.sha256)))
+    return { name, passed: false, detail: `live sha256 not hex: ${live?.sha256}` };
+
+  const liveDomainCount = (live?.domains ?? []).length;
+  const committedDomainCount = committed.domains.length;
+  const structural: Array<[string, unknown, unknown]> = [
+    ["disclosure", committed.disclosure, live?.disclosure],
+    ["provenance", committed.provenance, live?.provenance],
+    ["docCount", committed.docCount, live?.docCount],
+    ["domainCount", committedDomainCount, liveDomainCount],
+  ];
+  for (const [field, want, got] of structural) {
+    if (want !== got)
+      return { name, passed: false, detail: `${field} mismatch: committed=${want} live=${got}` };
+  }
+
+  const shaMatch = live?.sha256 === committed.sha256;
+  if (shaMatch)
+    return {
+      name,
+      passed: true,
+      detail: `live manifest sha256 matches committed (${committed.sha256.slice(0, 12)}) — deployed content identical, disclosure=${committed.disclosure}`,
+    };
+
+  // sha differs.
+  const both = `live=${String(live?.sha256).slice(0, 12)} committed=${committed.sha256.slice(0, 12)}`;
+  if (deployFresh)
+    return {
+      name,
+      passed: false,
+      detail: `sha256 MISMATCH on a confirmed-fresh deploy (${both}) — deployed knowledge content differs from the committed contract`,
+    };
+  return {
+    name,
+    passed: true,
+    detail: `sha256 differs but deploy not confirmed fresh — content-freshness PENDING (${both}); re-run with EXPECT_COMMIT once Render redeploys`,
+  };
+}
+
 export function checkHealth(
   status: number,
   body: { status?: string; env?: string; commit?: string },
@@ -263,6 +349,10 @@ export interface SmokeOptions {
   expectedSha?: string | null;
   fetchImpl: FetchLike;
   timeoutMs?: number;
+  // STE-K-11: the committed corpus-manifest.json contract, injected by
+  // the CLI (fs read stays out of the pure contract logic). When null
+  // the corpus_manifest_truth contract fails honestly.
+  committedManifest?: CorpusManifestContract | null;
 }
 
 async function getJson(fetchImpl: FetchLike, url: string): Promise<{ status: number; body: unknown; raw: string }> {
@@ -278,15 +368,20 @@ async function getJson(fetchImpl: FetchLike, url: string): Promise<{ status: num
 }
 
 export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<SmokeReport> {
-  const { fetchImpl, expectedSha = null } = opts;
+  const { fetchImpl, expectedSha = null, committedManifest = null } = opts;
   const base = baseUrl.replace(/\/$/, "");
   const contracts: ContractResult[] = [];
   const leaks: string[] = [];
+  let deployFresh = false;
 
   // 1) /health
   {
     const { status, body, raw } = await getJson(fetchImpl, `${base}/health`);
-    contracts.push(checkHealth(status, (body ?? {}) as Record<string, string>, expectedSha));
+    const healthBody = (body ?? {}) as { commit?: string };
+    contracts.push(checkHealth(status, healthBody as Record<string, string>, expectedSha));
+    // Freshness signal for the corpus manifest contract: the live
+    // commit is confirmed to equal EXPECT_COMMIT.
+    deployFresh = !!expectedSha && commitMatches(healthBody.commit, expectedSha);
     const leak = assertNoKeyLeak(raw);
     if (leak) leaks.push(`health:${leak}`);
   }
@@ -346,6 +441,18 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
     contracts.push(checkBridgeFailClosed(res.status, unwrapTrpc(parsed)));
     const leak = assertNoKeyLeak(raw);
     if (leak) leaks.push(`bridge:${leak}`);
+  }
+
+  // 7) corpusQuery.manifest — the DEPLOYED corpus content manifest must
+  // match the committed contract corpus-manifest.json (STE-K-11).
+  {
+    const { status, body, raw } = await getJson(fetchImpl, trpcGetUrl(base, "corpusQuery.manifest"));
+    const u = unwrapTrpc(body);
+    contracts.push(
+      checkCorpusManifestTruth(status, (u.data ?? {}) as never, committedManifest, deployFresh),
+    );
+    const leak = assertNoKeyLeak(raw);
+    if (leak) leaks.push(`corpusQuery.manifest:${leak}`);
   }
 
   // Leak guard is itself a contract.

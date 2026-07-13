@@ -3,6 +3,12 @@
  * NOT part of CI: requires network + live environment (honest exclusion).
  * Usage: BASE_URL=https://onx-intelligence-clean.onrender.com EXPECT_COMMIT=<sha> npm run smoke:live
  *   (EXPECTED_SHA is accepted as an alias for EXPECT_COMMIT.)
+ *
+ * 8 contracts: health, honest self-verify, rate-limit disclosure, ask.onx
+ * honest refusal, ask.onx cited answer, bridge fail-closed, corpus manifest
+ * truth (deployed corpus content sha256 == committed corpus-manifest.json),
+ * no key leak. The corpus manifest contract injects the committed file so
+ * the pure evaluator does no fs I/O.
  */
 // ============================================================
 // Config (env):
@@ -17,13 +23,32 @@
 //
 // Exit code: 1 if ANY contract is breached, else 0.
 // ============================================================
-import { runSmoke, DEFAULT_BASE_URL, type FetchLike } from "../api/lib/smoke-contracts";
+import { runSmoke, DEFAULT_BASE_URL, type FetchLike, type CorpusManifestContract } from "../api/lib/smoke-contracts";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 async function main() {
   const baseUrl = process.env.BASE_URL?.trim() || DEFAULT_BASE_URL;
   // Accept both names: EXPECT_COMMIT (canonical) and EXPECTED_SHA (alias).
   const expectedSha =
     process.env.EXPECT_COMMIT?.trim() || process.env.EXPECTED_SHA?.trim() || null;
+
+  // Inject the committed corpus contract (fs read stays OUT of the pure
+  // contract logic — the evaluator receives the parsed object).
+  let committedManifest: CorpusManifestContract | null = null;
+  try {
+    const raw = readFileSync(resolve(process.cwd(), "corpus-manifest.json"), "utf8");
+    const m = JSON.parse(raw);
+    committedManifest = {
+      disclosure: m.disclosure,
+      provenance: m.provenance,
+      docCount: m.docCount,
+      domains: m.domains,
+      sha256: m.sha256,
+    };
+  } catch (e) {
+    console.error("[smoke:live] WARN could not read corpus-manifest.json:", e);
+  }
 
   // Node 18+/24 global fetch adapted to our minimal FetchLike shape.
   const fetchImpl: FetchLike = async (url, init) => {
@@ -39,7 +64,7 @@ async function main() {
     };
   };
 
-  const report = await runSmoke(baseUrl, { expectedSha, fetchImpl });
+  const report = await runSmoke(baseUrl, { expectedSha, fetchImpl, committedManifest });
 
   console.log(JSON.stringify(report, null, 2));
 

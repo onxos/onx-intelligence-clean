@@ -14,6 +14,8 @@ import {
   checkAskRefusal,
   checkAskCited,
   checkBridgeFailClosed,
+  checkCorpusManifestTruth,
+  commitMatches,
   unwrapTrpc,
   trpcGetUrl,
   assertNoKeyLeak,
@@ -21,6 +23,7 @@ import {
   IN_CORPUS_QUESTION,
   type FetchLike,
   type SmokeResponse,
+  type CorpusManifestContract,
 } from "../lib/smoke-contracts";
 
 // ---- helpers to build a live-shaped tRPC fetch double ----
@@ -86,6 +89,32 @@ const LIVE_ASK_CITED = {
   refusal: null,
   citations: [{ id: "u1", domain: "TECHNOLOGY", title: "Neural nets", score: 3.2 }],
 };
+const MANIFEST_DOMAINS = [
+  "AGRICULTURE", "DEFENSE", "ECONOMICS", "EDUCATION", "ENERGY", "ENGINEERING",
+  "ENVIRONMENT", "FINANCE", "HISTORY", "ISLAMIC", "LEGAL", "MANUFACTURING",
+  "MEDIA", "MEDICINE", "SCIENCE", "SOCIAL", "STRATEGY", "TECHNOLOGY", "TRANSPORTATION",
+];
+const MANIFEST_SHA = "6fc2bed87d86e4cfc195020cd34c148cee96348797b413bba60baac7c3372f08";
+const LIVE_MANIFEST = {
+  bridge: "corpusQuery",
+  access: "PUBLIC_READ",
+  version: "1",
+  source: "templated seed (ONX Knowledge Base v1.0)",
+  docCount: 22500,
+  domains: MANIFEST_DOMAINS,
+  provenance: "TEMPLATED_SEED",
+  disclosure: "DEMO",
+  templatedDocs: 22500,
+  authenticDocs: 0,
+  sha256: MANIFEST_SHA,
+};
+const COMMITTED_MANIFEST: CorpusManifestContract = {
+  disclosure: "DEMO",
+  provenance: "TEMPLATED_SEED",
+  docCount: 22500,
+  domains: MANIFEST_DOMAINS,
+  sha256: MANIFEST_SHA,
+};
 
 // A full honest-live fetch double routing by URL.
 function liveFetch(overrides: Partial<Record<string, SmokeResponse>> = {}): FetchLike {
@@ -93,6 +122,7 @@ function liveFetch(overrides: Partial<Record<string, SmokeResponse>> = {}): Fetc
     if (url.endsWith("/health")) return overrides.health ?? resp(200, LIVE_HEALTH);
     if (url.includes("onx.selfVerify")) return overrides.selfVerify ?? trpcOk(LIVE_SELFVERIFY);
     if (url.includes("providers.status")) return overrides.providers ?? trpcOk(LIVE_PROVIDERS);
+    if (url.includes("corpusQuery.manifest")) return overrides.manifest ?? trpcOk(LIVE_MANIFEST);
     if (url.includes("ask.onx")) {
       const isRefusal = url.includes(encodeURIComponent(OUT_OF_CORPUS_QUESTION.split(" ")[0]));
       if (isRefusal) return overrides.askRefusal ?? trpcOk(LIVE_ASK_REFUSAL);
@@ -193,29 +223,100 @@ describe("smoke-live contract evaluators", () => {
     const u = unwrapTrpc({ error: { json: { message: "some parse error", data: { httpStatus: 400 } } } });
     expect(checkBridgeFailClosed(400, u).passed).toBe(false);
   });
+
+  it("commitMatches accepts full/prefix, rejects mismatch/empty", () => {
+    expect(commitMatches("810700e2bdee", "810700e")).toBe(true);
+    expect(commitMatches("810700e", "810700e2bdee")).toBe(true);
+    expect(commitMatches("810700e", "810700e")).toBe(true);
+    expect(commitMatches("810700e", "deadbeef")).toBe(false);
+    expect(commitMatches(undefined, "x")).toBe(false);
+    expect(commitMatches("x", undefined)).toBe(false);
+  });
+
+  it("corpus manifest truth passes when live sha256 matches committed", () => {
+    const r = checkCorpusManifestTruth(200, LIVE_MANIFEST, COMMITTED_MANIFEST, true);
+    expect(r.passed).toBe(true);
+    expect(r.detail).toMatch(/identical/);
+  });
+  it("corpus manifest truth FAILS on sha mismatch when deploy is fresh (real breach)", () => {
+    const r = checkCorpusManifestTruth(
+      200, { ...LIVE_MANIFEST, sha256: "b".repeat(64) }, COMMITTED_MANIFEST, true,
+    );
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/MISMATCH on a confirmed-fresh deploy/);
+  });
+  it("corpus manifest truth passes PENDING on sha mismatch when deploy is not fresh (honest lag)", () => {
+    const r = checkCorpusManifestTruth(
+      200, { ...LIVE_MANIFEST, sha256: "b".repeat(64) }, COMMITTED_MANIFEST, false,
+    );
+    expect(r.passed).toBe(true);
+    expect(r.detail).toMatch(/PENDING/);
+  });
+  it("corpus manifest truth FAILS on structural drift regardless of freshness", () => {
+    expect(checkCorpusManifestTruth(200, { ...LIVE_MANIFEST, docCount: 22499 }, COMMITTED_MANIFEST, false).passed).toBe(false);
+    expect(checkCorpusManifestTruth(200, { ...LIVE_MANIFEST, disclosure: "REAL" }, COMMITTED_MANIFEST, false).passed).toBe(false);
+    expect(checkCorpusManifestTruth(200, { ...LIVE_MANIFEST, provenance: "AUTHENTIC_INGEST" }, COMMITTED_MANIFEST, false).passed).toBe(false);
+    expect(checkCorpusManifestTruth(200, { ...LIVE_MANIFEST, domains: MANIFEST_DOMAINS.slice(1) }, COMMITTED_MANIFEST, false).passed).toBe(false);
+  });
+  it("corpus manifest truth fails on non-200, non-hex sha, or missing committed", () => {
+    expect(checkCorpusManifestTruth(503, LIVE_MANIFEST, COMMITTED_MANIFEST, true).passed).toBe(false);
+    expect(checkCorpusManifestTruth(200, { ...LIVE_MANIFEST, sha256: "nope" }, COMMITTED_MANIFEST, true).passed).toBe(false);
+    expect(checkCorpusManifestTruth(200, LIVE_MANIFEST, null, true).passed).toBe(false);
+  });
 });
 
 describe("runSmoke orchestration (mocked fetch)", () => {
   it("all contracts pass on an honest live service", async () => {
-    const report = await runSmoke("https://x.dev", { fetchImpl: liveFetch(), expectedSha: "810700e" });
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch(),
+      expectedSha: "810700e",
+      committedManifest: COMMITTED_MANIFEST,
+    });
     expect(report.passed).toBe(true);
     expect(report.failedCount).toBe(0);
-    expect(report.total).toBe(7); // 6 contracts + no_key_leak guard
+    expect(report.total).toBe(8); // 7 contracts + no_key_leak guard
+    expect(report.contracts.map((c) => c.name)).toContain("corpus_manifest_truth");
     expect(report.contracts.map((c) => c.name)).toContain("no_key_leak");
   });
 
   it("is deterministic: two runs produce identical contract verdicts", async () => {
-    const a = await runSmoke("https://x.dev", { fetchImpl: liveFetch(), expectedSha: null });
-    const b = await runSmoke("https://x.dev", { fetchImpl: liveFetch(), expectedSha: null });
+    const opts = { fetchImpl: liveFetch(), expectedSha: null, committedManifest: COMMITTED_MANIFEST };
+    const a = await runSmoke("https://x.dev", opts);
+    const b = await runSmoke("https://x.dev", opts);
     const strip = (r: Awaited<ReturnType<typeof runSmoke>>) =>
       r.contracts.map((c) => ({ name: c.name, passed: c.passed, detail: c.detail }));
     expect(strip(a)).toEqual(strip(b));
   });
 
   it("fails overall when the deployed commit does not match expected", async () => {
-    const report = await runSmoke("https://x.dev", { fetchImpl: liveFetch(), expectedSha: "deadbeef" });
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch(),
+      expectedSha: "deadbeef",
+      committedManifest: COMMITTED_MANIFEST,
+    });
     expect(report.passed).toBe(false);
     expect(report.contracts.find((c) => c.name === "health_live")?.passed).toBe(false);
+  });
+
+  it("corpus_manifest_truth FAILS overall when the live manifest sha drifts on a fresh deploy", async () => {
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({ manifest: trpcOk({ ...LIVE_MANIFEST, sha256: "c".repeat(64) }) }),
+      expectedSha: "810700e", // matches LIVE_HEALTH commit → deploy fresh
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    expect(report.passed).toBe(false);
+    expect(report.contracts.find((c) => c.name === "corpus_manifest_truth")?.passed).toBe(false);
+  });
+
+  it("corpus_manifest_truth passes PENDING when sha drifts but no EXPECT_COMMIT (freshness unknown)", async () => {
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({ manifest: trpcOk({ ...LIVE_MANIFEST, sha256: "c".repeat(64) }) }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    const c = report.contracts.find((x) => x.name === "corpus_manifest_truth");
+    expect(c?.passed).toBe(true);
+    expect(c?.detail).toMatch(/PENDING/);
   });
 
   it("fails when a full provider key leaks in a response", async () => {
@@ -226,6 +327,7 @@ describe("runSmoke orchestration (mocked fetch)", () => {
     const report = await runSmoke("https://x.dev", {
       fetchImpl: liveFetch({ providers: leaky }),
       expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
     });
     expect(report.passed).toBe(false);
     expect(report.contracts.find((c) => c.name === "no_key_leak")?.passed).toBe(false);
@@ -235,6 +337,7 @@ describe("runSmoke orchestration (mocked fetch)", () => {
     const report = await runSmoke("https://x.dev", {
       fetchImpl: liveFetch({ bridge: trpcOk({ accepted: 1, duplicates: 0 }) }),
       expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
     });
     expect(report.passed).toBe(false);
     expect(report.contracts.find((c) => c.name === "bridge_fail_closed")?.passed).toBe(false);
@@ -244,6 +347,7 @@ describe("runSmoke orchestration (mocked fetch)", () => {
     const report = await runSmoke("https://x.dev", {
       fetchImpl: liveFetch({ askRefusal: trpcOk({ ...LIVE_ASK_REFUSAL, status: "ANSWERED", answer: "x" }) }),
       expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
     });
     expect(report.passed).toBe(false);
     expect(report.contracts.find((c) => c.name === "ask_onx_honest_refusal")?.passed).toBe(false);
