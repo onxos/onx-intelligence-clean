@@ -123,7 +123,7 @@ function checkKnowledge(): ComponentHealth {
     status: snap.records > 0 ? "HEALTHY" : "UNAVAILABLE",
     latency: Date.now() - started,
     lastCheck: new Date(),
-    message: `${snap.records} records across ${snap.domains} domains (in-memory, counted live)`,
+    message: `${snap.records} records across ${snap.domains} domains (in-memory, counted live, ${(process.env.DATABASE_URL ?? "").startsWith("postgres") ? "corpus persistence configured" : "UNPERSISTED — regenerated each boot"})`,
   };
 }
 

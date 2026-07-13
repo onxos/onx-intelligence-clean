@@ -172,6 +172,9 @@ export interface CorpusManifest {
   uniqueByTitleOnly: number;
   duplicates: number;
   byDomain: Record<string, { raw: number; unique: number }>;
+  // STE-N-02: honest persistence declaration — in-memory seed is
+  // regenerated every boot unless a postgres DATABASE_URL exists.
+  persistence: "POSTGRES" | "UNPERSISTED";
 }
 
 export function buildCorpusManifest(): CorpusManifest {
@@ -194,6 +197,7 @@ export function buildCorpusManifest(): CorpusManifest {
     uniqueByTitleOnly: seenTitle.size,
     duplicates: knowledgeStore.size - seen.size,
     byDomain,
+    persistence: (process.env.DATABASE_URL ?? "").startsWith("postgres") ? "POSTGRES" : "UNPERSISTED",
   };
 }
 

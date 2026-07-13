@@ -20,6 +20,7 @@ function main() {
   console.log(`uniqueByTitleBody:   ${manifest.uniqueByTitleBody}`);
   console.log(`uniqueByTitleOnly:   ${manifest.uniqueByTitleOnly}`);
   console.log(`duplicates:          ${manifest.duplicates}`);
+  console.log(`persistence:         ${manifest.persistence}`);
   console.log("byDomain (raw/unique):");
   for (const [domain, stats] of Object.entries(manifest.byDomain).sort()) {
     console.log(`  ${domain.padEnd(16)} ${String(stats.raw).padStart(6)} / ${stats.unique}`);
