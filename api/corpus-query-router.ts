@@ -14,6 +14,7 @@ import {
   registerCorpusSource,
   searchCorpus,
 } from "./lib/corpus-search";
+import { getCorpusContentManifest } from "./lib/corpus-manifest";
 
 // In-memory dedup fallback when no postgres DATABASE_URL is
 // configured — honest UNPERSISTED declaration, lost on restart.
@@ -44,6 +45,16 @@ export const corpusQueryRouter = createRouter({
   status: publicQuery.query(() => ({
     bridge: "corpusQuery",
     ...getBridgeState(),
+  })),
+
+  // STE-K-10: measured corpus content manifest — public read (no
+  // secrets, pattern of `status`). Exposes the honest DEMO/REAL
+  // disclosure derived from provenance measurement, plus the
+  // deterministic content sha256 that the verify:corpus CI gate pins.
+  manifest: publicQuery.query(async () => ({
+    bridge: "corpusQuery",
+    access: "PUBLIC_READ" as const,
+    ...(await getCorpusContentManifest()),
   })),
 
   domains: publicQuery.query(async ({ ctx }) => {

@@ -20,6 +20,7 @@
 import { classifyIntent, type IntentId } from "./intent-engine";
 import { searchCorpus } from "./corpus-search";
 import { buildCorpusManifest } from "../knowledge-router";
+import { getCorpusContentManifest } from "./corpus-manifest";
 
 // Declared, constant relevance floor. A top BM25 score below this
 // means the corpus holds no genuinely relevant evidence → refuse.
@@ -83,14 +84,23 @@ const LEAD_INS: Record<IntentId, string> = {
   INFO: "إليك ما وجدته في الذخيرة بخصوص استفسارك:",
 };
 
-function buildTruthDisclosure(): string {
+async function buildTruthDisclosure(): Promise<string> {
   const m = buildCorpusManifest();
-  // The corpus verdict in OSVA is DEMO until the authentic archive
-  // lands (STE-REC-06) — state it literally, never as a claim of
-  // authoritative knowledge.
+  const content = await getCorpusContentManifest();
+  // MEASURED disclosure: while the corpus is the templated seed the
+  // manifest measures provenance=TEMPLATED_SEED → DEMO. Once the
+  // authentic archive (STE-REC-06) replaces the seed the same
+  // measurement flips to REAL — the wording follows the measured
+  // provenance, it is never hand-set to a claim of authority.
+  if (content.disclosure === "REAL") {
+    return (
+      `AUTHENTIC: الذخيرة مصدر مُودَع أصيل (${content.docCount} وحدة، ` +
+      `provenance=${content.provenance}، ثبات=${m.persistence}).`
+    );
+  }
   return (
     `DEMO: الذخيرة الحالية محتوى قالبي مُولَّد (${m.rawTotal} وحدة، ` +
-    `${m.uniqueByTitleBody} فريدة، ثبات=${m.persistence}) — ليست مرجعاً أصيلاً؛ ` +
+    `${m.uniqueByTitleBody} فريدة، provenance=${content.provenance}، ثبات=${m.persistence}) — ليست مرجعاً أصيلاً؛ ` +
     `الأصيل قيد الاسترداد (STE-REC-06، انظر docs/CORPUS_GAP_REPORT.md).`
   );
 }
@@ -109,7 +119,7 @@ export async function composeAnswer(
   const leading = classification.results[0];
   const intent = leading.intent;
   const confidence = leading.confidence;
-  const truthDisclosure = buildTruthDisclosure();
+  const truthDisclosure = await buildTruthDisclosure();
 
   const search = await searchCorpus(question, { limit: topK, domain: options.domain });
   const hits = search.hits;

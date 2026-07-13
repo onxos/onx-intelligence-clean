@@ -412,3 +412,58 @@ the error text pinpoints the failing condition (`bridge-guard.ts:6,10,15`); reje
 without a valid secret is by design. **Provider failing** — read the liveValidate error
 (401 bad key, 429 quota, 8s timeout = network); one failing provider never blocks the
 rest.
+
+---
+
+## ترقية الذخيرة: من DEMO إلى كوربوس حقيقي (STE-K-10)
+
+النظام **يقيس** حقيقة ذخيرته ولا يدّعيها. كل وحدة بذرة قالبية تحمل الوسم
+`Source: ONX Knowledge Base v1.0`. عقد `corpus-manifest.json` يقيس كم وحدة ما زالت
+تحمل هذا الوسم ويشتق الإفصاح آلياً:
+
+- كل الوحدات قالبية → `provenance=TEMPLATED_SEED` → `disclosure=DEMO`
+- لا وحدة قالبية → `provenance=AUTHENTIC_INGEST` → `disclosure=REAL`
+- مختلطة → `provenance=MIXED` → `disclosure=DEMO` (تحفّظ صادق)
+
+**الإفصاح ينقلب بالقياس لا باليد**: لا يوجد نص DEMO ثابت يُحرَّر — `self-verify` و
+`answer-composer` وسطح `corpusQuery.manifest` كلها تقرأ الإفصاح المقاس.
+
+### خطوات المشغّل لاستبدال DEMO بكوربوس حقيقي
+
+1. **جهّز المفتاح**: `BRIDGE_ENABLED=true` + `BRIDGE_SHARED_SECRET` (القسم B). بلا مفتاح
+   يبقى `corpusQuery.ingest` مقفلاً (401 fail-closed).
+2. **أودِع الوثائق الأصيلة** عبر `corpusQuery.ingest` دفعات ≤500 برأس `x-onx-bridge-key`
+   (القسم D). **مهم**: حقل `source` لكل وحدة أصيلة يجب ألا يساوي
+   `ONX Knowledge Base v1.0` وألا يتضمن ذلك الوسم في `body` — وإلا ستُحسب قالبية.
+3. **استبدل البذرة القالبية**: أزل وحدات البذرة (kn_*) أو أعِد الإيداع لقاعدة جديدة حتى
+   يصبح عدد الوحدات القالبية = 0. المقياس هو الحَكَم.
+4. **أعِد توليد العقد**: `npm run verify:corpus -- --write` يُعيد كتابة
+   `corpus-manifest.json` عند القياس الجديد (sha256/docCount/provenance/disclosure).
+5. **تحقق من الانقلاب**: `npm run verify:corpus` (يجب أن يخضرّ) ثم افحص
+   `GET /api/trpc/corpusQuery.manifest` — يجب أن يظهر `disclosure:"REAL"`،
+   و`onx.selfVerify` يرفع بند corpus إلى `IMPLEMENTED_PROVEN` تلقائياً.
+6. **ارتكب** `corpus-manifest.json` الجديد في نفس commit استبدال الذخيرة. البوابة السادسة
+   (`verify:corpus`) في Truth Gates ستمنع أي عبث لاحق (add/remove/relabel يغيّر sha256).
+
+> الأمان: `corpus-manifest.json` عقدٌ عام بلا أسرار (عدّ + بصمة هوية فقط، لا محتوى وثائق).
+> بوابة `verify:corpus` keyless — لا تحتاج DB ولا مفاتيح؛ تقيس البذرة المشحونة فقط.
+
+---
+
+## Corpus upgrade: DEMO → authentic corpus (STE-K-10) [EN]
+
+The system **measures** its corpus truth rather than claiming it. Every templated seed
+unit carries the marker `Source: ONX Knowledge Base v1.0`. The `corpus-manifest.json`
+contract counts how many units still bear that marker and derives the disclosure
+automatically (all templated → DEMO; none → REAL; mixed → DEMO). The disclosure flips
+**by measurement, not by hand** — `self-verify`, `answer-composer` and the
+`corpusQuery.manifest` surface all read the measured value.
+
+**Operator steps:** (1) enable the bridge key (section B); (2) ingest authentic docs via
+`corpusQuery.ingest` in batches ≤500 with `x-onx-bridge-key` — each unit's `source` must
+NOT be `ONX Knowledge Base v1.0` and must not embed that marker in `body`; (3) remove the
+templated seed (kn_*) so the templated count reaches 0 — the measurement is the judge;
+(4) regenerate: `npm run verify:corpus -- --write`; (5) verify the flip: `npm run
+verify:corpus` green + `corpusQuery.manifest` shows `disclosure:"REAL"` + `onx.selfVerify`
+raises the corpus item to `IMPLEMENTED_PROVEN`; (6) commit the new `corpus-manifest.json`
+in the same commit — the sixth Truth Gate (`verify:corpus`) then blocks any later tamper.

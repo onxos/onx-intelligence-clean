@@ -206,19 +206,48 @@ export type CorpusDocLoader = () => Promise<CorpusSearchDoc[]> | CorpusSearchDoc
 const sources = new Map<string, CorpusDocLoader>();
 let cachedIndex: Bm25Index | null = null;
 
+// STE-K-10: downstream caches (e.g. the corpus content manifest /
+// disclosure) derive from the exact same sources as the search
+// index. They subscribe here so a single ingest/add invalidates
+// BOTH the index AND every derived-truth cache — no stale DEMO/REAL
+// disclosure can survive a corpus mutation.
+const invalidationListeners: Array<() => void> = [];
+
+export function onCorpusInvalidated(fn: () => void): void {
+  invalidationListeners.push(fn);
+}
+
+function fireInvalidation(): void {
+  for (const fn of invalidationListeners) fn();
+}
+
 export function registerCorpusSource(name: string, loader: CorpusDocLoader): void {
   sources.set(name, loader);
   cachedIndex = null;
+  fireInvalidation();
 }
 
 // Called on every mutation of any source (ingest / knowledge.add)
 // so the next search rebuilds against the true current corpus.
 export function invalidateCorpusSearchIndex(): void {
   cachedIndex = null;
+  fireInvalidation();
 }
 
 export function isCorpusSearchIndexBuilt(): boolean {
   return cachedIndex !== null;
+}
+
+// STE-K-10: materialize every registered source's documents (the
+// exact set the BM25 index is built from). Used by the corpus
+// content manifest + verify:corpus gate. Deterministic given a
+// fixed corpus (order follows source registration + loader order).
+export async function collectCorpusDocs(): Promise<CorpusSearchDoc[]> {
+  const all: CorpusSearchDoc[] = [];
+  for (const loader of sources.values()) {
+    all.push(...(await loader()));
+  }
+  return all;
 }
 
 export async function searchCorpus(
@@ -226,11 +255,7 @@ export async function searchCorpus(
   options: CorpusSearchOptions = {},
 ): Promise<CorpusSearchResult> {
   if (!cachedIndex) {
-    const all: CorpusSearchDoc[] = [];
-    for (const loader of sources.values()) {
-      all.push(...(await loader()));
-    }
-    cachedIndex = buildBm25Index(all);
+    cachedIndex = buildBm25Index(await collectCorpusDocs());
   }
   return searchBuiltIndex(cachedIndex, query, options);
 }

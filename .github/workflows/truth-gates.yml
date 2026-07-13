@@ -66,3 +66,13 @@ jobs:
       # the other gates it needs NO secrets (DEMO corpus, in-memory).
       - name: Golden evaluation ratchet gate
         run: npm run eval:golden
+
+      # Gate 6 — corpus integrity + honesty (STE-K-10). Recomputes the
+      # corpus content manifest from the shipped seed and asserts it
+      # matches the committed contract corpus-manifest.json (sha256 /
+      # docCount / provenance / disclosure) plus a minimal-structure
+      # check. Any add/remove/relabel of a unit changes the sha256 →
+      # exit 1. Fully keyless/offline; the measured DEMO→REAL
+      # disclosure flips only when the authentic corpus lands.
+      - name: Corpus integrity + honesty gate
+        run: npm run verify:corpus

@@ -1,0 +1,31 @@
+{
+  "version": "1",
+  "source": "templated seed (ONX Knowledge Base v1.0)",
+  "docCount": 22500,
+  "domains": [
+    "AGRICULTURE",
+    "DEFENSE",
+    "ECONOMICS",
+    "EDUCATION",
+    "ENERGY",
+    "ENGINEERING",
+    "ENVIRONMENT",
+    "FINANCE",
+    "HISTORY",
+    "ISLAMIC",
+    "LEGAL",
+    "MANUFACTURING",
+    "MEDIA",
+    "MEDICINE",
+    "SCIENCE",
+    "SOCIAL",
+    "STRATEGY",
+    "TECHNOLOGY",
+    "TRANSPORTATION"
+  ],
+  "provenance": "TEMPLATED_SEED",
+  "disclosure": "DEMO",
+  "templatedDocs": 22500,
+  "authenticDocs": 0,
+  "sha256": "6fc2bed87d86e4cfc195020cd34c148cee96348797b413bba60baac7c3372f08"
+}

@@ -18,6 +18,7 @@ import { collectComponents, type ComponentHealth } from "../health-router";
 import { buildCorpusManifest, type CorpusManifest } from "../knowledge-router";
 import { getProviderStates, type ProviderState } from "./provider-registry";
 import { getBridgeState } from "../bridge-guard";
+import { getCorpusContentManifest } from "./corpus-manifest";
 
 export type TruthVerdict =
   | "IMPLEMENTED_PROVEN"
@@ -83,6 +84,7 @@ export function fingerprintReport(report: Omit<SelfVerificationReport, "fingerpr
 export async function buildSelfVerification(): Promise<SelfVerificationReport> {
   const health = await collectComponents();
   const corpus = buildCorpusManifest();
+  const corpusContent = await getCorpusContentManifest();
   const providers = getProviderStates();
   const bridgeState = getBridgeState();
   const bridges = ["corpusQuery", "intentEngine", "titanBridge"].map((id) => ({
@@ -106,11 +108,14 @@ export async function buildSelfVerification(): Promise<SelfVerificationReport> {
   items.push({
     area: "corpus",
     name: "Knowledge corpus",
-    // Measured live, but the seeded content is templated — DEMO until
-    // the authentic archive is recovered (STE-REC-06).
-    verdict: "DEMO",
+    // MEASURED, not hand-set: the verdict is derived from the corpus
+    // content manifest's provenance. While every unit still carries
+    // the templated seed marker the disclosure measures DEMO; it
+    // flips to IMPLEMENTED_PROVEN on its own once the authentic
+    // archive replaces the seed (STE-REC-06) — by measurement.
+    verdict: corpusContent.disclosure === "REAL" ? "IMPLEMENTED_PROVEN" : "DEMO",
     measured: true,
-    detail: `${corpus.rawTotal} raw / ${corpus.uniqueByTitleBody} unique / ${corpus.duplicates} dups — templated seed, persistence=${corpus.persistence} (see docs/CORPUS_GAP_REPORT.md)`,
+    detail: `${corpus.rawTotal} raw / ${corpus.uniqueByTitleBody} unique / ${corpus.duplicates} dups — provenance=${corpusContent.provenance} (${corpusContent.templatedDocs} templated / ${corpusContent.authenticDocs} authentic), persistence=${corpus.persistence}, sha256=${corpusContent.sha256.slice(0, 12)} (see docs/CORPUS_GAP_REPORT.md)`,
   });
 
   for (const provider of providers) {
