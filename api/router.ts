@@ -29,6 +29,7 @@ import { revenueEngineRouter } from "./revenue-engine-router";
 import { domainServicesRouter } from "./domain-services-router";
 import { corpusQueryRouter } from "./corpus-query-router";
 import { intentEngineRouter } from "./intent-engine-router";
+import { providersRouter } from "./providers-router";
 import { iucRouter } from "./iuc-router";
 import { measurementRouter } from "./measurement-router";
 import { ficRouter } from "./fic-router";
@@ -144,6 +145,7 @@ export const appRouter = createRouter({
   bridge: titanBridgeRouter,
   corpusQuery: corpusQueryRouter,
   intentEngine: intentEngineRouter,
+  providers: providersRouter,
 });
 
 export type AppRouter = typeof appRouter;
