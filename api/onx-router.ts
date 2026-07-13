@@ -10,10 +10,17 @@ import { createRouter, publicQuery } from "./middleware";
 import { enforceRateLimit } from "./lib/rate-limiter";
 import { buildSelfVerification } from "./lib/self-verify";
 import { assertBridgeAccess } from "./bridge-guard";
-import { getTruthHistory, recordTruthSnapshot } from "./lib/truth-ledger";
+import { getTruthHistory, recordTruthSnapshot, summarizeTruthLedger } from "./lib/truth-ledger";
 
 export const onxRouter = createRouter({
-  selfVerify: publicQuery.query(async () => buildSelfVerification()),
+  // STE-K-15: the honest self-audit now also surfaces a MEASURED
+  // truth-ledger summary (latest fingerprint + drift flag + count),
+  // read from the ledger — an empty ledger reports state:"EMPTY".
+  selfVerify: publicQuery.query(async () => {
+    const report = await buildSelfVerification();
+    const truthLedgerSummary = await summarizeTruthLedger();
+    return { ...report, truthLedgerSummary };
+  }),
 
   // STE-K-03: append the CURRENT self-verification to the ledger.
   truthSnapshot: publicQuery.mutation(async ({ ctx }) => {

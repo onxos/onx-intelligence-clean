@@ -31,6 +31,7 @@ import {
   __resetTruthLedgerForTests,
   getTruthHistory,
   recordTruthSnapshot,
+  summarizeTruthLedger,
 } from "../lib/truth-ledger";
 import { __resetProviderRegistryForTests } from "../lib/provider-registry";
 
@@ -140,5 +141,37 @@ describe("truth ledger (STE-K-03)", () => {
     const history = await caller.onx.truthHistory({ limit: 5 });
     expect(JSON.stringify(snap)).not.toContain(CANARY);
     expect(JSON.stringify(history)).not.toContain(CANARY);
+  });
+
+  // STE-K-15: the honest-surface summary (exposed on onx.selfVerify).
+  it("summary: EMPTY ledger is a named honest state, not fabricated history", async () => {
+    const summary = await summarizeTruthLedger();
+    expect(summary.state).toBe("EMPTY");
+    expect(summary.count).toBe(0);
+    expect(summary.latestFingerprint).toBeNull();
+    expect(summary.capturedAt).toBeNull();
+    expect(summary.drift).toBe(false);
+  });
+
+  it("summary: drift=false path — latest snapshot identical to its predecessor", async () => {
+    await recordTruthSnapshot();
+    await recordTruthSnapshot(); // identical facts → same fingerprint
+    const summary = await summarizeTruthLedger();
+    expect(summary.state).toBe("POPULATED");
+    expect(summary.count).toBe(2);
+    expect(summary.drift).toBe(false);
+    expect(summary.latestFingerprint).toMatch(/^[0-9a-f]{64}$/);
+    expect(summary.capturedAt).not.toBeNull();
+    expect(summary.claimsMeasured).toBe(19);
+  });
+
+  it("summary: drift=true path — a real fact change flips the latest flag", async () => {
+    await recordTruthSnapshot();
+    process.env.ANTHROPIC_API_KEY = "sk-summary-drift-key-123456"; // MISSING_KEY → CONFIGURED_UNPROBED
+    await recordTruthSnapshot();
+    const summary = await summarizeTruthLedger();
+    expect(summary.state).toBe("POPULATED");
+    expect(summary.count).toBe(2);
+    expect(summary.drift).toBe(true); // latest differs from predecessor
   });
 });

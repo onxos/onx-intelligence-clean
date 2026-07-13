@@ -445,4 +445,71 @@ describe("checkTruthLedgerRead (STE-K-13)", () => {
     });
     expect(r.passed).toBe(false);
   });
+
+  // STE-K-15: drift-over-time integrity (>=2 snapshots).
+  it("fails on a FABRICATED drift flag that contradicts the fingerprint comparison", () => {
+    const r = checkTruthLedgerRead(200, {
+      persistence: "POSTGRES",
+      count: 2,
+      snapshots: [
+        // fingerprints differ but drift is falsely reported as false
+        { id: 2, fingerprint: "b".repeat(64), claimsMeasured: 19, claimsAsserted: 0, createdAt: "2026-01-02T00:00:00.000Z", drift: false },
+        { id: 1, fingerprint: "a".repeat(64), claimsMeasured: 19, claimsAsserted: 0, createdAt: "2026-01-01T00:00:00.000Z", drift: false },
+      ],
+    });
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/fabricated drift/);
+  });
+
+  it("fails when a stable-fingerprint pair falsely claims drift=true", () => {
+    const r = checkTruthLedgerRead(200, {
+      persistence: "POSTGRES",
+      count: 2,
+      snapshots: [
+        { id: 2, fingerprint: "a".repeat(64), claimsMeasured: 19, claimsAsserted: 0, createdAt: "2026-01-02T00:00:00.000Z", drift: true },
+        { id: 1, fingerprint: "a".repeat(64), claimsMeasured: 19, claimsAsserted: 0, createdAt: "2026-01-01T00:00:00.000Z", drift: false },
+      ],
+    });
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/fabricated drift/);
+  });
+
+  it("fails when snapshots are not newest-first by id", () => {
+    const r = checkTruthLedgerRead(200, {
+      persistence: "POSTGRES",
+      count: 2,
+      snapshots: [
+        { id: 1, fingerprint: "a".repeat(64), claimsMeasured: 19, claimsAsserted: 0, createdAt: "2026-01-01T00:00:00.000Z", drift: false },
+        { id: 2, fingerprint: "a".repeat(64), claimsMeasured: 19, claimsAsserted: 0, createdAt: "2026-01-02T00:00:00.000Z", drift: false },
+      ],
+    });
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/newest-first/);
+  });
+
+  it("fails when createdAt precedes its predecessor (out of chronological order)", () => {
+    const r = checkTruthLedgerRead(200, {
+      persistence: "POSTGRES",
+      count: 2,
+      snapshots: [
+        { id: 2, fingerprint: "a".repeat(64), claimsMeasured: 19, claimsAsserted: 0, createdAt: "2026-01-01T00:00:00.000Z", drift: false },
+        { id: 1, fingerprint: "a".repeat(64), claimsMeasured: 19, claimsAsserted: 0, createdAt: "2026-01-02T00:00:00.000Z", drift: false },
+      ],
+    });
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/out of order/);
+  });
+
+  it("passes a well-formed >=2 ledger with a consistent drift flag", () => {
+    const r = checkTruthLedgerRead(200, {
+      persistence: "POSTGRES",
+      count: 2,
+      snapshots: [
+        { id: 2, fingerprint: "b".repeat(64), claimsMeasured: 19, claimsAsserted: 0, createdAt: "2026-01-02T00:00:00.000Z", drift: true },
+        { id: 1, fingerprint: "a".repeat(64), claimsMeasured: 19, claimsAsserted: 0, createdAt: "2026-01-01T00:00:00.000Z", drift: false },
+      ],
+    });
+    expect(r.passed).toBe(true);
+    expect(r.detail).toMatch(/1 drift-flagged/);
+  });
 });

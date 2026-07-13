@@ -597,7 +597,7 @@ Postgres ويعيد `UNAVAILABLE` لو لم يكن postgres (`health-router.ts:5
    خفض الأرضية لتمرير رن** — الأرضية تُرفَع بالقياس الصادق فقط (سقاطة لا سقف).
 3. **كتيبات الطوارئ التفصيلية**: انظر القسم (هـ) — «متى يقلق المشغّل» + كتيبات OSVA.
 
-### و.8) عمليات سجل الحقيقة (Truth Ledger) — الحالة الحية المقاسة (STE-K-13 → K-14)
+### و.8) عمليات سجل الحقيقة (Truth Ledger) — الحالة الحية المقاسة (STE-K-13 → K-15)
 
 سجل الحقيقة (`api/lib/truth-ledger.ts`) يخزّن لقطات OSVA زمنياً ليصبح انحراف الحقيقة
 قابلاً للكشف عبر الزمن.
@@ -637,6 +637,19 @@ Postgres ويعيد `UNAVAILABLE` لو لم يكن postgres (`health-router.ts:5
 - **غير مقصود** (لا نشر وتغيّرت البصمة): **تحقيق فوري** — انحدار حقيقة محتمل. ابدأ بـ`onx.selfVerify`
   لمقارنة الأحكام البند-ببند (و.7).
 
+**إظهار الانحراف على السطح الصادق (STE-K-15):**
+- `onx.selfVerify` يُرجع الآن حقلاً مقاساً `truthLedgerSummary`
+  (`api/onx-router.ts:16-24` → `summarizeTruthLedger`، `truth-ledger.ts`):
+  `{state, count, latestFingerprint, capturedAt, claimsMeasured, claimsAsserted, drift}`.
+  **مقاس من السجل لا مُدّعى**: `buildSelfVerification` يبقى نقياً (بصمته ثابتة)، والملخص حقل شقيق
+  فلا تتلوّث اللقطات المخزّنة. راية `drift` الأخيرة حقيقية (`getTruthHistory(1)` يجلب صفاً إضافياً
+  لمقارنة صادقة). سجل فارغ → `state:"EMPTY"` (حالة مسماة صادقة، لا تلفيق تاريخ).
+- **تصليب عقد `truth_ledger_read` (سلامة الانحراف عبر الزمن)**: عند `count ≥ 2` يتحقق العقد
+  (`smoke-contracts.ts checkTruthLedgerRead`) من: (1) ترتيب newest-first فعلي (`id` تنازلي +
+  `createdAt` غير متزايد) — سجل خارج الترتيب = تلفيق؛ (2) **سلامة راية drift**: لكل لقطة لها سابق
+  مرئي يجب أن تساوي `drift` نتيجة `fp[i] !== fp[i+1]` — راية تناقض مقارنة البصمة الفعلية = **خرق تلفيق**.
+  اللقطة الأقدم المرئية سابقها مُقتطَع (يُجلب `limit+1` ثم يُقتطع) فتُستثنى بصدق من الفحص.
+
 > **English mirror (STE-K-12):** This section is measured, not wished. Live map (و.1):
 > service `onx-intelligence-clean.onrender.com`, branch `onxos-ste01-deploy-readiness`,
 > `/health` shape at `api/boot.ts:38-47`, tRPC/superjson envelope at `api/boot.ts:57-64`.
@@ -659,3 +672,12 @@ Postgres ويعيد `UNAVAILABLE` لو لم يكن postgres (`health-router.ts:5
 > (`:52-64`, never throws — S-10 survival). Double-capture with `onx-scheduler` is safe (rows
 > independent by id+timestamp). Ninth live contract `truth_ledger_read` accepts an empty ledger
 > and validates snapshot/fingerprint/drift structure when populated. Drift semantics mirror و.6.
+>
+> **STE-K-15 (و.8):** Drift on the honest surface. `onx.selfVerify` now returns a MEASURED
+> `truthLedgerSummary` (`onx-router.ts:16-24` → `summarizeTruthLedger`): `{state, count,
+> latestFingerprint, capturedAt, claimsMeasured, claimsAsserted, drift}`; empty ledger →
+> `state:"EMPTY"` (named honest state, no fabricated history). `buildSelfVerification` stays
+> pure/fingerprint-stable — the summary is a sibling field, so stored snapshots stay pure. The
+> `truth_ledger_read` contract is hardened for drift-over-time: with ≥2 snapshots it verifies
+> newest-first order (id + createdAt) and drift-flag INTEGRITY (drift must equal
+> `fp[i]!==fp[i+1]`); a flag contradicting the fingerprint comparison is a fabrication breach.

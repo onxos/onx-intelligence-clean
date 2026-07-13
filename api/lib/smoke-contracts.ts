@@ -357,6 +357,7 @@ export function checkTruthLedgerRead(
       fingerprint?: string;
       claimsMeasured?: number;
       claimsAsserted?: number;
+      createdAt?: string;
       drift?: boolean;
     }>;
   },
@@ -385,6 +386,33 @@ export function checkTruthLedgerRead(
       return { name, passed: false, detail: `snapshot ${s?.id} missing numeric claim counts` };
     if (typeof s?.drift !== "boolean")
       return { name, passed: false, detail: `snapshot ${s?.id} missing boolean drift flag` };
+  }
+  // STE-K-15: with >=2 snapshots we can prove the ledger is honest over
+  // TIME, not just shaped right. Snapshots are newest-first, so:
+  //  (1) chronological order: ids strictly descending and createdAt
+  //      non-increasing (an out-of-order ledger is a fabrication).
+  //  (2) drift-flag INTEGRITY: for every snapshot that has a visible
+  //      predecessor, drift MUST equal (fp[i] !== fp[i+1]). A drift
+  //      flag that disagrees with the actual fingerprint comparison is
+  //      a fabricated signal — a breach. The oldest visible snapshot's
+  //      predecessor is paged off (truth-ledger.ts fetches limit+1 then
+  //      slices), so its flag is not re-derivable here and is skipped.
+  if (snaps.length >= 2) {
+    for (let i = 0; i < snaps.length - 1; i++) {
+      const cur = snaps[i];
+      const prev = snaps[i + 1];
+      if (typeof cur.id === "number" && typeof prev.id === "number" && !(cur.id > prev.id))
+        return { name, passed: false, detail: `snapshots not newest-first by id at ${cur.id} <= ${prev.id}` };
+      if (cur.createdAt && prev.createdAt && cur.createdAt < prev.createdAt)
+        return { name, passed: false, detail: `snapshot ${cur.id} createdAt precedes its predecessor (out of order)` };
+      const expectedDrift = cur.fingerprint !== prev.fingerprint;
+      if (cur.drift !== expectedDrift)
+        return {
+          name,
+          passed: false,
+          detail: `snapshot ${cur.id} drift=${cur.drift} contradicts fingerprint comparison (expected ${expectedDrift}) — fabricated drift`,
+        };
+    }
   }
   const drifted = snaps.filter((s) => s.drift).length;
   return {

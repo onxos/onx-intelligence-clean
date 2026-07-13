@@ -145,6 +145,64 @@ function withDriftFlags(rowsNewestFirst: TruthSnapshotRow[]): TruthHistoryEntry[
   });
 }
 
+// STE-K-15: total number of ledger rows (independent of the paged
+// read limit) so the honest surface can report the true snapshot
+// count, not just the size of the current page.
+export async function getTruthLedgerCount(): Promise<number> {
+  if (isTruthLedgerPersistenceConfigured()) {
+    await ensureSchema();
+    const p = getPool();
+    const result = await p.query(`SELECT COUNT(*)::int AS n FROM onx_truth_ledger`);
+    return Number(result.rows[0]?.n ?? 0);
+  }
+  return memoryLedger.length;
+}
+
+// STE-K-15: a compact, MEASURED summary of the latest ledger state for
+// the honest public surface (onx.selfVerify). An empty ledger is a
+// VALID named state ("EMPTY"), never fabricated history. The latest
+// snapshot's drift flag is real: getTruthHistory(1) fetches one extra
+// row so the single visible snapshot is compared against its true
+// predecessor. All fields are read from the ledger, none asserted.
+export interface TruthLedgerSummary {
+  state: "POPULATED" | "EMPTY";
+  persistence: LedgerPersistence;
+  count: number;
+  latestFingerprint: string | null;
+  capturedAt: string | null;
+  claimsMeasured: number | null;
+  claimsAsserted: number | null;
+  drift: boolean;
+}
+
+export async function summarizeTruthLedger(): Promise<TruthLedgerSummary> {
+  const history = await getTruthHistory(1);
+  const count = await getTruthLedgerCount();
+  const latest = history.snapshots[0];
+  if (!latest) {
+    return {
+      state: "EMPTY",
+      persistence: history.persistence,
+      count: 0,
+      latestFingerprint: null,
+      capturedAt: null,
+      claimsMeasured: null,
+      claimsAsserted: null,
+      drift: false,
+    };
+  }
+  return {
+    state: "POPULATED",
+    persistence: history.persistence,
+    count,
+    latestFingerprint: latest.fingerprint,
+    capturedAt: latest.createdAt,
+    claimsMeasured: latest.claimsMeasured,
+    claimsAsserted: latest.claimsAsserted,
+    drift: latest.drift,
+  };
+}
+
 export async function getTruthHistory(limit: number): Promise<TruthHistoryResult> {
   const capped = Math.max(1, Math.min(100, limit));
 
