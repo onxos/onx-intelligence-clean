@@ -519,6 +519,7 @@ in the same commit — the sixth Truth Gate (`verify:corpus`) then blocks any la
 | 6 | `corpus_manifest_truth` | بصمة الكوربوس المنشور == المرتكب في `corpus-manifest.json` | محتوى معرفي منشور يخالف العقد المرتكب | `smoke-contracts.ts:137-190` |
 | 7 | `bridge_fail_closed` | طفرة جسر بلا مفتاح مرفوضة (401/403 + علامة `BRIDGE_`) ولم تُنفَّذ | الجسر مفتوح بلا مفتاح — ثغرة حرجة | `smoke-contracts.ts:316-338` |
 | 8 | `no_key_leak` | لا مفتاح مزوّد كامل في أي استجابة | تسريب سرّ — إيقاف وتدوير فوري | `smoke-contracts.ts:458-463` |
+| 9 | `truth_ledger_read` | سطح `onx.truthHistory` سليم البنية؛ سجل فارغ = حالة صادقة مُبلَّغة؛ لقطات مأهولة تحمل بصمة+drift | بنية سجل مشوّهة أو بصمة غير sha256 | `smoke-contracts.ts` (`checkTruthLedgerRead`) |
 
 **دلالات الطزاجة (`EXPECT_COMMIT` / PENDING) — درس K-08** (`smoke-contracts.ts:169-189`, `:384`):
 - بنية العقد 6 (disclosure/provenance/docCount/domainCount) تُطابق **دائماً**.
@@ -596,10 +597,47 @@ Postgres ويعيد `UNAVAILABLE` لو لم يكن postgres (`health-router.ts:5
    خفض الأرضية لتمرير رن** — الأرضية تُرفَع بالقياس الصادق فقط (سقاطة لا سقف).
 3. **كتيبات الطوارئ التفصيلية**: انظر القسم (هـ) — «متى يقلق المشغّل» + كتيبات OSVA.
 
+### و.8) عمليات سجل الحقيقة (Truth Ledger) — الحالة الحية المقاسة (STE-K-13)
+
+سجل الحقيقة (`api/lib/truth-ledger.ts`) يخزّن لقطات OSVA زمنياً ليصبح انحراف الحقيقة
+قابلاً للكشف عبر الزمن. **الحقيقة المقاسة الموجة 21 (جرد صادق أولاً):**
+
+- **مسار الالتقاط موجود لكنه غير حيّ على الويب**: الدالة `recordTruthSnapshot`
+  (`truth-ledger.ts:93`) تُستدعى كل 5 دقائق **فقط** من العامل المستقل `scheduler-worker.ts:60`
+  (croner `*/5 * * * *`، `scheduler-worker.ts:40`). لكن هذا العامل هو خدمة `onx-scheduler`
+  المعلَنة `branch: main` و**`autoDeploy: false`** (`render.yaml:179,196`) → **غير منشورة حياً**.
+- **كرون الويب الداخلي لا يلتقط**: كرون خدمة الويب (`api/boot.ts:83-104`) يشغّل
+  living-loop/perception/reflection لكنه **لا يستدعي `recordTruthSnapshot`** — لا التقاط تلقائي على الإنتاج.
+- **المسار اليدوي فقط**: طفرة `onx.truthSnapshot` (`api/onx-router.ts:19-22`) خلف الجسر
+  fail-closed (`assertBridgeAccess`) — تحتاج مفتاح الجسر.
+- **القياس الحي (نداء واحد لـ`onx.truthHistory`)**:
+  ```json
+  {"persistence":"POSTGRES","count":0,"snapshots":[]}
+  ```
+  أي **السجل فارغ على الإنتاج** — مدعوم بـPostgres (الجدول يُنشأ عبر `ensureSchema`،
+  `truth-ledger.ts:67-79`) لكن **بصفر صفوف** لأن لا مجدول حي يسجّل. **هذا اكتشاف صادق
+  يُوثّق (نمط المنصة C-08 حرفياً)، لا خرق** — الكود سليم والقدرة جاهزة، ينقصها فقط تفعيل التشغيل.
+
+**العقد التاسع `truth_ledger_read`** (`api/lib/smoke-contracts.ts` — نداء واحد لـ`onx.truthHistory`):
+يؤكد بنية السطح (`persistence` ∈ {POSTGRES, UNPERSISTED}، تطابق `count` مع طول `snapshots`،
+وكل لقطة تحمل بصمة sha256 + عدّادين رقميين + راية `drift` منطقية). **السجل الفارغ حالة صادقة
+مقبولة ومُبلَّغة** لا فشل.
+
+**كيف يُفعّل المشغّل الالتقاط التلقائي** (موجة تشغيل مستقبلية، ليست تغيير كود):
+1. انشر العامل `onx-scheduler` (بدّل `autoDeploy: true` أو انشره يدوياً من لوحة Render) —
+   لكن انتبه لتحذير الازدواج في `scheduler-worker.ts:13-16` (لا يُشغَّل مع كرون ويب يلتقط أيضاً).
+2. أو التقاط يدوي عند الطلب: طفرة `onx.truthSnapshot` بترويسة `x-onx-bridge-key` (القسم ب).
+
+**دلالات راية `drift` للمشغّل** (`truth-ledger.ts:138-146`) — نفس منطق انحراف الكوربوس (و.6):
+- `drift: true` يعني بصمة اللقطة اختلفت عن سابقتها المباشرة زمنياً — **تغيّرت الحقيقة المقاسة**.
+- **مقصود** (نشر قدرة جديدة رفعت حكماً في OSVA): أساس جديد — سجّله وامضِ.
+- **غير مقصود** (لا نشر وتغيّرت البصمة): **تحقيق فوري** — انحدار حقيقة محتمل. ابدأ بـ`onx.selfVerify`
+  لمقارنة الأحكام البند-ببند (و.7).
+
 > **English mirror (STE-K-12):** This section is measured, not wished. Live map (و.1):
 > service `onx-intelligence-clean.onrender.com`, branch `onxos-ste01-deploy-readiness`,
 > `/health` shape at `api/boot.ts:38-47`, tRPC/superjson envelope at `api/boot.ts:57-64`.
-> Eight live smoke contracts (و.2) in `api/lib/smoke-contracts.ts` with per-contract
+> Nine live smoke contracts (و.2) in `api/lib/smoke-contracts.ts` with per-contract
 > proof/failure meaning + `EXPECT_COMMIT`/PENDING freshness semantics (`:169-189,:384`).
 > Environment truth scan (و.3): every `process.env` read from `api/lib/env.ts:11-22` and
 > callers, classified required/optional/default. **`DATABASE_URL` is genuinely used** —
@@ -609,3 +647,12 @@ Postgres ويعيد `UNAVAILABLE` لو لم يكن postgres (`health-router.ts:5
 > (و.6): intended → `verify:corpus --write` + commit; unintended → investigate; tied to the
 > live `corpus_manifest_truth` contract. Incidents (و.7): honest-status first; golden floors
 > 1.0×3 are a tripwire that is never lowered.
+>
+> **STE-K-13 (و.8):** Truth-ledger ops. Honest measured state: the live ledger is EMPTY
+> (`onx.truthHistory` → `{persistence:"POSTGRES",count:0,snapshots:[]}`). Capture exists but
+> isn't live — `recordTruthSnapshot` runs only in the `onx-scheduler` worker
+> (`scheduler-worker.ts:60`) which is `autoDeploy:false`/`branch:main` (`render.yaml:179,196`);
+> the web cron (`boot.ts:83-104`) does not snapshot. This is an honest C-08 discovery, not a
+> breach. Ninth live contract `truth_ledger_read` accepts an empty ledger and reports it, and
+> validates snapshot/fingerprint/drift structure when populated. Drift semantics mirror و.6:
+> intended → new baseline; unintended → investigate via `onx.selfVerify`.

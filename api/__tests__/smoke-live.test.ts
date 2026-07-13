@@ -15,6 +15,7 @@ import {
   checkAskCited,
   checkBridgeFailClosed,
   checkCorpusManifestTruth,
+  checkTruthLedgerRead,
   commitMatches,
   unwrapTrpc,
   trpcGetUrl,
@@ -116,6 +117,26 @@ const COMMITTED_MANIFEST: CorpusManifestContract = {
   sha256: MANIFEST_SHA,
 };
 
+// Truth-ledger read surface. Live production returns an EMPTY ledger
+// (no scheduled capture on the web deploy) — the honest default here.
+const LEDGER_FP_A = "a".repeat(64);
+const LEDGER_FP_B = "b".repeat(64);
+const LIVE_TRUTH_HISTORY_EMPTY = {
+  rateLimit: { limit: 60, remaining: 59, category: "PUBLIC_READ", persistence: "PER_INSTANCE_UNPERSISTED" },
+  persistence: "POSTGRES",
+  count: 0,
+  snapshots: [] as Array<Record<string, unknown>>,
+};
+const LIVE_TRUTH_HISTORY_POPULATED = {
+  rateLimit: { limit: 60, remaining: 59, category: "PUBLIC_READ", persistence: "PER_INSTANCE_UNPERSISTED" },
+  persistence: "UNPERSISTED",
+  count: 2,
+  snapshots: [
+    { id: 2, fingerprint: LEDGER_FP_B, claimsMeasured: 19, claimsAsserted: 0, createdAt: "2026-01-02T00:00:00.000Z", drift: true },
+    { id: 1, fingerprint: LEDGER_FP_A, claimsMeasured: 19, claimsAsserted: 0, createdAt: "2026-01-01T00:00:00.000Z", drift: false },
+  ],
+};
+
 // A full honest-live fetch double routing by URL.
 function liveFetch(overrides: Partial<Record<string, SmokeResponse>> = {}): FetchLike {
   return async (url, init) => {
@@ -123,6 +144,7 @@ function liveFetch(overrides: Partial<Record<string, SmokeResponse>> = {}): Fetc
     if (url.includes("onx.selfVerify")) return overrides.selfVerify ?? trpcOk(LIVE_SELFVERIFY);
     if (url.includes("providers.status")) return overrides.providers ?? trpcOk(LIVE_PROVIDERS);
     if (url.includes("corpusQuery.manifest")) return overrides.manifest ?? trpcOk(LIVE_MANIFEST);
+    if (url.includes("onx.truthHistory")) return overrides.truthHistory ?? trpcOk(LIVE_TRUTH_HISTORY_EMPTY);
     if (url.includes("ask.onx")) {
       const isRefusal = url.includes(encodeURIComponent(OUT_OF_CORPUS_QUESTION.split(" ")[0]));
       if (isRefusal) return overrides.askRefusal ?? trpcOk(LIVE_ASK_REFUSAL);
@@ -274,8 +296,9 @@ describe("runSmoke orchestration (mocked fetch)", () => {
     });
     expect(report.passed).toBe(true);
     expect(report.failedCount).toBe(0);
-    expect(report.total).toBe(8); // 7 contracts + no_key_leak guard
+    expect(report.total).toBe(9); // 8 contracts + no_key_leak guard
     expect(report.contracts.map((c) => c.name)).toContain("corpus_manifest_truth");
+    expect(report.contracts.map((c) => c.name)).toContain("truth_ledger_read");
     expect(report.contracts.map((c) => c.name)).toContain("no_key_leak");
   });
 
@@ -353,7 +376,73 @@ describe("runSmoke orchestration (mocked fetch)", () => {
     expect(report.contracts.find((c) => c.name === "ask_onx_honest_refusal")?.passed).toBe(false);
   });
 
+  it("truth_ledger_read passes on an honest EMPTY live ledger (no scheduled capture)", async () => {
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch(),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    const c = report.contracts.find((x) => x.name === "truth_ledger_read");
+    expect(c?.passed).toBe(true);
+    expect(c?.detail).toMatch(/empty/);
+  });
+
+  it("truth_ledger_read passes on a populated ledger and surfaces drift flags", async () => {
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({ truthHistory: trpcOk(LIVE_TRUTH_HISTORY_POPULATED) }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    const c = report.contracts.find((x) => x.name === "truth_ledger_read");
+    expect(c?.passed).toBe(true);
+    expect(c?.detail).toMatch(/2 snapshots, 1 drift-flagged/);
+  });
+
   it("probes distinct in/out-of-corpus questions", () => {
     expect(OUT_OF_CORPUS_QUESTION).not.toEqual(IN_CORPUS_QUESTION);
+  });
+});
+
+describe("checkTruthLedgerRead (STE-K-13)", () => {
+  it("accepts an empty ledger as an honest state", () => {
+    const r = checkTruthLedgerRead(200, { persistence: "POSTGRES", count: 0, snapshots: [] });
+    expect(r.passed).toBe(true);
+    expect(r.detail).toMatch(/honest/);
+  });
+
+  it("accepts a well-formed populated ledger and counts drift", () => {
+    const r = checkTruthLedgerRead(200, LIVE_TRUTH_HISTORY_POPULATED);
+    expect(r.passed).toBe(true);
+    expect(r.detail).toMatch(/1 drift-flagged/);
+  });
+
+  it("fails on non-200", () => {
+    expect(checkTruthLedgerRead(503, { persistence: "POSTGRES", count: 0, snapshots: [] }).passed).toBe(false);
+  });
+
+  it("fails on an unknown persistence label", () => {
+    expect(checkTruthLedgerRead(200, { persistence: "MYSTERY", count: 0, snapshots: [] }).passed).toBe(false);
+  });
+
+  it("fails when count disagrees with snapshots length", () => {
+    expect(checkTruthLedgerRead(200, { persistence: "POSTGRES", count: 5, snapshots: [] }).passed).toBe(false);
+  });
+
+  it("fails on a snapshot with a non-sha256 fingerprint", () => {
+    const r = checkTruthLedgerRead(200, {
+      persistence: "UNPERSISTED",
+      count: 1,
+      snapshots: [{ id: 1, fingerprint: "nope", claimsMeasured: 1, claimsAsserted: 0, drift: false }],
+    });
+    expect(r.passed).toBe(false);
+  });
+
+  it("fails on a snapshot missing the boolean drift flag", () => {
+    const r = checkTruthLedgerRead(200, {
+      persistence: "UNPERSISTED",
+      count: 1,
+      snapshots: [{ id: 1, fingerprint: "a".repeat(64), claimsMeasured: 1, claimsAsserted: 0 }],
+    });
+    expect(r.passed).toBe(false);
   });
 });

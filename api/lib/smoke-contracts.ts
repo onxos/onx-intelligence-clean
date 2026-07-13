@@ -337,6 +337,63 @@ export function checkBridgeFailClosed(
   };
 }
 
+// STE-K-13: truth-ledger read surface (onx.truthHistory, public read).
+// Proves the chronological OSVA snapshot store is reachable and shaped
+// honestly. An EMPTY ledger is a VALID, HONEST state: on the live web
+// deployment no scheduler records snapshots (the recording worker
+// `onx-scheduler` is autoDeploy:false / branch:main — render.yaml:179,196;
+// the web-internal cron in boot.ts:83-104 runs ticks but does NOT call
+// recordTruthSnapshot). So the contract accepts count===0 and REPORTS it
+// rather than fabricating history. When rows DO exist, every entry must
+// carry a sha256 fingerprint, numeric claim counts, and a boolean drift
+// flag (automatic truth-drift detection, truth-ledger.ts:138-146).
+export function checkTruthLedgerRead(
+  status: number,
+  data: {
+    persistence?: string;
+    count?: number;
+    snapshots?: Array<{
+      id?: number;
+      fingerprint?: string;
+      claimsMeasured?: number;
+      claimsAsserted?: number;
+      drift?: boolean;
+    }>;
+  },
+): ContractResult {
+  const name = "truth_ledger_read";
+  if (status !== 200) return { name, passed: false, detail: `expected 200, got ${status}` };
+  const persistence = data?.persistence;
+  if (persistence !== "POSTGRES" && persistence !== "UNPERSISTED")
+    return { name, passed: false, detail: `unknown ledger persistence: ${persistence}` };
+  const snaps = data?.snapshots;
+  if (!Array.isArray(snaps))
+    return { name, passed: false, detail: "snapshots is not an array" };
+  if (Number(data?.count) !== snaps.length)
+    return { name, passed: false, detail: `count (${data?.count}) != snapshots.length (${snaps.length})` };
+  // Empty ledger = honest "no live scheduled capture" state, not a breach.
+  if (snaps.length === 0)
+    return {
+      name,
+      passed: true,
+      detail: `ledger empty — honest: no live scheduled capture (persistence=${persistence})`,
+    };
+  for (const s of snaps) {
+    if (!/^[0-9a-f]{64}$/.test(String(s?.fingerprint)))
+      return { name, passed: false, detail: `snapshot ${s?.id} fingerprint not sha256` };
+    if (typeof s?.claimsMeasured !== "number" || typeof s?.claimsAsserted !== "number")
+      return { name, passed: false, detail: `snapshot ${s?.id} missing numeric claim counts` };
+    if (typeof s?.drift !== "boolean")
+      return { name, passed: false, detail: `snapshot ${s?.id} missing boolean drift flag` };
+  }
+  const drifted = snaps.filter((s) => s.drift).length;
+  return {
+    name,
+    passed: true,
+    detail: `${snaps.length} snapshots, ${drifted} drift-flagged, persistence=${persistence}`,
+  };
+}
+
 // --- Runner (injectable fetch) ------------------------------
 
 export const DEFAULT_BASE_URL = "https://onx-intelligence-clean.onrender.com";
@@ -453,6 +510,19 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
     );
     const leak = assertNoKeyLeak(raw);
     if (leak) leaks.push(`corpusQuery.manifest:${leak}`);
+  }
+
+  // 8) onx.truthHistory — the truth-ledger read surface (STE-K-13).
+  // An empty ledger is honest (no live scheduled capture) and reported.
+  {
+    const { status, body, raw } = await getJson(
+      fetchImpl,
+      trpcGetUrl(base, "onx.truthHistory", { limit: 20 }),
+    );
+    const u = unwrapTrpc(body);
+    contracts.push(checkTruthLedgerRead(status, (u.data ?? {}) as never));
+    const leak = assertNoKeyLeak(raw);
+    if (leak) leaks.push(`onx.truthHistory:${leak}`);
   }
 
   // Leak guard is itself a contract.

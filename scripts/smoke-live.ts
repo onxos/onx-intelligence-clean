@@ -4,11 +4,12 @@
  * Usage: BASE_URL=https://onx-intelligence-clean.onrender.com EXPECT_COMMIT=<sha> npm run smoke:live
  *   (EXPECTED_SHA is accepted as an alias for EXPECT_COMMIT.)
  *
- * 8 contracts: health, honest self-verify, rate-limit disclosure, ask.onx
+ * 9 contracts: health, honest self-verify, rate-limit disclosure, ask.onx
  * honest refusal, ask.onx cited answer, bridge fail-closed, corpus manifest
  * truth (deployed corpus content sha256 == committed corpus-manifest.json),
- * no key leak. The corpus manifest contract injects the committed file so
- * the pure evaluator does no fs I/O.
+ * truth-ledger read (onx.truthHistory — empty is honest when no live
+ * scheduled capture), no key leak. The corpus manifest contract injects the
+ * committed file so the pure evaluator does no fs I/O.
  */
 // ============================================================
 // Config (env):
