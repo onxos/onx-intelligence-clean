@@ -21,6 +21,7 @@ import { markIucTick, setIucCronStatus } from "./lib/iuc-runtime";
 import { runPerceptionSyncTick } from "./lib/perception-adapter";
 import { runReflectionTick } from "./lib/reflection-cycle";
 import { hydratePersistedIurgGraph } from "./iuc-router";
+import { recordTruthSnapshot } from "./lib/truth-ledger";
 
 process.stderr.write(
   `[scheduler-worker] NODE_ENV=${process.env.NODE_ENV} starting runtime-loop scheduler...\n`,
@@ -52,6 +53,16 @@ const job = new Cron("*/5 * * * *", async () => {
     await runReflectionTick();
   } catch (err) {
     console.error("[scheduler-worker] reflection tick failed (non-fatal):", err);
+  }
+  // STE-K-03: periodic truth snapshot — the system records its own
+  // measured truth every cycle so drift is detectable over time.
+  try {
+    const snap = await recordTruthSnapshot();
+    process.stderr.write(
+      `[scheduler-worker] truth snapshot #${snap.id} fp=${snap.fingerprint.slice(0, 12)}… (${snap.persistence})\n`,
+    );
+  } catch (err) {
+    console.error("[scheduler-worker] truth snapshot failed (non-fatal):", err);
   }
 });
 
