@@ -2,12 +2,14 @@
  * Live smoke contract — verifies TRUTH DOCTRINE against a REAL deployment.
  * NOT part of CI: requires network + live environment (honest exclusion).
  * Usage: BASE_URL=https://onx-intelligence-clean.onrender.com EXPECT_COMMIT=<sha> npm run smoke:live
+ *   (EXPECTED_SHA is accepted as an alias for EXPECT_COMMIT.)
  */
 // ============================================================
 // Config (env):
-//   BASE_URL     — target service (default: Render production URL)
+//   BASE_URL      — target service (default: Render production URL)
 //   EXPECT_COMMIT — optional; assert /health commit matches (full or
 //                   prefix). Leave unset to skip the SHA contract.
+//                   EXPECTED_SHA is accepted as an alias.
 //
 // PRODUCTION SAFETY: exactly one request per contract. We prove the
 // rate-limit disclosure from a SINGLE call — we never flood the live
@@ -19,7 +21,9 @@ import { runSmoke, DEFAULT_BASE_URL, type FetchLike } from "../api/lib/smoke-con
 
 async function main() {
   const baseUrl = process.env.BASE_URL?.trim() || DEFAULT_BASE_URL;
-  const expectedSha = process.env.EXPECT_COMMIT?.trim() || null;
+  // Accept both names: EXPECT_COMMIT (canonical) and EXPECTED_SHA (alias).
+  const expectedSha =
+    process.env.EXPECT_COMMIT?.trim() || process.env.EXPECTED_SHA?.trim() || null;
 
   // Node 18+/24 global fetch adapted to our minimal FetchLike shape.
   const fetchImpl: FetchLike = async (url, init) => {
