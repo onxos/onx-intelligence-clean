@@ -11,18 +11,19 @@ services:
     container_name: onx-intelligence
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "10000:10000"
     environment:
       - NODE_ENV=production
+      - PORT=10000
       - DATABASE_URL=sqlite:///app/db/app.db
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OWNER_UNION_ID=${OWNER_UNION_ID}
       - JWT_SECRET=${JWT_SECRET}
-      - APP_URL=${APP_URL:-http://localhost:3000}
+      - APP_URL=${APP_URL:-http://localhost:10000}
     volumes:
       - onx-data:/app/db
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/trpc/health.ping"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:10000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
