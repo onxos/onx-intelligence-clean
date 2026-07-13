@@ -5,7 +5,7 @@
 //   3. the report has the honest structure + DEMO disclosure
 //   4. the golden set fully covers the seven canonical intents
 // ============================================================
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   runGoldenEval,
   checkFloors,
@@ -15,15 +15,35 @@ import {
 } from "../lib/eval-harness";
 import { GOLDEN_SET, ALL_INTENTS } from "../fixtures/golden-set";
 
-describe("STE-K-06 golden evaluation harness", () => {
-  it("is deterministic: two runs are byte-identical JSON", async () => {
-    const a = await runGoldenEval();
-    const b = await runGoldenEval();
-    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
-  }, 120000);
+// runGoldenEval scores composeAnswer over the whole golden set and is
+// genuinely heavy (~tens of seconds). Under the full parallel suite it
+// starves for CPU, so we compute ONE shared report for the read-only
+// assertions (structure / floor gate / canary) and let only the
+// determinism test pay for a second, independent run. The canary env is
+// set BEFORE the shared run so the leak check covers a report generated
+// while the secret was present. Generous timeouts absorb CPU contention.
+const HEAVY_TIMEOUT = 240000;
 
-  it("produces an honest report structure with DEMO disclosure", async () => {
-    const r = await runGoldenEval();
+describe("STE-K-06 golden evaluation harness", () => {
+  let shared: GoldenEvalReport;
+  const canary = "GOLDEN_CANARY_SECRET_" + Math.random().toString(36).slice(2);
+
+  beforeAll(async () => {
+    process.env.ONX_TEST_CANARY = canary;
+    shared = await runGoldenEval();
+  }, HEAVY_TIMEOUT);
+
+  afterAll(() => {
+    delete process.env.ONX_TEST_CANARY;
+  });
+
+  it("is deterministic: two runs are byte-identical JSON", async () => {
+    const b = await runGoldenEval();
+    expect(JSON.stringify(shared)).toBe(JSON.stringify(b));
+  }, HEAVY_TIMEOUT);
+
+  it("produces an honest report structure with DEMO disclosure", () => {
+    const r = shared;
     expect(r.harness).toBe("GOLDEN_EVAL_DETERMINISTIC");
     expect(r.corpusDisclosure).toBe("DEMO");
     expect(r.total).toBe(GOLDEN_SET.length);
@@ -38,10 +58,10 @@ describe("STE-K-06 golden evaluation harness", () => {
     const retr = r.perCase.filter((c) => c.retrievalHit !== undefined);
     expect(r.counts.retrievalCases).toBe(retr.length);
     expect(r.counts.retrievalHits).toBe(retr.filter((c) => c.retrievalHit).length);
-  }, 60000);
+  });
 
-  it("floor gate: passes at measured floors, fails below, advises above", async () => {
-    const r = await runGoldenEval();
+  it("floor gate: passes at measured floors, fails below, advises above", () => {
+    const r = shared;
     const atFloor: EvalFloors = {
       intentAccuracy: r.intentAccuracy,
       refusalHonesty: r.refusalHonesty,
@@ -61,7 +81,7 @@ describe("STE-K-06 golden evaluation harness", () => {
     const adviseGate = checkFloors(synthetic, { intentAccuracy: 0.5, refusalHonesty: 0.9, retrievalHitAtK: 0.9 });
     expect(adviseGate.passed).toBe(true);
     expect(adviseGate.advisories.some((a) => a.metric === "intentAccuracy")).toBe(true);
-  }, 60000);
+  });
 
   it("golden set fully covers the seven canonical intents", () => {
     const covered = intentsCovered();
@@ -75,14 +95,8 @@ describe("STE-K-06 golden evaluation harness", () => {
     expect(rejects.length).toBeGreaterThanOrEqual(5);
   });
 
-  it("report never leaks env values (canary)", async () => {
-    const canary = "GOLDEN_CANARY_SECRET_" + Math.random().toString(36).slice(2);
-    process.env.ONX_TEST_CANARY = canary;
-    try {
-      const r: GoldenEvalReport = await runGoldenEval();
-      expect(JSON.stringify(r)).not.toContain(canary);
-    } finally {
-      delete process.env.ONX_TEST_CANARY;
-    }
-  }, 60000);
+  it("report never leaks env values (canary)", () => {
+    // shared was generated in beforeAll while ONX_TEST_CANARY was set.
+    expect(JSON.stringify(shared)).not.toContain(canary);
+  });
 });
