@@ -187,7 +187,7 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 | # | Gate | Command | Proves |
 |---|------|---------|--------|
 | 1 | TypeScript build | `npm run check` (`tsc -b`) | zero type errors across app + server |
-| 2 | Full test suite | `npm test` (`vitest run`) | 1041 passed / 5 skipped / 0 failed |
+| 2 | Full test suite | `npm test` (`vitest run`) | 1051 passed / 5 skipped / 0 failed |
 | 3 | Codex Guard | `npm run guard:scan` | zero NEW charter deviations (15 legacy tracked) |
 | 4 | OSVA self-verify | `npm run verify:self` | honest self-audit fingerprint, measured≥asserted |
 | 5 | Golden eval ratchet | `npm run eval:golden` | intent/refusal/retrieval floors held at 1.0×3 |
@@ -214,23 +214,45 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 | STE-K-15 (W23) drift over time + surface | `bc009ef` | `truth-ledger.ts` (summarizeTruthLedger), `onx-router.ts`, `smoke-contracts.ts` | +drift-integrity tests | count≥2 chronology + drift integrity | count=2, truthLedgerSummary live |
 | STE-K-16 (W24) DEMO→REAL upgrade code | `efa1bf0` | `api/lib/corpus-upgrade.ts`, `scripts/ingest-corpus.ts` | `corpus-upgrade` (7 tests) | validate + measured flip | `ingest:corpus` preview → REAL standalone |
 | STE-K-17 (W25) public Truth page | `8080198` | `api/lib/truth-page-model.ts`, `src/pages/Truth.tsx`, `/truth` route | `truth-page-model` (10 tests) | no_key_leak extended to /truth (9th fetch) | GET /truth 200, 9/9 live, no leak |
+| STE-K-18 (W26) coverage matrix + status refresh | `b2bdcbc` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md`, `.env.example` | — (docs) | 6 gates green | run 29303273279 (6 gates) |
+| STE-K-19 (W27) rate-limit Postgres persistence | `82d713f` | `api/lib/rate-limiter.ts` (onx_rate_limit_buckets, postgresStore, decideRateLimit), `smoke-contracts.ts`, 5 callsites | `rate-limiter` (+6 injected-store tests) | rate_limit_disclosure accepts both modes + `EXPECT_RL_PERSISTENCE` | run 29304450986; live `POSTGRES_PERSISTED` measured |
+| STE-K-20 (W28) single-origin gateway smoke | `01c18a1` | `smoke-contracts.ts` (gatewayBaseUrl, DEFAULT_GATEWAY_ORIGIN, GATEWAY_APP_MOUNT), `scripts/smoke-live.ts` (GATEWAY_ORIGIN), runbook و.9 | `smoke-live` (+4 gateway tests) | deepening — same 9 contracts, 2nd origin | run 29305502934; 9/9 via `onx-gateway…/intelligence` |
 
-## Live measured status (as of W25 / commit `8080198`)
-- **/health:** `ALIVE`, `env=production`, live commit `8080198`.
-- **Truth ledger:** grows hourly from the web cron — **10 snapshots** measured live
-  (`truth_ledger_read`: 10 snapshots, 0 drift-flagged, persistence=POSTGRES).
+## Live measured status (as of W28 / commit `01c18a1`)
+- **/health:** `ALIVE`, `env=production`, live commit `01c18a1` (measured direct + via gateway).
+- **Official single origin (STE-K-20):** `main` retired from live service; every surface is
+  reached through the gateway `https://onx-gateway.onrender.com`. MEASURED proxy map:
+
+  | Path via gateway | Measured | Upstream rewrite |
+  |---|---|---|
+  | `/api/intelligence/v1/health` | **404** | assumed path is wrong |
+  | `/api/intelligence/trpc/<proc>` | 200 | `/api/*` mount → upstream `/api/trpc/<proc>` (tRPC only) |
+  | `/intelligence/health` · `/commit` · `/truth` | **200** | full-app mount → app root (no rewrite) |
+  | `/intelligence/api/trpc/<proc>` | 200 | full-app → `/api/trpc/<proc>` |
+
+  The full-app mount `…/intelligence` is the ONE base serving all nine contracts; live 9/9
+  via the single origin (run against `01c18a1`, `EXPECT_COMMIT` strict).
+- **Truth ledger:** grows hourly from the web cron — **13 snapshots** measured live via the
+  gateway (`truth_ledger_read`: 13 snapshots, 0 drift-flagged, persistence=POSTGRES; latest
+  fingerprint `bb642469c81d…`).
 - **/truth page:** LIVE (HTTP 200), rendered entirely from honest surfaces, zero key leak.
 - **Corpus:** `disclosure=DEMO` (measured) — 22500 templated seed docs, sha256
   `6fc2bed87d86…`; awaits the founder REC-06 authentic archive (19,012 docs) to flip
   to REAL **by measurement**, never by hand.
 - **Bridges:** fail-closed, 401 `BRIDGE_UNAUTHORIZED` on keyless ingest.
-- **Rate limit:** `PER_INSTANCE_UNPERSISTED` (in-memory per instance, resets on boot).
+- **Rate limit:** **`POSTGRES_PERSISTED`** measured live (STE-K-19) — bucket state in
+  `onx_rate_limit_buckets` via a `SELECT … FOR UPDATE` transaction, survives redeploy;
+  honest per-window fallback to `PER_INSTANCE_UNPERSISTED` (memory) if the DB is unreachable.
 - **Golden floors:** 1.0 / 1.0 / 1.0 (intentAccuracy / refusalHonesty / retrievalHit) —
   a ratchet, never lowered.
 
-## Environment truth (post K-14…K-17, `.env.example`)
+## Environment truth (post K-14…K-20, `.env.example`)
 All values MEASURED by `process.env` reads in code; none fabricated. See
 `docs/OPERATIONS_RUNBOOK.md` §و (environment truth scan) for the file:line inventory.
-No new required environment variable was introduced by K-14…K-17 — the cron capture,
-DEMO→REAL tooling, and Truth page all reuse existing surfaces and the existing
-`BRIDGE_SHARED_SECRET` / `DATABASE_URL` operator inputs.
+No new **server-read** environment variable was introduced by K-14…K-20 — the cron capture,
+DEMO→REAL tooling, Truth page, rate-limit persistence, and single-origin gateway proof all
+reuse existing surfaces and the existing `BRIDGE_SHARED_SECRET` / `DATABASE_URL` inputs.
+Two K-19/K-20 variables are **operator-tooling-only, NOT read by the running server** — both
+consumed solely by `scripts/smoke-live.ts`:
+- `GATEWAY_ORIGIN` (STE-K-20) — official gateway origin; derives the single-origin smoke base.
+- `EXPECT_RL_PERSISTENCE` (STE-K-19) — asserts the deployment's rate-limit backing store.
