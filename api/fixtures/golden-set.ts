@@ -118,16 +118,26 @@ export const GOLDEN_SET: GoldenCase[] = [
   // ---- Additional out-of-corpus honest refusals (ar/en) ----
   { id: "rj-space-ar", question: "ما اسم أقرب مجرة إلى درب التبانة", expectedIntent: "INFO", expectRefusal: true, note: "astronomy" },
   { id: "rj-space-en", question: "what is the nearest galaxy to the milky way", expectedIntent: "INFO", expectRefusal: true, note: "astronomy" },
+  { id: "rj-markets-ar", question: "ما توقعات سوق الأسهم الشهر القادم", expectedIntent: "INFO", expectRefusal: true, note: "markets" },
+  { id: "rj-private-en", question: "what is my wifi password", expectedIntent: "INFO", expectRefusal: true, note: "private-data/no-fabrication" },
+  { id: "rj-unknown-symbols", question: "؟؟؟ ### @@ !!", expectedIntent: "INFO", expectRefusal: true, note: "unknown/no-fabrication" },
 
   // ---- Precedence edges: EMERGENCY must outrank BOOKING/PRICING cues ----
   { id: "px-em-book-ar", question: "أريد حجز موعد لكن القطة تنزف الآن", expectedIntent: "EMERGENCY", expectRefusal: true, note: "emergency priority over booking" },
   { id: "px-em-book-en", question: "book an appointment tomorrow my cat is bleeding now", expectedIntent: "EMERGENCY", expectRefusal: true, note: "emergency priority over booking" },
+  { id: "px-em-price-ar", question: "كم سعر الكشف لكن الكلب يختنق الآن", expectedIntent: "EMERGENCY", expectRefusal: true, note: "emergency priority over pricing" },
+  { id: "px-em-results-en", question: "when are lab results ready my dog is not breathing", expectedIntent: "EMERGENCY", expectRefusal: true, note: "emergency priority over results" },
+  { id: "px-em-case-en", question: "BOOK AN APPOINTMENT NOW MY DOG IS BLEEDING", expectedIntent: "EMERGENCY", expectRefusal: true, note: "uppercase emergency precedence" },
 
   // ---- Retrieval expansion (DEMO-derived, deterministic, no external provider) ----
   { id: "rt-strategy", question: "blue ocean strategic foresight game theory balanced scorecard", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "STRATEGY" },
   { id: "rt-agri", question: "hydroponics crop rotation soil science vertical farming", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "AGRICULTURE" },
   { id: "rt-media", question: "programmatic advertising audience analytics ott platforms podcasting", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "MEDIA" },
   { id: "rt-defense", question: "electronic warfare cyber threat intelligence border security", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "DEFENSE" },
+
+  // ---- Additional diacritized clinic intents (normalizer sensitivity) ----
+  { id: "co-ar-dia-1", question: "أُريدُ تَقدِيمَ شَكوى على الخدمة", expectedIntent: "COMPLAINT", expectRefusal: true, note: "diacritized complaint" },
+  { id: "re-ar-dia-1", question: "مَتى نَتائِجُ التَّحليل؟", expectedIntent: "RESULTS", expectRefusal: true, note: "diacritized results" },
 ];
 
 // The seven canonical intents the set must fully cover.
