@@ -54,11 +54,27 @@ export type CommitData = {
   timestamp?: string;
 };
 
+// STE-K-31: truthHistory read surface (already part of the 9 live contracts).
+// We surface row-level drift/predecessor-pruned/genesis signals for the human
+// reader, with the same fail-honest SourceOutcome semantics.
+export type TruthHistoryData = {
+  persistence?: string;
+  count?: number;
+  snapshots?: Array<{
+    id?: number;
+    createdAt?: string;
+    fingerprint?: string;
+    drift?: boolean;
+    predecessorPruned?: boolean;
+  }>;
+};
+
 export interface TruthPageSources {
   selfVerify: SourceOutcome<SelfVerifyData>;
   corpus: SourceOutcome<CorpusManifestData>;
   providers: SourceOutcome<ProvidersStatusData>;
   commit: SourceOutcome<CommitData>;
+  truthHistory: SourceOutcome<TruthHistoryData>;
 }
 
 export interface ClaimsSection {
@@ -131,11 +147,28 @@ export interface FreshnessSection {
   bootTime: string | null;
 }
 
+export interface LedgerRow {
+  id: number | null;
+  capturedAt: string | null;
+  fingerprintShort: string | null;
+  drift: boolean | null;
+  predecessorPruned: boolean | null;
+  isGenesis: boolean | null;
+}
+
+export interface LedgerRowsSection {
+  state: SectionState; // OK (rows present) / EMPTY (no rows) / FETCH_FAILED
+  error: string | null;
+  persistence: string | null;
+  rows: LedgerRow[];
+}
+
 export interface TruthPageModel {
   generatedAt: string;
   claims: ClaimsSection;
   corpus: CorpusSection;
   ledger: LedgerSection;
+  ledgerRows: LedgerRowsSection;
   retention: RetentionSection;
   rateLimit: RateLimitSection;
   bridges: BridgesSection;
@@ -331,6 +364,38 @@ function buildFreshness(src: SourceOutcome<CommitData>): FreshnessSection {
   };
 }
 
+function buildLedgerRows(src: SourceOutcome<TruthHistoryData>): LedgerRowsSection {
+  if (!src.ok) {
+    return { state: "FETCH_FAILED", error: src.error, persistence: null, rows: [] };
+  }
+  const d = src.data;
+  const snapshots = Array.isArray(d.snapshots) ? d.snapshots : [];
+  if (snapshots.length === 0) {
+    return {
+      state: "EMPTY",
+      error: null,
+      persistence: d.persistence ?? null,
+      rows: [],
+    };
+  }
+  return {
+    state: "OK",
+    error: null,
+    persistence: d.persistence ?? null,
+    rows: snapshots.map((s) => {
+      const id = typeof s.id === "number" ? s.id : null;
+      return {
+        id,
+        capturedAt: typeof s.createdAt === "string" ? s.createdAt : null,
+        fingerprintShort: shortHash(typeof s.fingerprint === "string" ? s.fingerprint : null),
+        drift: typeof s.drift === "boolean" ? s.drift : null,
+        predecessorPruned: typeof s.predecessorPruned === "boolean" ? s.predecessorPruned : null,
+        isGenesis: id === null ? null : id === 1,
+      };
+    }),
+  };
+}
+
 export function buildTruthPageModel(
   sources: TruthPageSources,
   now: () => string = () => new Date().toISOString(),
@@ -340,6 +405,7 @@ export function buildTruthPageModel(
     claims: buildClaims(sources.selfVerify),
     corpus: buildCorpus(sources.corpus),
     ledger: buildLedger(sources.selfVerify),
+    ledgerRows: buildLedgerRows(sources.truthHistory),
     retention: buildRetention(sources.selfVerify),
     rateLimit: buildRateLimit(sources.providers),
     bridges: buildBridges(sources.selfVerify),

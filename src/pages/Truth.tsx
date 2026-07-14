@@ -3,7 +3,8 @@
 //
 // Mirrors W25/C-13: a plain-language window onto the system's MEASURED
 // honesty. Every value is read live from the honest surfaces
-// (onx.selfVerify, corpusQuery.manifest, providers.status) via the pure
+// (onx.selfVerify, onx.truthHistory, corpusQuery.manifest, providers.status,
+// /commit) via the pure
 // buildTruthPageModel — ZERO hard-coded truth. A fetch failure renders a
 // distinct fail-honest state (never a fake zero); an empty truth ledger
 // renders a named EMPTY state. Arabic-first RTL with English labels.
@@ -20,6 +21,7 @@ import {
   type CorpusManifestData,
   type ProvidersStatusData,
   type CommitData,
+  type TruthHistoryData,
 } from "../../api/lib/truth-page-model";
 
 function toOutcome<T>(q: { isError: boolean; error: unknown; data: T | undefined }): SourceOutcome<T> {
@@ -107,6 +109,7 @@ export default function Truth() {
   const selfVerifyQ = trpc.onx.selfVerify.useQuery();
   const corpusQ = trpc.corpusQuery.manifest.useQuery();
   const providersQ = trpc.providers.status.useQuery();
+  const truthHistoryQ = trpc.onx.truthHistory.useQuery({ limit: 10 });
   const commitQ = useQuery<CommitData>({
     queryKey: ["truth-commit"],
     queryFn: async () => {
@@ -121,9 +124,10 @@ export default function Truth() {
     corpus: toOutcome<CorpusManifestData>(corpusQ as never),
     providers: toOutcome<ProvidersStatusData>(providersQ as never),
     commit: toOutcome<CommitData>(commitQ as never),
+    truthHistory: toOutcome<TruthHistoryData>(truthHistoryQ as never),
   });
 
-  const { claims, corpus, ledger, retention, rateLimit, bridges, freshness } = model;
+  const { claims, corpus, ledger, ledgerRows, retention, rateLimit, bridges, freshness } = model;
 
   const rlPersisted = rateLimit.persistence === "POSTGRES_PERSISTED";
 
@@ -194,30 +198,87 @@ export default function Truth() {
           <Row label="بصمة المحتوى" en="sha256" value={corpus.sha256Short ?? dash} />
         </Section>
 
-        {/* Truth ledger */}
-        <Section icon={<History className="w-5 h-5" />} title="سجل الحقيقة" en="Truth ledger" state={ledger.state} error={ledger.error}>
-          {ledger.state === "EMPTY" ? (
-            <p className="text-sm text-gray-500">لا لقطات بعد — حالة فارغة صادقة، لا تاريخ مُلفّق. · No snapshots yet — honestly empty.</p>
+        {/* Truth ledger summary + row-level table (STE-K-31) */}
+        <Section
+          icon={<History className="w-5 h-5" />}
+          title="سجل الحقيقة"
+          en="Truth ledger"
+          state={ledgerRows.state}
+          error={ledgerRows.error}
+        >
+          <Row label="عدد اللقطات" en="count" value={ledger.count ?? dash} />
+          <Row label="آخر بصمة" en="latest fingerprint" value={ledger.latestFingerprintShort ?? dash} />
+          <Row label="وقت الالتقاط" en="capturedAt" value={ledger.capturedAt ?? dash} />
+          <Row
+            label="انحراف الملخص"
+            en="summary drift"
+            value={
+              ledger.drift === null ? (
+                dash
+              ) : ledger.drift ? (
+                <Badge variant="destructive">انحراف · DRIFT</Badge>
+              ) : (
+                <Badge className="bg-emerald-600">ثابت · STABLE</Badge>
+              )
+            }
+          />
+          <Row label="الثبات" en="persistence" value={ledgerRows.persistence ?? ledger.persistence ?? dash} />
+
+          {ledgerRows.state === "EMPTY" ? (
+            <p className="mt-3 text-sm text-gray-500">
+              لا صفوف بعد — حالة فارغة صادقة، لا تاريخ مُلفّق. · No rows yet — honestly empty.
+            </p>
           ) : (
-            <>
-              <Row label="عدد اللقطات" en="count" value={ledger.count ?? dash} />
-              <Row label="آخر بصمة" en="latest fingerprint" value={ledger.latestFingerprintShort ?? dash} />
-              <Row label="وقت الالتقاط" en="capturedAt" value={ledger.capturedAt ?? dash} />
-              <Row
-                label="انحراف"
-                en="drift"
-                value={
-                  ledger.drift === null ? (
-                    dash
-                  ) : ledger.drift ? (
-                    <Badge variant="destructive">انحراف · DRIFT</Badge>
-                  ) : (
-                    <Badge className="bg-emerald-600">ثابت · STABLE</Badge>
-                  )
-                }
-              />
-              <Row label="الثبات" en="persistence" value={ledger.persistence ?? dash} />
-            </>
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
+                <thead className="bg-gray-50 text-gray-600">
+                  <tr>
+                    <th className="px-2 py-2 text-right">المعرّف · id</th>
+                    <th className="px-2 py-2 text-right">وقت الالتقاط · capturedAt</th>
+                    <th className="px-2 py-2 text-right">البصمة · fingerprint</th>
+                    <th className="px-2 py-2 text-right">الانحراف · drift</th>
+                    <th className="px-2 py-2 text-right">حافة السجل · edge</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ledgerRows.rows.map((r) => (
+                    <tr key={`${r.id ?? "null"}-${r.capturedAt ?? "na"}`} className="border-t border-gray-100">
+                      <td className="px-2 py-2 font-mono" dir="ltr">{r.id ?? dash}</td>
+                      <td className="px-2 py-2 font-mono" dir="ltr">{r.capturedAt ?? dash}</td>
+                      <td className="px-2 py-2 font-mono" dir="ltr">{r.fingerprintShort ?? dash}</td>
+                      <td className="px-2 py-2">
+                        {r.drift === null ? (
+                          dash
+                        ) : r.drift ? (
+                          <span className="inline-flex flex-col gap-1">
+                            <Badge variant="destructive">انحراف · DRIFT</Badge>
+                            <span className="text-xs text-gray-500">تغيّر البصمة عن السابقة · fingerprint changed vs predecessor</span>
+                          </span>
+                        ) : (
+                          <Badge className="bg-emerald-600">ثابت · STABLE</Badge>
+                        )}
+                      </td>
+                      <td className="px-2 py-2">
+                        <span className="inline-flex flex-col gap-1">
+                          {r.predecessorPruned === true ? (
+                            <>
+                              <Badge className="bg-amber-500">سابقه مُقلَّم · predecessor pruned</Badge>
+                              <span className="text-xs text-gray-500">الانحراف غير قابل للقياس · drift unmeasurable at this edge</span>
+                            </>
+                          ) : r.isGenesis === true ? (
+                            <Badge variant="secondary">الأصل · GENESIS</Badge>
+                          ) : r.predecessorPruned === null || r.isGenesis === null ? (
+                            <span className="font-mono" dir="ltr">{dash}</span>
+                          ) : (
+                            <span className="font-mono" dir="ltr">{dash}</span>
+                          )}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </Section>
 

@@ -14,6 +14,7 @@ import {
   type CorpusManifestData,
   type ProvidersStatusData,
   type CommitData,
+  type TruthHistoryData,
 } from "../lib/truth-page-model";
 
 const FROZEN = () => "2026-01-01T00:00:00.000Z";
@@ -85,12 +86,41 @@ function commit(overrides: Partial<CommitData> = {}): CommitData {
   };
 }
 
+function truthHistory(overrides: Partial<TruthHistoryData> = {}): TruthHistoryData {
+  return {
+    persistence: "POSTGRES",
+    count: 3,
+    snapshots: [
+      {
+        id: 3,
+        createdAt: "2026-01-03T00:00:00.000Z",
+        fingerprint: "cccccccccccc3333333333333333333333333333333333333333333333333333",
+        drift: false,
+      },
+      {
+        id: 2,
+        createdAt: "2026-01-02T00:00:00.000Z",
+        fingerprint: "bbbbbbbbbbbb2222222222222222222222222222222222222222222222222222",
+        drift: true,
+      },
+      {
+        id: 1,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        fingerprint: "aaaaaaaaaaaa1111111111111111111111111111111111111111111111111111",
+        drift: false,
+      },
+    ],
+    ...overrides,
+  };
+}
+
 function allOk(): TruthPageSources {
   return {
     selfVerify: { ok: true, data: selfVerify() },
     corpus: { ok: true, data: corpus() },
     providers: { ok: true, data: providers() },
     commit: { ok: true, data: commit() },
+    truthHistory: { ok: true, data: truthHistory() },
   };
 }
 
@@ -190,6 +220,7 @@ describe("STE-K-17 truth page view-model", () => {
       corpus: { ok: false, error: "timeout" },
       providers: { ok: false, error: "parse error" },
       commit: { ok: false, error: "commit surface 502" },
+      truthHistory: { ok: false, error: "truthHistory 503" },
     };
     const m = buildTruthPageModel(src, FROZEN);
     expect(m.claims.state).toBe("FETCH_FAILED");
@@ -204,6 +235,8 @@ describe("STE-K-17 truth page view-model", () => {
     expect(m.bridges.items).toHaveLength(0);
     expect(m.freshness.state).toBe("FETCH_FAILED");
     expect(m.freshness.commitShort).toBeNull(); // NOT a fake sha
+    expect(m.ledgerRows.state).toBe("FETCH_FAILED");
+    expect(m.ledgerRows.rows).toHaveLength(0);
   });
 
   it("mixes states independently — one dead surface does not poison the others", () => {
@@ -332,5 +365,70 @@ describe("STE-K-17 truth page view-model", () => {
     expect(m.freshness.state).toBe("OK");
     expect(m.freshness.bootTime).toBeNull();
     expect(m.freshness.commitShort).toBe("8658d6514045");
+  });
+
+  // ---- STE-K-31: truth-ledger row table (truthHistory surface) ----
+  it("maps normal rows into a human-readable table model", () => {
+    const m = buildTruthPageModel(allOk(), FROZEN);
+    expect(m.ledgerRows.state).toBe("OK");
+    expect(m.ledgerRows.persistence).toBe("POSTGRES");
+    expect(m.ledgerRows.rows).toHaveLength(3);
+    expect(m.ledgerRows.rows[0]).toMatchObject({
+      id: 3,
+      capturedAt: "2026-01-03T00:00:00.000Z",
+      fingerprintShort: "cccccccccccc",
+      drift: false,
+      predecessorPruned: null,
+      isGenesis: false,
+    });
+  });
+
+  it("keeps drift=true and predecessorPruned=true as explicit row-level honesty", () => {
+    const src = allOk();
+    src.truthHistory = {
+      ok: true,
+      data: truthHistory({
+        snapshots: [
+          {
+            id: 42,
+            createdAt: "2026-01-03T00:00:00.000Z",
+            fingerprint: "dddddddddddd4444444444444444444444444444444444444444444444444444",
+            drift: true,
+            predecessorPruned: true,
+          },
+        ],
+      }),
+    };
+    const m = buildTruthPageModel(src, FROZEN);
+    expect(m.ledgerRows.state).toBe("OK");
+    expect(m.ledgerRows.rows[0]?.drift).toBe(true);
+    expect(m.ledgerRows.rows[0]?.predecessorPruned).toBe(true);
+  });
+
+  it("marks genesis row (id=1) explicitly", () => {
+    const src = allOk();
+    src.truthHistory = { ok: true, data: truthHistory({ snapshots: [{ id: 1, createdAt: "2026-01-01T00:00:00.000Z", fingerprint: "a".repeat(64), drift: false }] }) };
+    const m = buildTruthPageModel(src, FROZEN);
+    expect(m.ledgerRows.rows[0]?.isGenesis).toBe(true);
+    expect(m.ledgerRows.rows[0]?.predecessorPruned).toBeNull();
+  });
+
+  it("names EMPTY table state when truthHistory answers with no rows", () => {
+    const src = allOk();
+    src.truthHistory = { ok: true, data: truthHistory({ count: 0, snapshots: [] }) };
+    const m = buildTruthPageModel(src, FROZEN);
+    expect(m.ledgerRows.state).toBe("EMPTY");
+    expect(m.ledgerRows.rows).toHaveLength(0);
+    // summary can still be populated from selfVerify — independent surfaces
+    expect(m.ledger.state).toBe("OK");
+  });
+
+  it("marks table FETCH_FAILED distinctly when truthHistory is unreachable", () => {
+    const src = allOk();
+    src.truthHistory = { ok: false, error: "truthHistory timeout" };
+    const m = buildTruthPageModel(src, FROZEN);
+    expect(m.ledgerRows.state).toBe("FETCH_FAILED");
+    expect(m.ledgerRows.error).toBe("truthHistory timeout");
+    expect(m.ledgerRows.rows).toHaveLength(0);
   });
 });

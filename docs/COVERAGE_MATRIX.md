@@ -226,6 +226,8 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 | STE-K-27 (W35) /truth deploy-freshness card from /commit | `b5363f1` | `api/lib/truth-page-model.ts` (CommitData, FreshnessSection, buildFreshness), `src/pages/Truth.tsx` (commitSiblingUrl, freshness card), `api/__tests__/truth-page-model.test.ts` | `truth-page-model` (+4) | deepening — /truth + /commit already in 9 contracts; total stays 9 | run 29310913038; live commit `b5363f1`, /truth freshness card + 9/9 strict |
 | STE-K-28 (W36) unified docs wave K-26/K-27 | `cb9848c` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs) | 6 gates green | run 29311534451 (6 gates) |
 | STE-K-29 (W37) scheduled live truth watchdog | `c6e3026` | `.github/workflows/live-truth.yml`, `docs/OPERATIONS_RUNBOOK.md`, `docs/COVERAGE_MATRIX.md` | — (ops workflow + docs) | **IMPLEMENTED_BUT_INERT_ON_GOVERNED_BRANCH** — deepening only (same 9 contracts), no EXPECT_COMMIT in cron | truth-gates run 29312071048 green; watchdog mode measured 9/9 via `GATEWAY_ORIGIN` locally; actual workflow runs blocked until default-branch availability |
+| STE-K-30 (W38) watchdog constraint truth correction | `d722cb6` | `docs/OPERATIONS_RUNBOOK.md`, `docs/COVERAGE_MATRIX.md` | — (docs) | 6 gates green | run 29312565358 (6 gates) |
+| STE-K-31 (W39) /truth truth-ledger row table | `(this wave commit)` | `api/lib/truth-page-model.ts` (truthHistory rows model), `src/pages/Truth.tsx` (human-readable table + honest badges), `api/__tests__/truth-page-model.test.ts`, docs | `truth-page-model` (+6 injected row-state tests) | deepening — /truth already scanned, truthHistory already in 9 contracts; total stays 9 | live proof recorded after strict EXPECT_COMMIT gateway run |
 
 ## Live measured status (as of W35 / commit `b5363f1`)
 - **/health:** `ALIVE`, `env=production`, live commit `b5363f1` (measured direct + via gateway).
@@ -253,6 +255,9 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
   "per-instance in-memory" caption that contradicted the K-19 measured store was removed.
   Surfaces (STE-K-27) a deploy-freshness card measured from `/commit` (served commit + bootTime,
   SourceOutcome OK/EMPTY/FETCH_FAILED with null-honest fields, no fabricated buildTime).
+  Surfaces (STE-K-31) a human-readable truth-ledger row table from `truthHistory` (id, capturedAt,
+  short fingerprint, drift, predecessorPruned, genesis) so row-level edge honesty is visible, not
+  hidden in API-only payloads.
   **Render-proven (STE-K-25):** the 9th live check (`no_key_leak`) now also proves the served
   page is the REAL built SPA shell — measured markers `id="root"` + `<script type="module"
   src="/assets/…">`; a hollow 200 shell or non-200 fails honestly. Live `RENDER_PROVEN=true`;
