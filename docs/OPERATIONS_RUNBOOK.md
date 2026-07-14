@@ -718,6 +718,12 @@ Postgres ويعيد `UNAVAILABLE` لو لم يكن postgres (`health-router.ts:5
 ```
 أول لقطة حقيقية في تاريخ الإنتاج — مدعومة بـPostgres، ببصمة sha256 وراية drift. (يُحدَّث الرقم مع تراكم اللقطات.)
 
+**تحديث الحالة المقاسة (STE-K-18، عند commit `8080198`):** السجل **ينمو ساعياً** من كرون الويب —
+القياس الحي الأحدث أظهر **10 لقطات** إنتاجية (`truth_ledger_read`: 10 snapshots، 0 drift-flagged،
+`persistence=POSTGRES`). صفحة `/truth` العامة **حية** (HTTP 200، مبنية كلياً من الأسطح الصادقة، صفر
+تسريب مفاتيح). الكوربوس يبقى `disclosure=DEMO` مقاساً (22500 بذرة قالبية، sha256 `6fc2bed87d86…`)
+**بانتظار أرشيف REC-06 الأصيل** (19,012 وثيقة) لينقلب REAL **بالقياس لا باليد**.
+
 **العقد التاسع `truth_ledger_read`** (`api/lib/smoke-contracts.ts` — نداء واحد لـ`onx.truthHistory`):
 يؤكد بنية السطح (`persistence` ∈ {POSTGRES, UNPERSISTED}، تطابق `count` مع طول `snapshots`،
 وكل لقطة تحمل بصمة sha256 + عدّادين رقميين + راية `drift` منطقية). السجل الفارغ يبقى حالة صادقة

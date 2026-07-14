@@ -170,3 +170,67 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
   `docs/codex-guard-baseline.json` + documented in `docs/CODEX_GUARD_BASELINE.md` as tracked debt.
   They stay **reported (never muted)** but do **not** fail CI; only NEW deviations fail. Closed in a later cleanup wave.
 - Test/doc files are exempt from pattern rules (regression-tested) — the guard names the labels on purpose.
+
+---
+
+# STE-01 Deploy-Readiness Wave Matrix (STE-K-01 … K-17)
+
+> Distinct series from the B/G/K civilizational ledger above. These are the
+> STE-01 deploy-readiness waves executed on branch `onxos-ste01-deploy-readiness`
+> (never main). Each row: wave → primary files → tests → CI gate/contract → live
+> proof. Every SHA is `git log`-verified on the branch; live proofs were captured
+> against the Render production deployment `https://onx-intelligence-clean.onrender.com`.
+> **Doctrine:** floors are pinned at the MEASURED truth, never the wished one; an
+> absent resource is reported honestly (UNAVAILABLE / EMPTY / DEMO), never faked.
+
+## Six permanent CI gates (`.github/workflows/truth-gates.yml`)
+| # | Gate | Command | Proves |
+|---|------|---------|--------|
+| 1 | TypeScript build | `npm run check` (`tsc -b`) | zero type errors across app + server |
+| 2 | Full test suite | `npm test` (`vitest run`) | 1041 passed / 5 skipped / 0 failed |
+| 3 | Codex Guard | `npm run guard:scan` | zero NEW charter deviations (15 legacy tracked) |
+| 4 | OSVA self-verify | `npm run verify:self` | honest self-audit fingerprint, measured≥asserted |
+| 5 | Golden eval ratchet | `npm run eval:golden` | intent/refusal/retrieval floors held at 1.0×3 |
+| 6 | Corpus integrity | `npm run verify:corpus` | committed manifest matches measured seed sha256 |
+
+## Wave rows
+| Wave | Commit | Primary files | Tests | Gate / contract | Live proof |
+|------|--------|---------------|-------|-----------------|------------|
+| STE-K-01 (W7) BM25 ranked retrieval | `1b1d259` | `api/lib/corpus-search.ts`, `api/corpus-query-router.ts` (rankedSearch) | `corpus-search` suite | (pre-gates) CI green | `corpusQuery.rankedSearch` live |
+| STE-K-02 (W9) no-key intent engine (SAFE) | `8f59747` | `api/lib/intent-engine.ts` | `intent-engine` suite | deterministic, keyless | `intentEngine` classify live |
+| STE-K-03 (W10) chronological truth ledger | `b697a5c` | `api/lib/truth-ledger.ts`, `api/onx-router.ts` | `truth-ledger` suite | drift detection | `onx.truthHistory` live |
+| STE-K-04 (W11) cited answer composer | `605e11d` | `api/lib/answer-composer.ts`, `api/ask-router.ts` | `answer-composer` suite | DEMO disclosure + citations | `ask.onx` live |
+| STE-CI-02 (W12) Truth Gates workflow | `2f7313e` | `.github/workflows/truth-gates.yml` | — | **the 5→6 gate charter** | CI runs on every push |
+| STE-K-05 (W13) rate-limit guard | `7f4e027` | `api/lib/rate-limiter.ts` + public-surface wiring | `rate-limiter` suite | 429 + PER_INSTANCE_UNPERSISTED disclosure | health/commit exempt, bridge untouched |
+| STE-K-06 (W14) golden eval harness | `e9d419b` | `api/fixtures/golden-set.ts`, `api/lib/eval-harness.ts`, `api/fixtures/eval-floors.json`, `scripts/eval-golden.ts` | `eval-harness` suite + coverage | **5th gate `eval:golden`** | run 29263025255 (5 gates) |
+| STE-K-07 (W15) close gaps + ratchet 1.0 | `810700e` | golden-set + intent lexicon (negative signals) | +anti-overfit cases | floors → 1.0/1.0/1.0 | run 29265169353 |
+| STE-K-08 (W16/16b) live smoke contract | `4b7e0ca`, `1345f8c` | `scripts/smoke-live.ts`, `api/lib/smoke-contracts.ts` | `smoke-live` suite (mocked fetch) | 7→8 contracts, NOT in CI (network) | 7/7 live vs production |
+| STE-K-09 (W17) EXPECTED_SHA alias | `8719257` | `scripts/smoke-live.ts` | smoke suite | commit freshness assertion | live 8/8 |
+| STE-K-10 (W18) corpus honesty upgrade path | `cae8cbb` | `api/lib/corpus-manifest.ts`, `scripts/verify-corpus.ts`, `corpus-manifest.json` | `corpus-content-manifest` suite | **6th gate `verify:corpus`** | run 29274311582 (6 gates) |
+| STE-K-11 (W19) live corpus-truth contract | `87c66e2` | `smoke-contracts.ts` (corpus_manifest_truth) | +injected-manifest tests | 8th contract | 8/8 live, sha match |
+| STE-K-12 (W20) operator consolidation + env scan | `91a4d2c` | `docs/OPERATIONS_RUNBOOK.md` | — (docs) | env truth scan | DATABASE_URL SELECT 1 → HEALTHY |
+| STE-K-13 (W21) truth-ledger ops audit | `c7a1800` | `smoke-contracts.ts` (truth_ledger_read), runbook | +ledger-read tests | 9th contract | empty-honest reported |
+| STE-K-14 (W22) live cron capture | `9be1e74` | `api/lib/truth-snapshot-cron.ts`, `api/boot.ts` | cron tests (non-fatal, cadence) | hourly capture | first prod snapshot id=1 fp=bb642469 |
+| STE-K-15 (W23) drift over time + surface | `bc009ef` | `truth-ledger.ts` (summarizeTruthLedger), `onx-router.ts`, `smoke-contracts.ts` | +drift-integrity tests | count≥2 chronology + drift integrity | count=2, truthLedgerSummary live |
+| STE-K-16 (W24) DEMO→REAL upgrade code | `efa1bf0` | `api/lib/corpus-upgrade.ts`, `scripts/ingest-corpus.ts` | `corpus-upgrade` (7 tests) | validate + measured flip | `ingest:corpus` preview → REAL standalone |
+| STE-K-17 (W25) public Truth page | `8080198` | `api/lib/truth-page-model.ts`, `src/pages/Truth.tsx`, `/truth` route | `truth-page-model` (10 tests) | no_key_leak extended to /truth (9th fetch) | GET /truth 200, 9/9 live, no leak |
+
+## Live measured status (as of W25 / commit `8080198`)
+- **/health:** `ALIVE`, `env=production`, live commit `8080198`.
+- **Truth ledger:** grows hourly from the web cron — **10 snapshots** measured live
+  (`truth_ledger_read`: 10 snapshots, 0 drift-flagged, persistence=POSTGRES).
+- **/truth page:** LIVE (HTTP 200), rendered entirely from honest surfaces, zero key leak.
+- **Corpus:** `disclosure=DEMO` (measured) — 22500 templated seed docs, sha256
+  `6fc2bed87d86…`; awaits the founder REC-06 authentic archive (19,012 docs) to flip
+  to REAL **by measurement**, never by hand.
+- **Bridges:** fail-closed, 401 `BRIDGE_UNAUTHORIZED` on keyless ingest.
+- **Rate limit:** `PER_INSTANCE_UNPERSISTED` (in-memory per instance, resets on boot).
+- **Golden floors:** 1.0 / 1.0 / 1.0 (intentAccuracy / refusalHonesty / retrievalHit) —
+  a ratchet, never lowered.
+
+## Environment truth (post K-14…K-17, `.env.example`)
+All values MEASURED by `process.env` reads in code; none fabricated. See
+`docs/OPERATIONS_RUNBOOK.md` §و (environment truth scan) for the file:line inventory.
+No new required environment variable was introduced by K-14…K-17 — the cron capture,
+DEMO→REAL tooling, and Truth page all reuse existing surfaces and the existing
+`BRIDGE_SHARED_SECRET` / `DATABASE_URL` operator inputs.
