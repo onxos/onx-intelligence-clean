@@ -19,7 +19,7 @@ export const askRouter = createRouter({
       domain: z.string().optional(),
     }))
     .query(async ({ ctx, input }) => {
-      const rateLimit = enforceRateLimit(ctx);
+      const rateLimit = await enforceRateLimit(ctx);
       return {
         access: "PUBLIC_READ" as const,
         rateLimit,

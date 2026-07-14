@@ -33,6 +33,10 @@ async function main() {
   // Accept both names: EXPECT_COMMIT (canonical) and EXPECTED_SHA (alias).
   const expectedSha =
     process.env.EXPECT_COMMIT?.trim() || process.env.EXPECTED_SHA?.trim() || null;
+  // STE-K-19: operator may assert the deployment's rate-limit backing
+  // store (e.g. POSTGRES_PERSISTED on a DB-backed deploy). Unset → the
+  // measured value is accepted as long as it is an honest known mode.
+  const expectedRatePersistence = process.env.EXPECT_RL_PERSISTENCE?.trim() || null;
 
   // Inject the committed corpus contract (fs read stays OUT of the pure
   // contract logic — the evaluator receives the parsed object).
@@ -65,7 +69,7 @@ async function main() {
     };
   };
 
-  const report = await runSmoke(baseUrl, { expectedSha, fetchImpl, committedManifest });
+  const report = await runSmoke(baseUrl, { expectedSha, fetchImpl, committedManifest, expectedRatePersistence });
 
   console.log(JSON.stringify(report, null, 2));
 

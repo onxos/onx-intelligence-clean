@@ -245,17 +245,29 @@ export function checkSelfVerify(
 export function checkRateDisclosure(
   status: number,
   data: { rateLimit?: { persistence?: string; limit?: number; category?: string } },
+  expectedPersistence?: string,
 ): ContractResult {
   const name = "rate_limit_disclosure";
   if (status !== 200) return { name, passed: false, detail: `expected 200, got ${status}` };
   const rl = data?.rateLimit;
   if (!rl) return { name, passed: false, detail: "no rateLimit disclosure on public read" };
-  if (rl.persistence !== "PER_INSTANCE_UNPERSISTED")
-    return { name, passed: false, detail: `persistence=${rl.persistence}` };
+  // STE-K-19: the disclosure is MEASURED per window — accept either
+  // honest backing store, reject anything else.
+  const KNOWN = ["PER_INSTANCE_UNPERSISTED", "POSTGRES_PERSISTED"];
+  if (!rl.persistence || !KNOWN.includes(rl.persistence))
+    return { name, passed: false, detail: `unknown rate-limit persistence: ${rl.persistence}` };
+  // When the operator asserts the deployment's backing store, the
+  // measured value MUST match it — a mismatch is a real breach.
+  if (expectedPersistence && rl.persistence !== expectedPersistence)
+    return {
+      name,
+      passed: false,
+      detail: `measured persistence=${rl.persistence} != expected ${expectedPersistence}`,
+    };
   return {
     name,
     passed: true,
-    detail: `limit=${rl.limit} category=${rl.category} persistence=${rl.persistence} (single call — no flood)`,
+    detail: `limit=${rl.limit} category=${rl.category} persistence=${rl.persistence} (measured; single call — no flood)`,
   };
 }
 
@@ -438,6 +450,10 @@ export interface SmokeOptions {
   // the CLI (fs read stays out of the pure contract logic). When null
   // the corpus_manifest_truth contract fails honestly.
   committedManifest?: CorpusManifestContract | null;
+  // STE-K-19: when the operator asserts what the deployment's rate-limit
+  // backing store SHOULD be (POSTGRES_PERSISTED on a DB-backed deploy),
+  // the measured disclosure must match it or the contract breaches.
+  expectedRatePersistence?: string | null;
 }
 
 async function getJson(fetchImpl: FetchLike, url: string): Promise<{ status: number; body: unknown; raw: string }> {
@@ -453,7 +469,7 @@ async function getJson(fetchImpl: FetchLike, url: string): Promise<{ status: num
 }
 
 export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<SmokeReport> {
-  const { fetchImpl, expectedSha = null, committedManifest = null } = opts;
+  const { fetchImpl, expectedSha = null, committedManifest = null, expectedRatePersistence = null } = opts;
   const base = baseUrl.replace(/\/$/, "");
   const contracts: ContractResult[] = [];
   const leaks: string[] = [];
@@ -484,7 +500,7 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
   {
     const { status, body, raw } = await getJson(fetchImpl, trpcGetUrl(base, "providers.status"));
     const u = unwrapTrpc(body);
-    contracts.push(checkRateDisclosure(status, (u.data ?? {}) as never));
+    contracts.push(checkRateDisclosure(status, (u.data ?? {}) as never, expectedRatePersistence ?? undefined));
     const leak = assertNoKeyLeak(raw);
     if (leak) leaks.push(`providers.status:${leak}`);
   }

@@ -19,8 +19,8 @@ export const intentEngineRouter = createRouter({
       text: z.string().min(1).max(2000),
       topN: z.number().min(1).max(7).default(3),
     }))
-    .query(({ ctx, input }) => {
-      const rateLimit = enforceRateLimit(ctx);
+    .query(async ({ ctx, input }) => {
+      const rateLimit = await enforceRateLimit(ctx);
       return {
         bridge: "intentEngine",
         access: "PUBLIC_READ" as const,

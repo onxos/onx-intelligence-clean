@@ -33,7 +33,7 @@ export const onxRouter = createRouter({
   truthHistory: publicQuery
     .input(z.object({ limit: z.number().min(1).max(100).default(20) }))
     .query(async ({ ctx, input }) => {
-      const rateLimit = enforceRateLimit(ctx);
+      const rateLimit = await enforceRateLimit(ctx);
       return { rateLimit, ...(await getTruthHistory(input.limit)) };
     }),
 });
