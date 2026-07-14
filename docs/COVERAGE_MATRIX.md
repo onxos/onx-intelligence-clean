@@ -250,10 +250,10 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 | STE-K-50 (W58) docs-only freeze for K-48/K-49 measured doctrine | `337c079` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1093) | docs-only freeze; no logic change, no new contracts; total remains 9 | run 29332469979 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=337c079`; pre-write live measure on served K-49 commit: `/health=bfbf4a4`, `truthLedgerSummary.count=46`, latest `truthHistory.createdAt=2026-07-14T12:15:08.145Z` (age≈10m) |
 | STE-K-51 (W59) docs-only reflection block for milestones #127..#131 | `d7cd4f3` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1093) | docs-only reflection/freeze; no logic change, no new contracts; total remains 9 | run 29333327926 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=d7cd4f3`; pre-write live measure on served K-50 commit: `/health=337c079`, `truthLedgerSummary.count=47`, latest `truthHistory.createdAt=2026-07-14T12:30:09.183Z` (age≈7m); permanent tri-repo reflection block added |
 | STE-K-52 (W60) measured /health payload honesty guard deepening | `aaf8a22` | `api/lib/smoke-contracts.ts`, `api/__tests__/smoke-live.test.ts`, `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `smoke-live.test.ts` (suite 1093→1094) | deepening inside existing `health_live` contract only; total stays 9 | contract now enforces sha-like commit format, allowed env set, non-negative uptime, and parseable/non-future timestamp (skew-tolerant); deterministic negative tests added; run 29333973727 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=aaf8a22` |
-| STE-K-53 (W61) docs-only freeze for K-52 health-payload doctrine | `(this wave commit)` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1094) | docs-only freeze; no logic change, no new contracts; total remains 9 | pre-write live measure on served K-52 commit: `/health=aaf8a22`, `status=ALIVE`, `env=production`, `truthLedgerSummary.count=49 (POSTGRES)`, latest `truthHistory.createdAt=2026-07-14T12:55:04.774Z` (age≈11m) |
+| STE-K-53 (W61) docs-only freeze for K-52 health-payload doctrine | `b7c219c` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1094) | docs-only freeze; no logic change, no new contracts; total remains 9 | run 29335260931 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=b7c219c`; pre-write live measure on served commit: `/health=b7c219c`, `status=ALIVE`, `env=production`, `truthLedgerSummary.count=50 (POSTGRES)`, latest `truthHistory.createdAt=2026-07-14T13:10:11.013Z` (age≈4m) |
 
-## Live measured status (as of W61 pre-write measurement / commit `aaf8a22`)
-- **/health:** `ALIVE`, `env=production`, pre-write live commit `aaf8a22` (measured via strict live gateway before committing K-53 docs freeze).
+## Live measured status (as of W61 pre-write measurement / commit `b7c219c`)
+- **/health:** `ALIVE`, `env=production`, pre-write live commit `b7c219c` (measured via strict live gateway before committing K-53 docs freeze).
 - **Official single origin (STE-K-20):** `main` retired from live service; every surface is
   reached through the gateway `https://onx-gateway.onrender.com`. MEASURED proxy map:
 
@@ -269,10 +269,10 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 - **Truth ledger (STE-K-38/K-39 measured semantics):** `onx.truthHistory.count` is the **response window size**
   (bounded by `limit`, default 20), not the global table total. Live measurement:
   `truthHistory(limit=20) => count=20` and the independent total surface
-  `onx.selfVerify.truthLedgerSummary.count => 49`.
+  `onx.selfVerify.truthLedgerSummary.count => 50`.
 - **Latest snapshot freshness (STE-K-49 live measure):**
-  latest `truthHistory.snapshots[0].createdAt = 2026-07-14T12:55:04.774Z` with
-  measured age `≈11` minutes at pre-write measurement time.
+  latest `truthHistory.snapshots[0].createdAt = 2026-07-14T13:10:11.013Z` with
+  measured age `≈4` minutes at pre-write measurement time.
 - **K-39 data-layer activation:** smoke deepening now enforces that `truthLedgerSummary.count`
   is a present non-negative integer and that total ≥ returned window rows (`onx.truthHistory`).
 - **Truth-ledger retention (STE-K-22):** bounded at **keep=168** (7 days hourly), pruned
