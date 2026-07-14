@@ -66,17 +66,6 @@ const LIVE_HEALTH = {
   uptime: 1,
   timestamp: "2026-01-01T00:00:00.000Z",
 };
-const LIVE_SELFVERIFY = {
-  items: [
-    { area: "health", name: "Database", verdict: "IMPLEMENTED_PROVEN", measured: true },
-    { area: "corpus", name: "Corpus", verdict: "DEMO", measured: true },
-    { area: "providers", name: "openai", verdict: "DOCUMENTED_ONLY", measured: true },
-  ],
-  claimsMeasured: 3,
-  claimsAsserted: 0,
-  fingerprint: "a".repeat(64),
-  truthLedgerSummary: { count: 0 },
-};
 const LIVE_PROVIDERS = {
   bridge: "providers",
   rateLimit: { limit: 60, remaining: 59, category: "PUBLIC_READ", persistence: "PER_INSTANCE_UNPERSISTED" },
@@ -157,6 +146,39 @@ const LIVE_TRUTH_HISTORY_POPULATED = {
     { id: 1, fingerprint: LEDGER_FP_A, claimsMeasured: 19, claimsAsserted: 0, createdAt: LEDGER_TS_OLD, drift: false },
   ],
   retention: { keep: 168, oldestRetainedId: 1, oldestRetainedIsGenesis: true },
+};
+const LIVE_SUMMARY_EMPTY = {
+  state: "EMPTY",
+  persistence: "POSTGRES",
+  count: 0,
+  latestFingerprint: null,
+  capturedAt: null,
+  claimsMeasured: null,
+  claimsAsserted: null,
+  drift: false,
+  retention: { keep: 168, oldestRetainedId: null, oldestRetainedIsGenesis: false },
+};
+const LIVE_SUMMARY_POPULATED = {
+  state: "POPULATED",
+  persistence: "UNPERSISTED",
+  count: 2,
+  latestFingerprint: LEDGER_FP_B,
+  capturedAt: LEDGER_TS_NEW,
+  claimsMeasured: 19,
+  claimsAsserted: 0,
+  drift: true,
+  retention: { keep: 168, oldestRetainedId: 1, oldestRetainedIsGenesis: true },
+};
+const LIVE_SELFVERIFY = {
+  items: [
+    { area: "health", name: "Database", verdict: "IMPLEMENTED_PROVEN", measured: true },
+    { area: "corpus", name: "Corpus", verdict: "DEMO", measured: true },
+    { area: "providers", name: "openai", verdict: "DOCUMENTED_ONLY", measured: true },
+  ],
+  claimsMeasured: 3,
+  claimsAsserted: 0,
+  fingerprint: "a".repeat(64),
+  truthLedgerSummary: LIVE_SUMMARY_EMPTY,
 };
 
 // A full honest-live fetch double routing by URL.
@@ -241,6 +263,24 @@ describe("smoke-live contract evaluators", () => {
     ).toBe(false);
     expect(checkSelfVerify(200, { ...LIVE_SELFVERIFY, fingerprint: "short" }).passed).toBe(false);
     expect(checkSelfVerify(200, { ...LIVE_SELFVERIFY, truthLedgerSummary: { count: -1 } }).passed).toBe(false);
+  });
+
+  it("selfVerify fails on forged truthLedgerSummary derived coherence", () => {
+    expect(
+      checkSelfVerify(200, {
+        ...LIVE_SELFVERIFY,
+        truthLedgerSummary: { ...LIVE_SUMMARY_EMPTY, state: "EMPTY", count: 2 },
+      }).passed,
+    ).toBe(false);
+    expect(
+      checkSelfVerify(200, {
+        ...LIVE_SELFVERIFY,
+        truthLedgerSummary: {
+          ...LIVE_SUMMARY_POPULATED,
+          retention: { ...LIVE_SUMMARY_POPULATED.retention, oldestRetainedId: 1, oldestRetainedIsGenesis: false },
+        },
+      }).passed,
+    ).toBe(false);
   });
 
   it("rate disclosure accepts EITHER honest MEASURED backing store (STE-K-19)", () => {
@@ -530,7 +570,7 @@ describe("runSmoke orchestration (mocked fetch)", () => {
     const report = await runSmoke("https://x.dev", {
       fetchImpl: liveFetch({
         truthHistory: trpcOk(LIVE_TRUTH_HISTORY_POPULATED),
-        selfVerify: trpcOk({ ...LIVE_SELFVERIFY, truthLedgerSummary: { count: 2 } }),
+        selfVerify: trpcOk({ ...LIVE_SELFVERIFY, truthLedgerSummary: LIVE_SUMMARY_POPULATED }),
       }),
       expectedSha: null,
       committedManifest: COMMITTED_MANIFEST,
@@ -556,6 +596,19 @@ describe("checkTruthLedgerRead (STE-K-13)", () => {
     const r = checkTruthLedgerRead(200, LIVE_TRUTH_HISTORY_POPULATED, 2, LEDGER_NOW_MS);
     expect(r.passed).toBe(true);
     expect(r.detail).toMatch(/1 drift-flagged/);
+  });
+
+  it("fails when truthLedgerSummary latest fields diverge from the latest truthHistory snapshot", () => {
+    const r = checkTruthLedgerRead(
+      200,
+      LIVE_TRUTH_HISTORY_POPULATED,
+      2,
+      LEDGER_NOW_MS,
+      undefined,
+      { ...LIVE_SUMMARY_POPULATED, latestFingerprint: "c".repeat(64) },
+    );
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/latestFingerprint/);
   });
 
   it("fails when the latest snapshot is stale beyond the hourly freshness threshold", () => {
@@ -782,6 +835,40 @@ describe("checkTruthLedgerRead (STE-K-13)", () => {
     expect(r.detail).toMatch(/retention\.keep/);
   });
 
+  it("fails when retention oldestRetainedIsGenesis contradicts oldestRetainedId", () => {
+    const r = checkTruthLedgerRead(200, {
+      ...LIVE_TRUTH_HISTORY_POPULATED,
+      retention: { keep: 168, oldestRetainedId: 5, oldestRetainedIsGenesis: true },
+    });
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/oldestRetainedIsGenesis=true/);
+  });
+
+  it("fails when retention oldestRetainedId is null while snapshots are populated", () => {
+    const r = checkTruthLedgerRead(200, {
+      ...LIVE_TRUTH_HISTORY_POPULATED,
+      retention: { keep: 168, oldestRetainedId: null, oldestRetainedIsGenesis: false },
+    });
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/oldestRetainedId invalid/);
+  });
+
+  it("fails when truthLedgerSummary retention disagrees with truthHistory retention", () => {
+    const r = checkTruthLedgerRead(
+      200,
+      LIVE_TRUTH_HISTORY_POPULATED,
+      2,
+      LEDGER_NOW_MS,
+      undefined,
+      {
+        ...LIVE_SUMMARY_POPULATED,
+        retention: { keep: 168, oldestRetainedId: 9, oldestRetainedIsGenesis: false },
+      },
+    );
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/retention\.oldestRetainedId/);
+  });
+
   it("fails when the returned page exceeds the retention window", () => {
     const snaps = Array.from({ length: 3 }, (_, k) => ({
       id: 3 - k,
@@ -904,7 +991,7 @@ describe("gateway single-origin (STE-K-20)", () => {
     const gatewayBase = gatewayBaseUrl("https://gw.example.com");
     const directBase = "https://direct.example.com";
     const shared = liveFetch({
-      selfVerify: trpcOk({ ...LIVE_SELFVERIFY, truthLedgerSummary: { count: 2 } }),
+      selfVerify: trpcOk({ ...LIVE_SELFVERIFY, truthLedgerSummary: LIVE_SUMMARY_POPULATED }),
       truthHistory: trpcOk(LIVE_TRUTH_HISTORY_POPULATED),
     });
     const parityFetch: FetchLike = async (url, init) => {
@@ -913,7 +1000,7 @@ describe("gateway single-origin (STE-K-20)", () => {
         return trpcOk({
           ...LIVE_SELFVERIFY,
           fingerprint: "f".repeat(64),
-          truthLedgerSummary: { count: 9 },
+          truthLedgerSummary: { ...LIVE_SUMMARY_POPULATED, count: 9 },
         });
       if (url.startsWith(`${directBase}/api/trpc/onx.truthHistory`))
         return trpcOk({

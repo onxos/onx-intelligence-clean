@@ -266,7 +266,21 @@ export function checkSelfVerify(
     claimsMeasured?: number;
     claimsAsserted?: number;
     fingerprint?: string;
-    truthLedgerSummary?: { count?: number };
+    truthLedgerSummary?: {
+      state?: string;
+      persistence?: string;
+      count?: number;
+      latestFingerprint?: string | null;
+      capturedAt?: string | null;
+      claimsMeasured?: number | null;
+      claimsAsserted?: number | null;
+      drift?: boolean;
+      retention?: {
+        keep?: number;
+        oldestRetainedId?: number | null;
+        oldestRetainedIsGenesis?: boolean;
+      };
+    };
   },
 ): ContractResult {
   const name = "honest_status_selfverify";
@@ -295,9 +309,69 @@ export function checkSelfVerify(
       passed: false,
       detail: `claimsAsserted=${data?.claimsAsserted} mismatches asserted items (${assertedCount})`,
     };
-  const total = data?.truthLedgerSummary?.count;
+  const summary = data?.truthLedgerSummary;
+  const total = summary?.count;
   if (!Number.isInteger(total) || Number(total) < 0)
     return { name, passed: false, detail: `truthLedgerSummary.count missing/invalid (${total})` };
+  if (!summary || (summary.state !== "EMPTY" && summary.state !== "POPULATED"))
+    return { name, passed: false, detail: `truthLedgerSummary.state invalid (${String(summary?.state)})` };
+  if (summary.persistence !== "POSTGRES" && summary.persistence !== "UNPERSISTED")
+    return { name, passed: false, detail: `truthLedgerSummary.persistence invalid (${String(summary.persistence)})` };
+  if (typeof summary.drift !== "boolean")
+    return { name, passed: false, detail: `truthLedgerSummary.drift invalid (${String(summary.drift)})` };
+  const retention = summary.retention;
+  if (!retention)
+    return { name, passed: false, detail: "truthLedgerSummary.retention missing" };
+  if (typeof retention.keep !== "number" || !Number.isFinite(retention.keep) || retention.keep < 1)
+    return { name, passed: false, detail: `truthLedgerSummary.retention.keep invalid (${String(retention.keep)})` };
+  if (retention.oldestRetainedId !== null && (!Number.isInteger(retention.oldestRetainedId) || Number(retention.oldestRetainedId) < 1))
+    return {
+      name,
+      passed: false,
+      detail: `truthLedgerSummary.retention.oldestRetainedId invalid (${String(retention.oldestRetainedId)})`,
+    };
+  if (typeof retention.oldestRetainedIsGenesis !== "boolean")
+    return {
+      name,
+      passed: false,
+      detail: `truthLedgerSummary.retention.oldestRetainedIsGenesis invalid (${String(retention.oldestRetainedIsGenesis)})`,
+    };
+  if (retention.oldestRetainedId === 1 && retention.oldestRetainedIsGenesis !== true)
+    return {
+      name,
+      passed: false,
+      detail: "truthLedgerSummary.retention inconsistent: oldestRetainedId=1 requires oldestRetainedIsGenesis=true",
+    };
+  if (retention.oldestRetainedId !== 1 && retention.oldestRetainedIsGenesis === true)
+    return {
+      name,
+      passed: false,
+      detail: `truthLedgerSummary.retention inconsistent: oldestRetainedIsGenesis=true with oldestRetainedId=${String(retention.oldestRetainedId)}`,
+    };
+  if (summary.state === "EMPTY") {
+    if (summary.count !== 0)
+      return { name, passed: false, detail: `truthLedgerSummary.state=EMPTY but count=${String(summary.count)}` };
+    if (summary.latestFingerprint !== null)
+      return { name, passed: false, detail: "truthLedgerSummary.state=EMPTY requires latestFingerprint=null" };
+    if (summary.capturedAt !== null)
+      return { name, passed: false, detail: "truthLedgerSummary.state=EMPTY requires capturedAt=null" };
+    if (summary.claimsMeasured !== null || summary.claimsAsserted !== null)
+      return { name, passed: false, detail: "truthLedgerSummary.state=EMPTY requires null claim counters" };
+    if (summary.drift !== false)
+      return { name, passed: false, detail: "truthLedgerSummary.state=EMPTY requires drift=false" };
+  }
+  if (summary.state === "POPULATED") {
+    if (!Number.isInteger(summary.count) || Number(summary.count) < 1)
+      return { name, passed: false, detail: `truthLedgerSummary.state=POPULATED requires count>=1 (${String(summary.count)})` };
+    if (!/^[0-9a-f]{64}$/.test(String(summary.latestFingerprint)))
+      return { name, passed: false, detail: `truthLedgerSummary.latestFingerprint invalid (${String(summary.latestFingerprint)})` };
+    if (typeof summary.capturedAt !== "string" || !Number.isFinite(Date.parse(summary.capturedAt)))
+      return { name, passed: false, detail: `truthLedgerSummary.capturedAt invalid (${String(summary.capturedAt)})` };
+    if (!Number.isInteger(summary.claimsMeasured) || Number(summary.claimsMeasured) < 0)
+      return { name, passed: false, detail: `truthLedgerSummary.claimsMeasured invalid (${String(summary.claimsMeasured)})` };
+    if (!Number.isInteger(summary.claimsAsserted) || Number(summary.claimsAsserted) < 0)
+      return { name, passed: false, detail: `truthLedgerSummary.claimsAsserted invalid (${String(summary.claimsAsserted)})` };
+  }
   return {
     name,
     passed: true,
@@ -446,6 +520,21 @@ export function checkTruthLedgerRead(
   truthLedgerTotalCount?: number,
   nowMs?: number,
   expectedWindowLimit?: number,
+  truthLedgerSummary?: {
+    state?: string;
+    persistence?: string;
+    count?: number;
+    latestFingerprint?: string | null;
+    capturedAt?: string | null;
+    claimsMeasured?: number | null;
+    claimsAsserted?: number | null;
+    drift?: boolean;
+    retention?: {
+      keep?: number;
+      oldestRetainedId?: number | null;
+      oldestRetainedIsGenesis?: boolean;
+    };
+  },
 ): ContractResult {
   const name = "truth_ledger_read";
   if (status !== 200) return { name, passed: false, detail: `expected 200, got ${status}` };
@@ -467,6 +556,32 @@ export function checkTruthLedgerRead(
         name,
         passed: false,
         detail: `page (${snapsForBound.length}) exceeds retention.keep (${retention.keep}) — retention not enforced`,
+      };
+  }
+  if (retention !== undefined) {
+    if (retention.oldestRetainedId !== null && (!Number.isInteger(retention.oldestRetainedId) || Number(retention.oldestRetainedId) < 1))
+      return {
+        name,
+        passed: false,
+        detail: `retention.oldestRetainedId invalid (${String(retention.oldestRetainedId)})`,
+      };
+    if (typeof retention.oldestRetainedIsGenesis !== "boolean")
+      return {
+        name,
+        passed: false,
+        detail: `retention.oldestRetainedIsGenesis invalid (${String(retention.oldestRetainedIsGenesis)})`,
+      };
+    if (retention.oldestRetainedId === 1 && retention.oldestRetainedIsGenesis !== true)
+      return {
+        name,
+        passed: false,
+        detail: "retention inconsistent: oldestRetainedId=1 requires oldestRetainedIsGenesis=true",
+      };
+    if (retention.oldestRetainedId !== 1 && retention.oldestRetainedIsGenesis === true)
+      return {
+        name,
+        passed: false,
+        detail: `retention inconsistent: oldestRetainedIsGenesis=true with oldestRetainedId=${String(retention.oldestRetainedId)}`,
       };
   }
   const snaps = data?.snapshots;
@@ -491,6 +606,12 @@ export function checkTruthLedgerRead(
   }
   if (Number(data?.count) !== snaps.length)
     return { name, passed: false, detail: `count (${data?.count}) != snapshots.length (${snaps.length})` };
+  if (retention && snaps.length > 0 && retention.oldestRetainedId === null)
+    return {
+      name,
+      passed: false,
+      detail: "retention.oldestRetainedId invalid (null) while snapshots are populated",
+    };
   if (truthLedgerTotalCount !== undefined) {
     if (!Number.isInteger(truthLedgerTotalCount) || truthLedgerTotalCount < 0)
       return {
@@ -505,8 +626,62 @@ export function checkTruthLedgerRead(
         detail: `truthLedgerSummary.count (${truthLedgerTotalCount}) < window rows (${snaps.length}) — inconsistent total`,
       };
   }
+  if (truthLedgerSummary !== undefined) {
+    if (truthLedgerSummary.persistence !== persistence)
+      return {
+        name,
+        passed: false,
+        detail: `truthLedgerSummary.persistence (${String(truthLedgerSummary.persistence)}) != truthHistory.persistence (${String(persistence)})`,
+      };
+    if (retention && truthLedgerSummary.retention) {
+      if (truthLedgerSummary.retention.keep !== retention.keep)
+        return {
+          name,
+          passed: false,
+          detail: `truthLedgerSummary.retention.keep (${String(truthLedgerSummary.retention.keep)}) != truthHistory.retention.keep (${String(retention.keep)})`,
+        };
+      if (truthLedgerSummary.retention.oldestRetainedId !== retention.oldestRetainedId)
+        return {
+          name,
+          passed: false,
+          detail: `truthLedgerSummary.retention.oldestRetainedId (${String(truthLedgerSummary.retention.oldestRetainedId)}) != truthHistory.retention.oldestRetainedId (${String(retention.oldestRetainedId)})`,
+        };
+      if (truthLedgerSummary.retention.oldestRetainedIsGenesis !== retention.oldestRetainedIsGenesis)
+        return {
+          name,
+          passed: false,
+          detail: `truthLedgerSummary.retention.oldestRetainedIsGenesis (${String(truthLedgerSummary.retention.oldestRetainedIsGenesis)}) != truthHistory.retention.oldestRetainedIsGenesis (${String(retention.oldestRetainedIsGenesis)})`,
+        };
+    }
+  }
   // Empty ledger = honest "no live scheduled capture" state, not a breach.
-  if (snaps.length === 0)
+  if (snaps.length === 0) {
+    if (truthLedgerSummary) {
+      if (truthLedgerSummary.state !== "EMPTY")
+        return {
+          name,
+          passed: false,
+          detail: `truthLedgerSummary.state (${String(truthLedgerSummary.state)}) inconsistent with empty truthHistory window`,
+        };
+      if (truthLedgerSummary.latestFingerprint !== null || truthLedgerSummary.capturedAt !== null)
+        return {
+          name,
+          passed: false,
+          detail: "truthLedgerSummary latest fingerprint/timestamp must be null when truthHistory window is empty",
+        };
+      if (truthLedgerSummary.claimsMeasured !== null || truthLedgerSummary.claimsAsserted !== null)
+        return {
+          name,
+          passed: false,
+          detail: "truthLedgerSummary claim counters must be null when truthHistory window is empty",
+        };
+      if (truthLedgerSummary.drift !== false)
+        return {
+          name,
+          passed: false,
+          detail: "truthLedgerSummary.drift must be false when truthHistory window is empty",
+        };
+    }
     return {
       name,
       passed: true,
@@ -515,6 +690,7 @@ export function checkTruthLedgerRead(
           ? `ledger empty — honest: no live scheduled capture (persistence=${persistence})`
           : `ledger empty window (persistence=${persistence}); truthful total count=${truthLedgerTotalCount}`,
     };
+  }
   const now = typeof nowMs === "number" && Number.isFinite(nowMs) ? nowMs : null;
   // STE-K-49 deepening: freshness threshold derived from measured hourly
   // cadence (TRUTH_SNAPSHOT_INTERVAL_MS) with an explicit jitter margin.
@@ -610,6 +786,44 @@ export function checkTruthLedgerRead(
       };
   }
   const drifted = snaps.filter((s) => s.drift).length;
+  if (truthLedgerSummary) {
+    if (truthLedgerSummary.state !== "POPULATED")
+      return {
+        name,
+        passed: false,
+        detail: `truthLedgerSummary.state (${String(truthLedgerSummary.state)}) inconsistent with populated truthHistory window`,
+      };
+    if (truthLedgerSummary.latestFingerprint !== snaps[0].fingerprint)
+      return {
+        name,
+        passed: false,
+        detail: `truthLedgerSummary.latestFingerprint (${String(truthLedgerSummary.latestFingerprint).slice(0, 12)}) != truthHistory latest (${String(snaps[0].fingerprint).slice(0, 12)})`,
+      };
+    if (truthLedgerSummary.capturedAt !== snaps[0].createdAt)
+      return {
+        name,
+        passed: false,
+        detail: `truthLedgerSummary.capturedAt (${String(truthLedgerSummary.capturedAt)}) != truthHistory latest.createdAt (${String(snaps[0].createdAt)})`,
+      };
+    if (truthLedgerSummary.claimsMeasured !== snaps[0].claimsMeasured)
+      return {
+        name,
+        passed: false,
+        detail: `truthLedgerSummary.claimsMeasured (${String(truthLedgerSummary.claimsMeasured)}) != truthHistory latest.claimsMeasured (${String(snaps[0].claimsMeasured)})`,
+      };
+    if (truthLedgerSummary.claimsAsserted !== snaps[0].claimsAsserted)
+      return {
+        name,
+        passed: false,
+        detail: `truthLedgerSummary.claimsAsserted (${String(truthLedgerSummary.claimsAsserted)}) != truthHistory latest.claimsAsserted (${String(snaps[0].claimsAsserted)})`,
+      };
+    if (truthLedgerSummary.drift !== snaps[0].drift)
+      return {
+        name,
+        passed: false,
+        detail: `truthLedgerSummary.drift (${String(truthLedgerSummary.drift)}) != truthHistory latest.drift (${String(snaps[0].drift)})`,
+      };
+  }
   const retentionNote = retention
     ? `, retention keep=${retention.keep} oldestRetainedId=${retention.oldestRetainedId ?? "none"}${retention.oldestRetainedIsGenesis ? " (genesis retained)" : " (older pruned)"}`
     : "";
@@ -697,6 +911,23 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
   const leaks: string[] = [];
   let deployFresh = false;
   let truthLedgerTotalCountFromSummary: number | undefined = undefined;
+  let truthLedgerSummaryFromSelfVerify:
+    | {
+        state?: string;
+        persistence?: string;
+        count?: number;
+        latestFingerprint?: string | null;
+        capturedAt?: string | null;
+        claimsMeasured?: number | null;
+        claimsAsserted?: number | null;
+        drift?: boolean;
+        retention?: {
+          keep?: number;
+          oldestRetainedId?: number | null;
+          oldestRetainedIsGenesis?: boolean;
+        };
+      }
+    | undefined = undefined;
 
   function mergeParity(contract: ContractResult, mismatch: string | null): ContractResult {
     if (!mismatch || !contract.passed) return contract;
@@ -741,7 +972,23 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
   {
     const { status, body, raw } = await getJson(fetchImpl, trpcGetUrl(base, "onx.selfVerify"));
     const u = unwrapTrpc(body);
-    const selfVerifyData = (u.data ?? {}) as { truthLedgerSummary?: { count?: number } };
+    const selfVerifyData = (u.data ?? {}) as {
+      truthLedgerSummary?: {
+        state?: string;
+        persistence?: string;
+        count?: number;
+        latestFingerprint?: string | null;
+        capturedAt?: string | null;
+        claimsMeasured?: number | null;
+        claimsAsserted?: number | null;
+        drift?: boolean;
+        retention?: {
+          keep?: number;
+          oldestRetainedId?: number | null;
+          oldestRetainedIsGenesis?: boolean;
+        };
+      };
+    };
     let contract = checkSelfVerify(status, selfVerifyData as never);
     if (parityBase) {
       let mismatch: string | null = null;
@@ -769,6 +1016,7 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
     }
     contracts.push(contract);
     truthLedgerTotalCountFromSummary = selfVerifyData?.truthLedgerSummary?.count;
+    truthLedgerSummaryFromSelfVerify = selfVerifyData?.truthLedgerSummary;
     const leak = assertNoKeyLeak(raw);
     if (leak) leaks.push(`selfVerify:${leak}`);
   }
@@ -853,6 +1101,7 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
       truthLedgerTotalCountFromSummary,
       Date.now(),
       truthHistoryLimit,
+      truthLedgerSummaryFromSelfVerify,
     );
     if (parityBase) {
       let mismatch: string | null = null;
