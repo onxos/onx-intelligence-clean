@@ -231,7 +231,8 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 
 | STE-K-32 (W40) unified docs wave K-30/K-31 + measured refresh | `6dd0735` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs) | 6 gates green | run 29314403487 (6 gates) |
 | STE-K-33 (W41) golden eval expansion (DEMO-derived) | `7d6853a` | `api/fixtures/golden-set.ts` (+8 cases), `api/fixtures/eval-floors.json`, `docs/OPERATIONS_RUNBOOK.md`, `docs/COVERAGE_MATRIX.md` | `eval:golden` (49→57 cases, ratchet kept 1.0×3) | deepening — no new contract; same eval gate + same 9 smoke contracts | run 29316271117 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=7d6853a` |
-| STE-K-34 (W42) docs-only hardening + measured refresh | `(this wave commit)` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; no logic, no new cases) | deepening — no new contracts; total remains 9 | pre-write live measure: `/commit=7d6853aa…`, truth-ledger `count=27 persistence=POSTGRES`; 6 gates green on latest push; strict gateway 9/9 on final wave commit |
+| STE-K-34 (W42) docs-only hardening + measured refresh | `cdce921` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; no logic, no new cases) | deepening — no new contracts; total remains 9 | pre-write live measure: `/commit=7d6853aa…`, truth-ledger `count=27 persistence=POSTGRES`; run 29318134048 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=cdce921` |
+| STE-K-35 (W43) /truth SPA render-guard architectural judgment | `(this wave commit)` | `docs/OPERATIONS_RUNBOOK.md`, `docs/COVERAGE_MATRIX.md` | — (docs+judgment only) | deepening — HTML-only guard for cards/tables is architecturally non-measurable on SPA; data-layer guards remain the truthful path; total stays 9 | measured raw `/truth` HTML: `len=400`, `root=true`, `module=true`, `freshnessText=false`, `ledgerText=false`; 6 gates green + strict gateway 9/9 |
 
 ## Live measured status (as of W42 pre-write measurement / commit `7d6853a`)
 - **/health:** `ALIVE`, `env=production`, pre-write live commit `7d6853a` (measured direct + via gateway before committing K-34 docs).
@@ -266,6 +267,11 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
   page is the REAL built SPA shell — measured markers `id="root"` + `<script type="module"
   src="/assets/…">`; a hollow 200 shell or non-200 fails honestly. Live `RENDER_PROVEN=true`;
   contract detail reads `/truth render-proven (SPA root + built bundle)`.
+- **STE-K-35 architectural judgment (measured):** raw `/truth` HTML on production SPA carries
+  only shell markers (`id="root"` + module bundle) and **does not** carry card/table content text
+  (`freshness=false`, `ledger=false`). Therefore guarding freshness/ledger presence from raw HTML
+  is non-measurable in this architecture; truthful guarding remains at the data layer
+  (`truthHistory`/`truth-ledger` + `/commit`) through existing contracts (total stays 9).
 - **Corpus:** `disclosure=DEMO` (measured) — 22500 templated seed docs, sha256
   `6fc2bed87d86…`; awaits the founder REC-06 authentic archive (19,012 docs) to flip
   to REAL **by measurement**, never by hand.
@@ -287,10 +293,10 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
   Intelligence continues to prove all nine doctrine contracts through the gateway single origin;
   marketing web remains architecturally excluded by #118.
 
-## Environment truth (post K-14…K-34, `.env.example`)
+## Environment truth (post K-14…K-35, `.env.example`)
 All values MEASURED by `process.env` reads in code; none fabricated. See
 `docs/OPERATIONS_RUNBOOK.md` §و (environment truth scan) for the file:line inventory.
-No new **server-read** environment variable was introduced by K-14…K-34 — the cron capture,
+No new **server-read** environment variable was introduced by K-14…K-35 — the cron capture,
 DEMO→REAL tooling, Truth page, rate-limit persistence, bounded retention, single-origin gateway
 proof, the /truth retention/rate-limit deepening, the /truth render proof, the /truth
 deploy-freshness card, the /truth truthHistory row table, and the STE-K-33 golden-set expansion all
@@ -302,6 +308,6 @@ Two K-19/K-20 variables are **operator-tooling-only, NOT read by the running ser
 consumed solely by `scripts/smoke-live.ts`:
 - `GATEWAY_ORIGIN` (STE-K-20) — official gateway origin; derives the single-origin smoke base.
 - `EXPECT_RL_PERSISTENCE` (STE-K-19) — asserts the deployment's rate-limit backing store.
-- **STE-K-34 grep-verified (changed files only):** `process.env` ظهرت داخل نصوص
+- **STE-K-35 grep-verified (changed files only):** `process.env` ظهرت داخل نصوص
   توثيق/أمثلة فقط (`docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md`) ولا توجد
   إضافة لأي قراءة env تشغيلية جديدة في كود الخادم.
