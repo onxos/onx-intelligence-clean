@@ -101,6 +101,28 @@ export function assertNoKeyLeak(raw: string): string | null {
   return m ? `possible key leak: ${m[0].slice(0, 6)}…` : null;
 }
 
+// STE-K-25: render proof for the served /truth page. A bare `200 OK`
+// with an empty body would silently pass a leak-only scan — so we
+// additionally prove the response is the REAL built SPA shell (the
+// document that boots the Truth route), not an empty/error shell.
+//
+// Markers are MEASURED from the live built index.html, not assumed:
+//   <div id="root"></div>                       -> SPA mount root
+//   <script type="module" ... src="/assets/…">  -> the built app bundle
+// A hollow shell (no root, or no module bundle wired in) fails HONESTLY
+// instead of masquerading as a live page. Returns null when the page is
+// proven rendered, or a human reason string describing what is missing.
+export function assertTruthPageRendered(status: number, html: string): string | null {
+  if (status !== 200) return `status ${status}`;
+  const body = html ?? "";
+  const hasRoot = /id=["']root["']/.test(body);
+  const hasModuleBundle = /<script[^>]+type=["']module["'][^>]*src=["']\/assets\//.test(body);
+  const missing: string[] = [];
+  if (!hasRoot) missing.push("no SPA root (#root)");
+  if (!hasModuleBundle) missing.push("no built module bundle (/assets/*.js)");
+  return missing.length === 0 ? null : missing.join(", ");
+}
+
 // --- Pure contract evaluators (unit-tested directly) --------
 
 // Shared commit-equality: accept full or prefix match (short SHAs
@@ -644,18 +666,31 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
   // rendered ENTIRELY from the honest surfaces already checked above, so
   // its own bytes must also never echo a full provider key. A single GET
   // of the served HTML feeds the same leak guard (deep-link SPA route).
+  //
+  // STE-K-25 DEEPENING (no new contract, total stays 9): a bare `200 OK`
+  // shell would pass a leak-only scan while proving nothing was rendered.
+  // We therefore also require RENDER PROOF — the served bytes must be the
+  // real built SPA shell (SPA root + built module bundle), measured from
+  // the live index.html. A hollow/error shell fails HONESTLY here instead
+  // of masquerading as a live page. Folded into the same no_key_leak
+  // contract's pass/fail so the surface count is unchanged.
   {
     const res = await fetchImpl(`${base}/truth`, { headers: { accept: "text/html" } });
     const raw = await res.text();
     const leak = assertNoKeyLeak(raw);
     if (leak) leaks.push(`truthPage:${leak}`);
+    const notRendered = assertTruthPageRendered(res.status, raw);
+    if (notRendered) leaks.push(`truthPage:not-rendered (${notRendered})`);
   }
 
-  // Leak guard is itself a contract.
+  // Leak guard + /truth render proof are a single contract (STE-K-25).
   contracts.push({
     name: "no_key_leak",
     passed: leaks.length === 0,
-    detail: leaks.length === 0 ? "no full provider key in any response" : leaks.join("; "),
+    detail:
+      leaks.length === 0
+        ? "no full provider key in any response; /truth render-proven (SPA root + built bundle)"
+        : leaks.join("; "),
   });
 
   const failedCount = contracts.filter((c) => !c.passed).length;
