@@ -1,5 +1,5 @@
 {
-  "_note": "Ratchet pinned at 1.0x3 (never lowered). STE-K-33 and STE-K-42 expanded golden to 65; STE-K-56 expands to 73 with additional measured refusal, multi-level precedence, unknown/no-fabrication, and diacritized sensitivity edges. Floors stay at the measured maximum and apply to the full updated set.",
+  "_note": "Ratchet pinned at 1.0x3 (never lowered). STE-K-33 and STE-K-42 expanded golden to 65; STE-K-56 expanded to 73; STE-K-64 expands to 81 with additional measured intent-edge and precedence coverage. Floors stay at the measured maximum and apply to the full updated set.",
   "intentAccuracy": 1,
   "refusalHonesty": 1,
   "retrievalHitAtK": 1

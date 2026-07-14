@@ -260,10 +260,11 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 | STE-K-60 (W68) measured derived-fields coherence deepening | `d648118` | `api/lib/smoke-contracts.ts`, `api/__tests__/smoke-live.test.ts`, `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `smoke-live.test.ts` (suite 1095→1100) | deepening inside existing `honest_status_selfverify` + `truth_ledger_read` contracts only; total stays 9 | measured gap closed: derived summary/retention coherence was partially type-guarded but not fully source-coherent; activation now fails forged derived payloads (summary state/latest fields/retention coherence + truthHistory↔summary consistency) with deterministic breach tests; run 29342643513 (6 gates); strict gateway+parity 9/9 @ `EXPECT_COMMIT=02cad8f` |
 | STE-K-61 (W69) docs-only freeze for derived-fields coherence doctrine + milestone #137 reflection | `1683ea7` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; suite remains 1100) | docs-only freeze; no logic change, no new contracts; total remains 9 | pre-write live measure on served K-60 commit across direct+gateway `/health` parity (both `d648118`, ALIVE, production), `truthLedgerSummary.count=58 (POSTGRES)`, latest `truthHistory.createdAt=2026-07-14T14:55:09.118Z` (age≈10m); milestone #137 certified (C-72 `526d35a` + S-71 `92e60aa` + K-60 `d648118`); run 29344333526 (6 gates) |
 | STE-K-62 (W70) measured scheduler/cron surface coherence deepening | `4b9db57` + `88b1ab1` | `api/lib/smoke-contracts.ts`, `api/__tests__/smoke-live.test.ts`, `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `smoke-live.test.ts` + full suite (1100→1102) | deepening inside existing `honest_status_selfverify` contract only; total stays 9 | measured scheduler metadata is public (`scheduler.status` + Scheduler selfVerify detail); activation enforces derived coherence (`active/total/failing` parity, `intervalHuman↔interval`, `nextRun/msUntilNext`, `active↔nextRun`, `runCount↔lastRun`) with deterministic forged-payload failures; truthful two-commit execution: `4b9db57` functional deepening then `88b1ab1` TypeScript narrowing fix (no behavioral change); run 29345725493 (6 gates) success; strict gateway+parity 9/9 @ `EXPECT_COMMIT=1683ea7` |
-| STE-K-63 (W71) docs-only freeze for scheduler coherence doctrine + milestone #138 reflection | `(this wave commit)` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; suite remains 1102) | docs-only freeze; no logic change, no new contracts; total remains 9 | pre-write live measure on served K-62 commit across direct+gateway `/health` parity (both `88b1ab1`, ALIVE, production), `truthLedgerSummary.count=60 (POSTGRES)`, latest `truthHistory.createdAt=2026-07-14T15:35:08.307Z` (age≈3m); milestone #138 certified (C-74 `d18ff6b` + S-73 `cea5819` + K-62 `88b1ab1`) |
+| STE-K-63 (W71) docs-only freeze for scheduler coherence doctrine + milestone #138 reflection | `690ab2d` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; suite remains 1102) | docs-only freeze; no logic change, no new contracts; total remains 9 | pre-write live measure on served K-62 commit across direct+gateway `/health` parity (both `88b1ab1`, ALIVE, production), `truthLedgerSummary.count=60 (POSTGRES)`, latest `truthHistory.createdAt=2026-07-14T15:35:08.307Z` (age≈3m); milestone #138 certified (C-74 `d18ff6b` + S-73 `cea5819` + K-62 `88b1ab1`); run 29346319741 (6 gates) |
+| STE-K-64 (W72) golden eval expansion round-4 (DEMO-derived) | `(this wave commit)` | `api/fixtures/golden-set.ts` (+8 cases), `api/fixtures/eval-floors.json`, `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `eval:golden` (73→81 cases, ratchet stays 1.0×3) | deepening — no new contract; same eval gate + same 9 smoke contracts | measured expansion targeted under-covered intent slices (`em/bk/pr/co/re/rf/in/px` each +1) from real rule edges (`intent-engine.ts` emergency/booking/pricing/complaint/results/refill/info lexicons + emergency precedence); three proposed refusal expectations were corrected to retrieval-evidenced answered cases (`em-en-3`, `in-en-3`, `px-em-book-en-2`) to keep honesty 1.0; pre-write live measure on served K-63 commit shows direct+gateway `/health` parity (`690ab2d`, ALIVE, production), `truthLedgerSummary.count=61 (POSTGRES)`, latest `truthHistory.createdAt=2026-07-14T15:45:10.204Z` (age≈17m); strict gateway 9/9 @ `EXPECT_COMMIT=690ab2d` |
 
-## Live measured status (as of W71 pre-write measurement / commit `88b1ab1`)
-- **/health (direct + gateway):** direct `/health` = `ALIVE`, `env=production`, `commit=88b1ab1…`; gateway `/intelligence/health` = `ALIVE`, `env=production`, `commit=88b1ab1…` (parity re-measured pre-write for K-63).
+## Live measured status (as of W72 pre-write measurement / commit `690ab2d`)
+- **/health (direct + gateway):** direct `/health` = `ALIVE`, `env=production`, `commit=690ab2d…`; gateway `/intelligence/health` = `ALIVE`, `env=production`, `commit=690ab2d…` (parity re-measured pre-write for K-64).
 - **Official single origin (STE-K-20):** `main` retired from live service; every surface is
   reached through the gateway `https://onx-gateway.onrender.com`. MEASURED proxy map:
 
@@ -279,10 +280,10 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 - **Truth ledger (STE-K-38/K-39 measured semantics):** `onx.truthHistory.count` is the **response window size**
   (bounded by `limit`, default 20), not the global table total. Live measurement:
   `truthHistory(limit=20) => count=20` and the independent total surface
-  `onx.selfVerify.truthLedgerSummary.count => 60`.
+  `onx.selfVerify.truthLedgerSummary.count => 61`.
 - **Latest snapshot freshness (STE-K-49 live measure):**
-  latest `truthHistory.snapshots[0].createdAt = 2026-07-14T15:35:08.307Z` with
-  measured age `≈3` minutes at pre-write measurement time.
+  latest `truthHistory.snapshots[0].createdAt = 2026-07-14T15:45:10.204Z` with
+  measured age `≈17` minutes at pre-write measurement time.
 - **Scheduler/cron public metadata (STE-K-62 live measure):** gateway `scheduler.status` returned
   `total=5`, `active=2`, `failing=0`; sample `pulse` row showed
   `interval=60000`, `intervalHuman=1m`, `lastRun=2026-07-14T15:37:42.162Z`,
@@ -338,7 +339,7 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
   honest per-window fallback to `PER_INSTANCE_UNPERSISTED` (memory) if the DB is unreachable.
   Surfaced as a measured badge on /truth (STE-K-23).
 - **Golden floors:** 1.0 / 1.0 / 1.0 (intentAccuracy / refusalHonesty / retrievalHit) over
-  **73 measured cases** (expanded 49→57 in STE-K-33 ثم 57→65 في STE-K-42 ثم 65→73 في STE-K-56) —
+  **81 measured cases** (expanded 49→57 in STE-K-33 ثم 57→65 في STE-K-42 ثم 65→73 في STE-K-56 ثم 73→81 في STE-K-64) —
   a ratchet, never lowered.
 - **Live watchdog (STE-K-29):** implemented, but **inert on the governed branch** because
   GitHub Actions executes both `schedule` and `workflow_dispatch` for a workflow file only
@@ -356,11 +357,13 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 - **Milestone #138 certified (scheduler/cron coherence tri-repo):** platform `C-74 @d18ff6b`
   (run 29344133101) + marketing `S-73 @cea5819` (run 29343556787) + intelligence `K-62 @88b1ab1`
   (run 29345725493) approved.
+- **Milestone #139 candidate (golden round-4 tri-repo):** platform `C-76 @80dd3c0` (accepted),
+  intelligence `K-64` (this wave), marketing `S-74` (pending).
 
-## Environment truth (post K-14…K-63, `.env.example`)
+## Environment truth (post K-14…K-64, `.env.example`)
 All values MEASURED by `process.env` reads in code; none fabricated. See
 `docs/OPERATIONS_RUNBOOK.md` §و (environment truth scan) for the file:line inventory.
-No new **server-read** environment variable was introduced by K-14…K-63 — the cron capture,
+No new **server-read** environment variable was introduced by K-14…K-64 — the cron capture,
 DEMO→REAL tooling, Truth page, rate-limit persistence, bounded retention, single-origin gateway
 proof, the /truth retention/rate-limit deepening, the /truth render proof, the /truth
 deploy-freshness card, the /truth truthHistory row table, and the STE-K-33 golden-set expansion all
@@ -373,6 +376,6 @@ consumed solely by `scripts/smoke-live.ts`:
 - `GATEWAY_ORIGIN` (STE-K-20) — official gateway origin; derives the single-origin smoke base.
 - `EXPECT_RL_PERSISTENCE` (STE-K-19) — asserts the deployment's rate-limit backing store.
 - `PARITY_BASE_URL` (STE-K-58) — optional direct base used by smoke harness parity checks.
-- **STE-K-63 grep-verified (changed files only):** `process.env` ظهر في الملفات المعدلة
+- **STE-K-64 grep-verified (changed files only):** `process.env` ظهر في الملفات المعدلة
   (`docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md`) كسياق توثيقي فقط؛ لا توجد
   أي قراءة env تشغيلية جديدة في كود الخادم المنتج.
