@@ -187,7 +187,7 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 | # | Gate | Command | Proves |
 |---|------|---------|--------|
 | 1 | TypeScript build | `npm run check` (`tsc -b`) | zero type errors across app + server |
-| 2 | Full test suite | `npm test` (`vitest run`) | 1051 passed / 5 skipped / 0 failed |
+| 2 | Full test suite | `npm test` (`vitest run`) | 1067 passed / 5 skipped / 0 failed |
 | 3 | Codex Guard | `npm run guard:scan` | zero NEW charter deviations (15 legacy tracked) |
 | 4 | OSVA self-verify | `npm run verify:self` | honest self-audit fingerprint, measured≥asserted |
 | 5 | Golden eval ratchet | `npm run eval:golden` | intent/refusal/retrieval floors held at 1.0×3 |
@@ -217,9 +217,12 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 | STE-K-18 (W26) coverage matrix + status refresh | `b2bdcbc` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md`, `.env.example` | — (docs) | 6 gates green | run 29303273279 (6 gates) |
 | STE-K-19 (W27) rate-limit Postgres persistence | `82d713f` | `api/lib/rate-limiter.ts` (onx_rate_limit_buckets, postgresStore, decideRateLimit), `smoke-contracts.ts`, 5 callsites | `rate-limiter` (+6 injected-store tests) | rate_limit_disclosure accepts both modes + `EXPECT_RL_PERSISTENCE` | run 29304450986; live `POSTGRES_PERSISTED` measured |
 | STE-K-20 (W28) single-origin gateway smoke | `01c18a1` | `smoke-contracts.ts` (gatewayBaseUrl, DEFAULT_GATEWAY_ORIGIN, GATEWAY_APP_MOUNT), `scripts/smoke-live.ts` (GATEWAY_ORIGIN), runbook و.9 | `smoke-live` (+4 gateway tests) | deepening — same 9 contracts, 2nd origin | run 29305502934; 9/9 via `onx-gateway…/intelligence` |
+| STE-K-21 (W29) coverage matrix K-18…K-20 + status refresh | `7e083ff` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` و.8, `.env.example` | — (docs) | 6 gates green | run 29306118608 (6 gates) |
+| STE-K-22 (W30) bounded truth-ledger retention | `db9f5e5` | `api/lib/truth-ledger.ts` (LEDGER_RETENTION_KEEP=168, atomic prune tx, RetentionDisclosure, markPrunedEdge), `smoke-contracts.ts` | `truth-ledger` (+5), `smoke-live` (+6) | deepening — 9th contract validates retention + pruned-edge; total stays 9 | run 29307328642; live `retention keep=168 oldestRetainedId=1 (genesis retained)` |
+| STE-K-23 (W31) deepen /truth: retention + rate-limit persistence | `42d59d4` | `api/lib/truth-page-model.ts` (RetentionSection, buildRetention), `src/pages/Truth.tsx` (retention card, measured rate-limit badge; stale caption fix) | `truth-page-model` (+6) | no new contract — rides scanned selfVerify; total stays 9 | run 29308227314; /truth 200, retention+POSTGRES_PERSISTED cards live |
 
-## Live measured status (as of W28 / commit `01c18a1`)
-- **/health:** `ALIVE`, `env=production`, live commit `01c18a1` (measured direct + via gateway).
+## Live measured status (as of W31 / commit `42d59d4`)
+- **/health:** `ALIVE`, `env=production`, live commit `42d59d4` (measured direct + via gateway).
 - **Official single origin (STE-K-20):** `main` retired from live service; every surface is
   reached through the gateway `https://onx-gateway.onrender.com`. MEASURED proxy map:
 
@@ -231,11 +234,17 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
   | `/intelligence/api/trpc/<proc>` | 200 | full-app → `/api/trpc/<proc>` |
 
   The full-app mount `…/intelligence` is the ONE base serving all nine contracts; live 9/9
-  via the single origin (run against `01c18a1`, `EXPECT_COMMIT` strict).
-- **Truth ledger:** grows hourly from the web cron — **13 snapshots** measured live via the
-  gateway (`truth_ledger_read`: 13 snapshots, 0 drift-flagged, persistence=POSTGRES; latest
-  fingerprint `bb642469c81d…`).
+  via the single origin (run against `42d59d4`, `EXPECT_COMMIT` strict).
+- **Truth ledger:** grows hourly from the web cron — **16 snapshots** measured live via the
+  gateway (`truth_ledger_read`: 16 snapshots, 0 drift-flagged, persistence=POSTGRES).
+- **Truth-ledger retention (STE-K-22):** bounded at **keep=168** (7 days hourly), pruned
+  atomically at capture. MEASURED disclosure live on `onx.truthHistory` / `truthLedgerSummary`:
+  `{keep:168, oldestRetainedId:1, oldestRetainedIsGenesis:true}` — the 168 window is not yet
+  reached (16 snapshots), so genesis is honestly retained; measured pruning begins past 168.
 - **/truth page:** LIVE (HTTP 200), rendered entirely from honest surfaces, zero key leak.
+  Now surfaces (STE-K-23) a bounded-retention card (keep / oldestRetainedId / genesis-retained
+  vs older-pruned edge) and a MEASURED rate-limit persistence badge — the stale hard-coded
+  "per-instance in-memory" caption that contradicted the K-19 measured store was removed.
 - **Corpus:** `disclosure=DEMO` (measured) — 22500 templated seed docs, sha256
   `6fc2bed87d86…`; awaits the founder REC-06 authentic archive (19,012 docs) to flip
   to REAL **by measurement**, never by hand.
@@ -243,15 +252,17 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 - **Rate limit:** **`POSTGRES_PERSISTED`** measured live (STE-K-19) — bucket state in
   `onx_rate_limit_buckets` via a `SELECT … FOR UPDATE` transaction, survives redeploy;
   honest per-window fallback to `PER_INSTANCE_UNPERSISTED` (memory) if the DB is unreachable.
+  Surfaced as a measured badge on /truth (STE-K-23).
 - **Golden floors:** 1.0 / 1.0 / 1.0 (intentAccuracy / refusalHonesty / retrievalHit) —
   a ratchet, never lowered.
 
-## Environment truth (post K-14…K-20, `.env.example`)
+## Environment truth (post K-14…K-23, `.env.example`)
 All values MEASURED by `process.env` reads in code; none fabricated. See
 `docs/OPERATIONS_RUNBOOK.md` §و (environment truth scan) for the file:line inventory.
-No new **server-read** environment variable was introduced by K-14…K-20 — the cron capture,
-DEMO→REAL tooling, Truth page, rate-limit persistence, and single-origin gateway proof all
-reuse existing surfaces and the existing `BRIDGE_SHARED_SECRET` / `DATABASE_URL` inputs.
+No new **server-read** environment variable was introduced by K-14…K-23 — the cron capture,
+DEMO→REAL tooling, Truth page, rate-limit persistence, bounded retention, single-origin gateway
+proof, and the /truth retention/rate-limit deepening all reuse existing surfaces and the existing
+`BRIDGE_SHARED_SECRET` / `DATABASE_URL` inputs.
 Two K-19/K-20 variables are **operator-tooling-only, NOT read by the running server** — both
 consumed solely by `scripts/smoke-live.ts`:
 - `GATEWAY_ORIGIN` (STE-K-20) — official gateway origin; derives the single-origin smoke base.
