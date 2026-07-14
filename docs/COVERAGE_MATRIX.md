@@ -257,10 +257,11 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 | STE-K-57 (W65) docs-only freeze for golden round-3 | `e21fa8c` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1095) | docs-only freeze; no logic change, no new contracts; total remains 9 | run 29338799590 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=e21fa8c`; pre-write live measure on served K-56 commit: `/health=e942407`, `status=ALIVE`, `env=production`, `truthLedgerSummary.count=54 (POSTGRES)`, latest `truthHistory.createdAt=2026-07-14T13:50:08.168Z` (age≈7m) |
 | STE-K-58 (W66) measured gateway/direct payload-parity guard deepening | `22d749d` | `api/lib/smoke-contracts.ts`, `scripts/smoke-live.ts`, `api/__tests__/smoke-live.test.ts`, `.env.example`, `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `smoke-live.test.ts` (suite remains 1095 passed) | deepening inside existing `health_live` + `honest_status_selfverify` + `truth_ledger_read` contracts only; total stays 9 | measured gap closed: strict smoke ran through gateway only without core-fact parity guard versus direct; activation adds optional `PARITY_BASE_URL` checks for commit/count/fingerprint parity with deterministic forged-mismatch failure test; run 29340324627 (6 gates); strict gateway+parity 9/9 @ `EXPECT_COMMIT=22d749d` |
 | STE-K-59 (W67) docs-only freeze for gateway parity doctrine | `02cad8f` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; suite remains 1095) | docs-only freeze; no logic change, no new contracts; total remains 9 | run 29341094913 (6 gates); strict gateway+parity 9/9 @ `EXPECT_COMMIT=22d749d`; pre-write live measure captured on served K-58 commit across direct+gateway `/health` parity (both `22d749d`, ALIVE, production) |
-| STE-K-60 (W68) measured derived-fields coherence deepening | `(this wave commit)` | `api/lib/smoke-contracts.ts`, `api/__tests__/smoke-live.test.ts`, `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `smoke-live.test.ts` (suite 1095→1100) | deepening inside existing `honest_status_selfverify` + `truth_ledger_read` contracts only; total stays 9 | measured gap closed: derived summary/retention coherence was partially type-guarded but not fully source-coherent; activation now fails forged derived payloads (summary state/latest fields/retention coherence + truthHistory↔summary consistency) with deterministic breach tests; strict gateway+parity 9/9 @ `EXPECT_COMMIT=02cad8f` |
+| STE-K-60 (W68) measured derived-fields coherence deepening | `d648118` | `api/lib/smoke-contracts.ts`, `api/__tests__/smoke-live.test.ts`, `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `smoke-live.test.ts` (suite 1095→1100) | deepening inside existing `honest_status_selfverify` + `truth_ledger_read` contracts only; total stays 9 | measured gap closed: derived summary/retention coherence was partially type-guarded but not fully source-coherent; activation now fails forged derived payloads (summary state/latest fields/retention coherence + truthHistory↔summary consistency) with deterministic breach tests; run 29342643513 (6 gates); strict gateway+parity 9/9 @ `EXPECT_COMMIT=02cad8f` |
+| STE-K-61 (W69) docs-only freeze for derived-fields coherence doctrine + milestone #137 reflection | `(this wave commit)` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; suite remains 1100) | docs-only freeze; no logic change, no new contracts; total remains 9 | pre-write live measure on served K-60 commit across direct+gateway `/health` parity (both `d648118`, ALIVE, production), `truthLedgerSummary.count=58 (POSTGRES)`, latest `truthHistory.createdAt=2026-07-14T14:55:09.118Z` (age≈10m); milestone #137 certified (C-72 `526d35a` + S-71 `92e60aa` + K-60 `d648118`) |
 
-## Live measured status (as of W68 pre-write measurement / commit `02cad8f`)
-- **/health (direct + gateway):** direct `/health` = `ALIVE`, `env=production`, `commit=02cad8f…`; gateway `/intelligence/health` = `ALIVE`, `env=production`, `commit=02cad8f…` (parity measured pre-write for K-60).
+## Live measured status (as of W69 pre-write measurement / commit `d648118`)
+- **/health (direct + gateway):** direct `/health` = `ALIVE`, `env=production`, `commit=d648118…`; gateway `/intelligence/health` = `ALIVE`, `env=production`, `commit=d648118…` (parity re-measured pre-write for K-61).
 - **Official single origin (STE-K-20):** `main` retired from live service; every surface is
   reached through the gateway `https://onx-gateway.onrender.com`. MEASURED proxy map:
 
@@ -276,10 +277,10 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 - **Truth ledger (STE-K-38/K-39 measured semantics):** `onx.truthHistory.count` is the **response window size**
   (bounded by `limit`, default 20), not the global table total. Live measurement:
   `truthHistory(limit=20) => count=20` and the independent total surface
-  `onx.selfVerify.truthLedgerSummary.count => 57`.
+  `onx.selfVerify.truthLedgerSummary.count => 58`.
 - **Latest snapshot freshness (STE-K-49 live measure):**
-  latest `truthHistory.snapshots[0].createdAt = 2026-07-14T14:35:06.585Z` with
-  measured age `≈13` minutes at pre-write measurement time.
+  latest `truthHistory.snapshots[0].createdAt = 2026-07-14T14:55:09.118Z` with
+  measured age `≈10` minutes at pre-write measurement time.
 - **Gateway/direct core parity (STE-K-58):** strict smoke deepening remains **within the same 9 contracts**
   and now supports an optional parity base (`PARITY_BASE_URL`) that fails honestly when gateway and direct
   disagree on core facts: `/health.commit`, `onx.selfVerify.{fingerprint,truthLedgerSummary.count}`,
@@ -295,7 +296,7 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 - **Truth-ledger retention (STE-K-22):** bounded at **keep=168** (7 days hourly), pruned
   atomically at capture. MEASURED disclosure live on `onx.truthHistory` / `truthLedgerSummary`:
   `{keep:168, oldestRetainedId:1, oldestRetainedIsGenesis:true}` — the 168 retention window is not yet
-  reached (total retained snapshots currently 57), so genesis is honestly retained; measured pruning begins past 168.
+  reached (total retained snapshots currently 58), so genesis is honestly retained; measured pruning begins past 168.
 - **K-41 drift coherence judgment (measured from code+tests):** cross-row `drift` semantics are already guarded
   where measurable: for each visible predecessor pair, contract enforces `drift === (fp[i] !== fp[i+1])`;
   the unmeasurable edge (oldest row with predecessor خارج النافذة/مُقلَّم) remains explicitly named via
@@ -342,13 +343,15 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 - **Milestone #119 (single-origin API truth, tri-repo):** completed across the three repos.
   Intelligence continues to prove all nine doctrine contracts through the gateway single origin;
   marketing web remains architecturally excluded by #118.
-- **Milestone #136 candidate (gateway parity tri-repo):** platform `C-70 @29641c1` + intelligence `K-58 @22d749d`
-  completed; marketing `S-69` remains in progress.
+- **Milestone #136 certified (gateway parity tri-repo):** platform `C-70 @29641c1` + intelligence `K-58 @22d749d`
+  + marketing `S-69 @feaf891` approved.
+- **Milestone #137 certified (derived-object coherence tri-repo):** platform `C-72 @526d35a`
+  + marketing `S-71 @92e60aa` + intelligence `K-60 @d648118` approved.
 
-## Environment truth (post K-14…K-60, `.env.example`)
+## Environment truth (post K-14…K-61, `.env.example`)
 All values MEASURED by `process.env` reads in code; none fabricated. See
 `docs/OPERATIONS_RUNBOOK.md` §و (environment truth scan) for the file:line inventory.
-No new **server-read** environment variable was introduced by K-14…K-60 — the cron capture,
+No new **server-read** environment variable was introduced by K-14…K-61 — the cron capture,
 DEMO→REAL tooling, Truth page, rate-limit persistence, bounded retention, single-origin gateway
 proof, the /truth retention/rate-limit deepening, the /truth render proof, the /truth
 deploy-freshness card, the /truth truthHistory row table, and the STE-K-33 golden-set expansion all
@@ -361,6 +364,6 @@ consumed solely by `scripts/smoke-live.ts`:
 - `GATEWAY_ORIGIN` (STE-K-20) — official gateway origin; derives the single-origin smoke base.
 - `EXPECT_RL_PERSISTENCE` (STE-K-19) — asserts the deployment's rate-limit backing store.
 - `PARITY_BASE_URL` (STE-K-58) — optional direct base used by smoke harness parity checks.
-- **STE-K-60 grep-verified (changed files only):** `process.env` ظهر في الملفات المعدلة
+- **STE-K-61 grep-verified (changed files only):** `process.env` ظهر في الملفات المعدلة
   (`docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md`) كسياق توثيقي فقط؛ لا توجد
   أي قراءة env تشغيلية جديدة في كود الخادم المنتج.
