@@ -11,7 +11,7 @@
 import { trpc } from "@/providers/trpc";
 import BackButton from "@/components/BackButton";
 import { Badge } from "@/components/ui/badge";
-import { ShieldCheck, Database, History, GaugeCircle, Link2, AlertTriangle } from "lucide-react";
+import { ShieldCheck, Database, History, GaugeCircle, Link2, AlertTriangle, Archive } from "lucide-react";
 import {
   buildTruthPageModel,
   type SourceOutcome,
@@ -102,7 +102,9 @@ export default function Truth() {
     providers: toOutcome<ProvidersStatusData>(providersQ as never),
   });
 
-  const { claims, corpus, ledger, rateLimit, bridges } = model;
+  const { claims, corpus, ledger, retention, rateLimit, bridges } = model;
+
+  const rlPersisted = rateLimit.persistence === "POSTGRES_PERSISTED";
 
   return (
     <div dir="rtl" lang="ar" className="min-h-screen bg-gray-50 px-4 py-8">
@@ -179,12 +181,62 @@ export default function Truth() {
           )}
         </Section>
 
+        {/* Truth-ledger bounded retention (STE-K-23) */}
+        <Section icon={<Archive className="w-5 h-5" />} title="احتفاظ السجل" en="Ledger retention" state={retention.state} error={retention.error}>
+          {retention.disclosed ? (
+            <>
+              <Row label="نافذة الاحتفاظ" en="keep (max snapshots)" value={retention.keep ?? dash} />
+              <Row label="أقدم لقطة محفوظة" en="oldest retained id" value={retention.oldestRetainedId ?? dash} />
+              <Row
+                label="حافة النافذة"
+                en="window edge"
+                value={
+                  retention.oldestRetainedIsGenesis === null ? (
+                    dash
+                  ) : retention.oldestRetainedIsGenesis ? (
+                    <Badge className="bg-emerald-600">الأصل محفوظ · genesis retained</Badge>
+                  ) : (
+                    <Badge className="bg-amber-500">الأقدم مُقلَّم · older pruned</Badge>
+                  )
+                }
+              />
+              <p className="mt-2 text-xs text-gray-500">
+                يُحتفظ بأحدث {retention.keep ?? dash} لقطة فقط، ويُقلَّم الأقدم ذرّياً وقت الالتقاط — إفصاح مقاس لا حذف صامت.
+                <span className="text-gray-400"> · Newest {retention.keep ?? dash} kept; oldest pruned atomically at capture — measured, not a silent delete.</span>
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-gray-500">
+              هذا النشر لا يُفصح سياسة الاحتفاظ (نشر بائت قبل الاحتفاظ المحدود). · This deployment does not disclose a retention policy (stale pre-retention deploy).
+            </p>
+          )}
+        </Section>
+
         {/* Rate-limit disclosure */}
         <Section icon={<GaugeCircle className="w-5 h-5" />} title="حدّ المعدّل" en="Rate limit" state={rateLimit.state} error={rateLimit.error}>
-          <Row label="الثبات" en="persistence" value={rateLimit.persistence ?? dash} />
+          <Row
+            label="الثبات"
+            en="persistence"
+            value={
+              rateLimit.persistence === null ? (
+                dash
+              ) : (
+                <Badge className={rlPersisted ? "bg-emerald-600" : "bg-amber-500"}>{rateLimit.persistence}</Badge>
+              )
+            }
+          />
           <p className="mt-2 text-xs text-gray-500">
-            العدّادات في ذاكرة كل نسخة فقط، تتصفّر عند الإقلاع — لا تُشارَك بين النسخ.
-            <span className="text-gray-400"> · Per-instance in-memory, resets on boot.</span>
+            {rlPersisted ? (
+              <>
+                حالة الدلاء مقاسة من Postgres وتصمد عبر إعادة النشر — مُشترَكة بين النسخ.
+                <span className="text-gray-400"> · Bucket state measured from Postgres, survives redeploy — shared across instances.</span>
+              </>
+            ) : (
+              <>
+                العدّادات في ذاكرة كل نسخة فقط، تتصفّر عند الإقلاع — لا تُشارَك بين النسخ (ارتداد صادق).
+                <span className="text-gray-400"> · Per-instance in-memory, resets on boot — not shared (honest fallback).</span>
+              </>
+            )}
           </p>
         </Section>
 

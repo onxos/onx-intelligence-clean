@@ -85,6 +85,19 @@ export interface RateLimitSection {
   persistence: string | null;
 }
 
+// STE-K-23: bounded-retention disclosure for the human reader. Rides on
+// truthLedgerSummary.retention (measured by K-22). A stale (pre-K-22)
+// deployment omits the field → a NAMED "not disclosed" state, never a
+// fabricated policy.
+export interface RetentionSection {
+  state: SectionState; // OK (disclosed) / EMPTY (not disclosed by this deploy) / FETCH_FAILED
+  error: string | null;
+  disclosed: boolean;
+  keep: number | null;
+  oldestRetainedId: number | null;
+  oldestRetainedIsGenesis: boolean | null;
+}
+
 export interface BridgesSection {
   state: SectionState;
   error: string | null;
@@ -96,6 +109,7 @@ export interface TruthPageModel {
   claims: ClaimsSection;
   corpus: CorpusSection;
   ledger: LedgerSection;
+  retention: RetentionSection;
   rateLimit: RateLimitSection;
   bridges: BridgesSection;
 }
@@ -200,6 +214,45 @@ function buildRateLimit(src: SourceOutcome<ProvidersStatusData>): RateLimitSecti
   };
 }
 
+// STE-K-23: surface the MEASURED retention policy from truthLedgerSummary.
+// A reachable surface that omits the field (a stale pre-K-22 deploy) is a
+// NAMED "not disclosed" state (EMPTY), distinct from a fetch failure and
+// never a fabricated window. oldestRetainedIsGenesis carries the window-edge
+// honesty for the human reader: true = nothing pruned yet (genesis kept);
+// false = older snapshots were pruned (the predecessor of the oldest visible
+// row is gone — mirror of the per-row predecessorPruned edge).
+function buildRetention(src: SourceOutcome<SelfVerifyData>): RetentionSection {
+  if (!src.ok) {
+    return {
+      state: "FETCH_FAILED",
+      error: src.error,
+      disclosed: false,
+      keep: null,
+      oldestRetainedId: null,
+      oldestRetainedIsGenesis: null,
+    };
+  }
+  const r = src.data.truthLedgerSummary?.retention;
+  if (!r || typeof r.keep !== "number") {
+    return {
+      state: "EMPTY",
+      error: null,
+      disclosed: false,
+      keep: null,
+      oldestRetainedId: null,
+      oldestRetainedIsGenesis: null,
+    };
+  }
+  return {
+    state: "OK",
+    error: null,
+    disclosed: true,
+    keep: r.keep,
+    oldestRetainedId: r.oldestRetainedId ?? null,
+    oldestRetainedIsGenesis: r.oldestRetainedIsGenesis ?? null,
+  };
+}
+
 function buildBridges(src: SourceOutcome<SelfVerifyData>): BridgesSection {
   if (!src.ok) {
     return { state: "FETCH_FAILED", error: src.error, items: [] };
@@ -226,6 +279,7 @@ export function buildTruthPageModel(
     claims: buildClaims(sources.selfVerify),
     corpus: buildCorpus(sources.corpus),
     ledger: buildLedger(sources.selfVerify),
+    retention: buildRetention(sources.selfVerify),
     rateLimit: buildRateLimit(sources.providers),
     bridges: buildBridges(sources.selfVerify),
   };

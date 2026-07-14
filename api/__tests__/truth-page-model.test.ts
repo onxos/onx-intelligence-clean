@@ -211,4 +211,70 @@ describe("STE-K-17 truth page view-model", () => {
     const b = buildTruthPageModel(allOk(), FROZEN);
     expect(a).toEqual(b);
   });
+
+  // ---- STE-K-23: bounded-retention card for the human reader ----
+  it("discloses the MEASURED retention window (genesis retained edge)", () => {
+    const m = buildTruthPageModel(allOk(), FROZEN);
+    expect(m.retention.state).toBe("OK");
+    expect(m.retention.disclosed).toBe(true);
+    expect(m.retention.keep).toBe(168);
+    expect(m.retention.oldestRetainedId).toBe(1);
+    expect(m.retention.oldestRetainedIsGenesis).toBe(true);
+  });
+
+  it("shows the pruned-edge honestly when older snapshots were trimmed", () => {
+    const src = allOk();
+    src.selfVerify = {
+      ok: true,
+      data: selfVerify({
+        truthLedgerSummary: {
+          state: "POPULATED",
+          persistence: "POSTGRES",
+          count: 168,
+          latestFingerprint: "ffff2222cccc3333",
+          capturedAt: "2026-01-02T00:00:00.000Z",
+          claimsMeasured: 19,
+          claimsAsserted: 0,
+          drift: false,
+          retention: { keep: 168, oldestRetainedId: 42, oldestRetainedIsGenesis: false },
+        },
+      }),
+    };
+    const m = buildTruthPageModel(src, FROZEN);
+    expect(m.retention.state).toBe("OK");
+    expect(m.retention.oldestRetainedId).toBe(42);
+    expect(m.retention.oldestRetainedIsGenesis).toBe(false); // predecessor pruned → named edge
+  });
+
+  it("names a stale deploy that omits retention (not a fabricated policy, not a fetch failure)", () => {
+    const src = allOk();
+    const stale = selfVerify();
+    // simulate a pre-K-22 deployment: the summary answered but has no retention field
+    delete (stale.truthLedgerSummary as { retention?: unknown }).retention;
+    src.selfVerify = { ok: true, data: stale };
+    const m = buildTruthPageModel(src, FROZEN);
+    expect(m.retention.state).toBe("EMPTY");
+    expect(m.retention.disclosed).toBe(false);
+    expect(m.retention.keep).toBeNull();
+    // the ledger card itself still renders from the same live surface
+    expect(m.ledger.state).toBe("OK");
+  });
+
+  it("marks retention FETCH_FAILED when the self-verify surface is unreachable", () => {
+    const src = allOk();
+    src.selfVerify = { ok: false, error: "network: 503" };
+    const m = buildTruthPageModel(src, FROZEN);
+    expect(m.retention.state).toBe("FETCH_FAILED");
+    expect(m.retention.disclosed).toBe(false);
+    expect(m.retention.keep).toBeNull();
+    expect(m.retention.error).toBe("network: 503");
+  });
+
+  it("rate-limit persistence reflects the MEASURED store (POSTGRES_PERSISTED)", () => {
+    const src = allOk();
+    src.providers = { ok: true, data: providers({ rateLimit: { limit: 60, persistence: "POSTGRES_PERSISTED" } as never }) };
+    const m = buildTruthPageModel(src, FROZEN);
+    expect(m.rateLimit.state).toBe("OK");
+    expect(m.rateLimit.persistence).toBe("POSTGRES_PERSISTED");
+  });
 });
