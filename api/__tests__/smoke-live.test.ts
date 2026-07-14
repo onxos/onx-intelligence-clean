@@ -59,7 +59,13 @@ const LIVE_TRUTH_HTML = '<!doctype html><html lang="ar" dir="rtl"><head><title>O
 
 const COMMIT = "810700e2bdee353947b4460f83200a1274941046";
 
-const LIVE_HEALTH = { status: "ALIVE", env: "production", commit: COMMIT, uptime: 1 };
+const LIVE_HEALTH = {
+  status: "ALIVE",
+  env: "production",
+  commit: COMMIT,
+  uptime: 1,
+  timestamp: "2026-01-01T00:00:00.000Z",
+};
 const LIVE_SELFVERIFY = {
   items: [
     { area: "health", name: "Database", verdict: "IMPLEMENTED_PROVEN", measured: true },
@@ -205,6 +211,20 @@ describe("smoke-live contract evaluators", () => {
     expect(checkHealth(503, LIVE_HEALTH, null).passed).toBe(false);
     expect(checkHealth(200, { status: "DEAD", commit: COMMIT }, null).passed).toBe(false);
     expect(checkHealth(200, LIVE_HEALTH, "deadbeef").passed).toBe(false);
+  });
+  it("health fails on non-sha commit, invalid env, invalid uptime, or non-parseable/future timestamp", () => {
+    expect(checkHealth(200, { ...LIVE_HEALTH, commit: "unknown" }, null).passed).toBe(false);
+    expect(checkHealth(200, { ...LIVE_HEALTH, env: "prod" }, null).passed).toBe(false);
+    expect(checkHealth(200, { ...LIVE_HEALTH, uptime: -1 }, null).passed).toBe(false);
+    expect(checkHealth(200, { ...LIVE_HEALTH, timestamp: "not-a-date" }, null).passed).toBe(false);
+    expect(
+      checkHealth(
+        200,
+        { ...LIVE_HEALTH, timestamp: "2026-01-01T00:20:00.000Z" },
+        null,
+        Date.parse("2026-01-01T00:00:00.000Z"),
+      ).passed,
+    ).toBe(false);
   });
 
   it("selfVerify passes on five-state verdicts + asserted=0 + sha256 fp + total count", () => {

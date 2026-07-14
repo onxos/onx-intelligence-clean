@@ -215,14 +215,35 @@ export function checkCorpusManifestTruth(
 
 export function checkHealth(
   status: number,
-  body: { status?: string; env?: string; commit?: string },
+  body: { status?: string; env?: string; commit?: string; uptime?: unknown; timestamp?: string },
   expectedSha: string | null,
+  nowMs?: number,
 ): ContractResult {
   const name = "health_live";
   if (status !== 200) return { name, passed: false, detail: `expected 200, got ${status}` };
   if (body?.status !== "ALIVE")
     return { name, passed: false, detail: `status != ALIVE (${body?.status})` };
   if (!body?.commit) return { name, passed: false, detail: "no commit field" };
+  if (!/^[0-9a-f]{7,40}$/i.test(String(body.commit)))
+    return { name, passed: false, detail: `commit is not sha-like hex (${body.commit})` };
+  const env = String(body?.env ?? "");
+  const ALLOWED_ENVS = new Set(["production", "development", "test", "staging"]);
+  if (!ALLOWED_ENVS.has(env))
+    return { name, passed: false, detail: `env is not in allowed set (${env || "missing"})` };
+  if (body?.uptime !== undefined) {
+    const uptime = Number(body.uptime);
+    if (!Number.isFinite(uptime) || uptime < 0)
+      return { name, passed: false, detail: `uptime is missing/invalid (${body.uptime})` };
+  }
+  if (body?.timestamp !== undefined) {
+    const ts = Date.parse(String(body.timestamp));
+    if (!Number.isFinite(ts))
+      return { name, passed: false, detail: `timestamp is not parseable (${body.timestamp})` };
+    const now = typeof nowMs === "number" && Number.isFinite(nowMs) ? nowMs : Date.now();
+    const maxFutureSkewMs = 2 * 60 * 1000;
+    if (ts > now + maxFutureSkewMs)
+      return { name, passed: false, detail: `timestamp is in the future beyond skew tolerance (${body.timestamp})` };
+  }
   if (expectedSha) {
     // Accept full or prefix match (short SHAs are legitimate).
     const a = body.commit;
@@ -653,7 +674,7 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
   {
     const { status, body, raw } = await getJson(fetchImpl, `${base}/health`);
     const healthBody = (body ?? {}) as { commit?: string };
-    contracts.push(checkHealth(status, healthBody as Record<string, string>, expectedSha));
+    contracts.push(checkHealth(status, healthBody as never, expectedSha, Date.now()));
     // Freshness signal for the corpus manifest contract: the live
     // commit is confirmed to equal EXPECT_COMMIT.
     deployFresh = !!expectedSha && commitMatches(healthBody.commit, expectedSha);
