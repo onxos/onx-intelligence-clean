@@ -610,6 +610,26 @@ describe("checkTruthLedgerRead (STE-K-13)", () => {
     expect(checkTruthLedgerRead(200, { persistence: "POSTGRES", count: 5, snapshots: [] }).passed).toBe(false);
   });
 
+  it("fails when returned rows exceed the requested truthHistory limit", () => {
+    const r = checkTruthLedgerRead(
+      200,
+      {
+        persistence: "POSTGRES",
+        count: 3,
+        snapshots: [
+          { id: 3, fingerprint: "c".repeat(64), claimsMeasured: 19, claimsAsserted: 0, createdAt: "2026-01-03T00:00:00.000Z", drift: false },
+          { id: 2, fingerprint: "b".repeat(64), claimsMeasured: 19, claimsAsserted: 0, createdAt: "2026-01-02T00:00:00.000Z", drift: false },
+          { id: 1, fingerprint: "a".repeat(64), claimsMeasured: 19, claimsAsserted: 0, createdAt: "2026-01-01T00:00:00.000Z", drift: false },
+        ],
+      },
+      3,
+      LEDGER_NOW_MS,
+      2,
+    );
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/exceed requested limit/);
+  });
+
   it("fails on a snapshot with a non-sha256 fingerprint", () => {
     const r = checkTruthLedgerRead(200, {
       persistence: "UNPERSISTED",

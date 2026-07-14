@@ -445,6 +445,7 @@ export function checkTruthLedgerRead(
   },
   truthLedgerTotalCount?: number,
   nowMs?: number,
+  expectedWindowLimit?: number,
 ): ContractResult {
   const name = "truth_ledger_read";
   if (status !== 200) return { name, passed: false, detail: `expected 200, got ${status}` };
@@ -471,6 +472,23 @@ export function checkTruthLedgerRead(
   const snaps = data?.snapshots;
   if (!Array.isArray(snaps))
     return { name, passed: false, detail: "snapshots is not an array" };
+  if (
+    expectedWindowLimit !== undefined &&
+    (!Number.isInteger(expectedWindowLimit) || expectedWindowLimit < 1)
+  ) {
+    return {
+      name,
+      passed: false,
+      detail: `expectedWindowLimit invalid (${expectedWindowLimit})`,
+    };
+  }
+  if (expectedWindowLimit !== undefined && snaps.length > expectedWindowLimit) {
+    return {
+      name,
+      passed: false,
+      detail: `returned rows (${snaps.length}) exceed requested limit (${expectedWindowLimit})`,
+    };
+  }
   if (Number(data?.count) !== snaps.length)
     return { name, passed: false, detail: `count (${data?.count}) != snapshots.length (${snaps.length})` };
   if (truthLedgerTotalCount !== undefined) {
@@ -757,13 +775,20 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
   // Empty remains a named honest state; when populated, latest capture
   // freshness is enforced against the measured hourly cadence (STE-K-49).
   {
+    const truthHistoryLimit = 20;
     const { status, body, raw } = await getJson(
       fetchImpl,
-      trpcGetUrl(base, "onx.truthHistory", { limit: 20 }),
+      trpcGetUrl(base, "onx.truthHistory", { limit: truthHistoryLimit }),
     );
     const u = unwrapTrpc(body);
     contracts.push(
-      checkTruthLedgerRead(status, (u.data ?? {}) as never, truthLedgerTotalCountFromSummary, Date.now()),
+      checkTruthLedgerRead(
+        status,
+        (u.data ?? {}) as never,
+        truthLedgerTotalCountFromSummary,
+        Date.now(),
+        truthHistoryLimit,
+      ),
     );
     const leak = assertNoKeyLeak(raw);
     if (leak) leaks.push(`onx.truthHistory:${leak}`);

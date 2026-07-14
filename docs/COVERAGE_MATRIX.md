@@ -251,9 +251,10 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 | STE-K-51 (W59) docs-only reflection block for milestones #127..#131 | `d7cd4f3` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1093) | docs-only reflection/freeze; no logic change, no new contracts; total remains 9 | run 29333327926 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=d7cd4f3`; pre-write live measure on served K-50 commit: `/health=337c079`, `truthLedgerSummary.count=47`, latest `truthHistory.createdAt=2026-07-14T12:30:09.183Z` (age≈7m); permanent tri-repo reflection block added |
 | STE-K-52 (W60) measured /health payload honesty guard deepening | `aaf8a22` | `api/lib/smoke-contracts.ts`, `api/__tests__/smoke-live.test.ts`, `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `smoke-live.test.ts` (suite 1093→1094) | deepening inside existing `health_live` contract only; total stays 9 | contract now enforces sha-like commit format, allowed env set, non-negative uptime, and parseable/non-future timestamp (skew-tolerant); deterministic negative tests added; run 29333973727 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=aaf8a22` |
 | STE-K-53 (W61) docs-only freeze for K-52 health-payload doctrine | `b7c219c` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1094) | docs-only freeze; no logic change, no new contracts; total remains 9 | run 29335260931 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=b7c219c`; pre-write live measure on served commit: `/health=b7c219c`, `status=ALIVE`, `env=production`, `truthLedgerSummary.count=50 (POSTGRES)`, latest `truthHistory.createdAt=2026-07-14T13:10:11.013Z` (age≈4m) |
+| STE-K-54 (W62) measured truthHistory row-structure coherence deepening | `(this wave commit)` | `api/lib/smoke-contracts.ts`, `api/__tests__/smoke-live.test.ts`, `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `smoke-live.test.ts` (suite 1094→1095) | deepening inside existing `truth_ledger_read` contract only; total stays 9 | measured gap: contract validated row types/order but did not enforce requested page limit; activation now fails honest when returned rows exceed requested `limit`; deterministic failure test added |
 
-## Live measured status (as of W61 pre-write measurement / commit `b7c219c`)
-- **/health:** `ALIVE`, `env=production`, pre-write live commit `b7c219c` (measured via strict live gateway before committing K-53 docs freeze).
+## Live measured status (as of W62 pre-write measurement / commit `09eb4e9`)
+- **/health:** `ALIVE`, `env=production`, pre-write live commit `09eb4e9` (measured via strict live gateway before committing K-54 deepening).
 - **Official single origin (STE-K-20):** `main` retired from live service; every surface is
   reached through the gateway `https://onx-gateway.onrender.com`. MEASURED proxy map:
 
@@ -269,16 +270,16 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 - **Truth ledger (STE-K-38/K-39 measured semantics):** `onx.truthHistory.count` is the **response window size**
   (bounded by `limit`, default 20), not the global table total. Live measurement:
   `truthHistory(limit=20) => count=20` and the independent total surface
-  `onx.selfVerify.truthLedgerSummary.count => 50`.
+  `onx.selfVerify.truthLedgerSummary.count => 51`.
 - **Latest snapshot freshness (STE-K-49 live measure):**
-  latest `truthHistory.snapshots[0].createdAt = 2026-07-14T13:10:11.013Z` with
-  measured age `≈4` minutes at pre-write measurement time.
+  latest `truthHistory.snapshots[0].createdAt = 2026-07-14T13:20:07.453Z` with
+  measured age `≈2` minutes at pre-write measurement time.
 - **K-39 data-layer activation:** smoke deepening now enforces that `truthLedgerSummary.count`
   is a present non-negative integer and that total ≥ returned window rows (`onx.truthHistory`).
 - **Truth-ledger retention (STE-K-22):** bounded at **keep=168** (7 days hourly), pruned
   atomically at capture. MEASURED disclosure live on `onx.truthHistory` / `truthLedgerSummary`:
   `{keep:168, oldestRetainedId:1, oldestRetainedIsGenesis:true}` — the 168 retention window is not yet
-  reached (total retained snapshots currently 48), so genesis is honestly retained; measured pruning begins past 168.
+  reached (total retained snapshots currently 51), so genesis is honestly retained; measured pruning begins past 168.
 - **K-41 drift coherence judgment (measured from code+tests):** cross-row `drift` semantics are already guarded
   where measurable: for each visible predecessor pair, contract enforces `drift === (fp[i] !== fp[i+1])`;
   the unmeasurable edge (oldest row with predecessor خارج النافذة/مُقلَّم) remains explicitly named via
@@ -326,10 +327,10 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
   Intelligence continues to prove all nine doctrine contracts through the gateway single origin;
   marketing web remains architecturally excluded by #118.
 
-## Environment truth (post K-14…K-53, `.env.example`)
+## Environment truth (post K-14…K-54, `.env.example`)
 All values MEASURED by `process.env` reads in code; none fabricated. See
 `docs/OPERATIONS_RUNBOOK.md` §و (environment truth scan) for the file:line inventory.
-No new **server-read** environment variable was introduced by K-14…K-53 — the cron capture,
+No new **server-read** environment variable was introduced by K-14…K-54 — the cron capture,
 DEMO→REAL tooling, Truth page, rate-limit persistence, bounded retention, single-origin gateway
 proof, the /truth retention/rate-limit deepening, the /truth render proof, the /truth
 deploy-freshness card, the /truth truthHistory row table, and the STE-K-33 golden-set expansion all
@@ -341,6 +342,6 @@ Two K-19/K-20 variables are **operator-tooling-only, NOT read by the running ser
 consumed solely by `scripts/smoke-live.ts`:
 - `GATEWAY_ORIGIN` (STE-K-20) — official gateway origin; derives the single-origin smoke base.
 - `EXPECT_RL_PERSISTENCE` (STE-K-19) — asserts the deployment's rate-limit backing store.
-- **STE-K-53 grep-verified (changed files only):** `process.env` ظهرت داخل نصوص
+- **STE-K-54 grep-verified (changed files only):** `process.env` ظهرت داخل نصوص
   توثيق/أمثلة فقط (`docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md`) ولا توجد
   إضافة لأي قراءة env تشغيلية جديدة في كود الخادم.
