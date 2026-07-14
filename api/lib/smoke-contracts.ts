@@ -243,6 +243,7 @@ export function checkSelfVerify(
     claimsMeasured?: number;
     claimsAsserted?: number;
     fingerprint?: string;
+    truthLedgerSummary?: { count?: number };
   },
 ): ContractResult {
   const name = "honest_status_selfverify";
@@ -257,10 +258,13 @@ export function checkSelfVerify(
   // Honest by construction: no claim may be asserted-but-unmeasured.
   if (Number(data?.claimsAsserted) !== 0)
     return { name, passed: false, detail: `claimsAsserted=${data?.claimsAsserted} (expected 0)` };
+  const total = data?.truthLedgerSummary?.count;
+  if (!Number.isInteger(total) || Number(total) < 0)
+    return { name, passed: false, detail: `truthLedgerSummary.count missing/invalid (${total})` };
   return {
     name,
     passed: true,
-    detail: `${items.length} items, measured=${data?.claimsMeasured} asserted=0`,
+    detail: `${items.length} items, measured=${data?.claimsMeasured} asserted=0, truthLedgerSummary.count=${total}`,
   };
 }
 
@@ -405,6 +409,7 @@ export function checkTruthLedgerRead(
       predecessorPruned?: boolean;
     }>;
   },
+  truthLedgerTotalCount?: number,
 ): ContractResult {
   const name = "truth_ledger_read";
   if (status !== 200) return { name, passed: false, detail: `expected 200, got ${status}` };
@@ -433,12 +438,29 @@ export function checkTruthLedgerRead(
     return { name, passed: false, detail: "snapshots is not an array" };
   if (Number(data?.count) !== snaps.length)
     return { name, passed: false, detail: `count (${data?.count}) != snapshots.length (${snaps.length})` };
+  if (truthLedgerTotalCount !== undefined) {
+    if (!Number.isInteger(truthLedgerTotalCount) || truthLedgerTotalCount < 0)
+      return {
+        name,
+        passed: false,
+        detail: `truthLedgerSummary.count invalid for consistency check (${truthLedgerTotalCount})`,
+      };
+    if (truthLedgerTotalCount < snaps.length)
+      return {
+        name,
+        passed: false,
+        detail: `truthLedgerSummary.count (${truthLedgerTotalCount}) < window rows (${snaps.length}) — inconsistent total`,
+      };
+  }
   // Empty ledger = honest "no live scheduled capture" state, not a breach.
   if (snaps.length === 0)
     return {
       name,
       passed: true,
-      detail: `ledger empty — honest: no live scheduled capture (persistence=${persistence})`,
+      detail:
+        truthLedgerTotalCount === undefined
+          ? `ledger empty — honest: no live scheduled capture (persistence=${persistence})`
+          : `ledger empty window (persistence=${persistence}); truthful total count=${truthLedgerTotalCount}`,
     };
   for (const s of snaps) {
     if (!Number.isInteger(s?.id) || Number(s.id) < 1)
@@ -525,7 +547,7 @@ export function checkTruthLedgerRead(
   return {
     name,
     passed: true,
-    detail: `${snaps.length} snapshots, ${drifted} drift-flagged, persistence=${persistence}${retentionNote}`,
+    detail: `${snaps.length} snapshots, ${drifted} drift-flagged, persistence=${persistence}${retentionNote}${truthLedgerTotalCount === undefined ? "" : `, total count=${truthLedgerTotalCount}`}`,
   };
 }
 
@@ -595,6 +617,7 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
   const contracts: ContractResult[] = [];
   const leaks: string[] = [];
   let deployFresh = false;
+  let truthLedgerTotalCountFromSummary: number | undefined = undefined;
 
   // 1) /health
   {
@@ -612,7 +635,9 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
   {
     const { status, body, raw } = await getJson(fetchImpl, trpcGetUrl(base, "onx.selfVerify"));
     const u = unwrapTrpc(body);
-    contracts.push(checkSelfVerify(status, (u.data ?? {}) as never));
+    const selfVerifyData = (u.data ?? {}) as { truthLedgerSummary?: { count?: number } };
+    contracts.push(checkSelfVerify(status, selfVerifyData as never));
+    truthLedgerTotalCountFromSummary = selfVerifyData?.truthLedgerSummary?.count;
     const leak = assertNoKeyLeak(raw);
     if (leak) leaks.push(`selfVerify:${leak}`);
   }
@@ -685,7 +710,9 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
       trpcGetUrl(base, "onx.truthHistory", { limit: 20 }),
     );
     const u = unwrapTrpc(body);
-    contracts.push(checkTruthLedgerRead(status, (u.data ?? {}) as never));
+    contracts.push(
+      checkTruthLedgerRead(status, (u.data ?? {}) as never, truthLedgerTotalCountFromSummary),
+    );
     const leak = assertNoKeyLeak(raw);
     if (leak) leaks.push(`onx.truthHistory:${leak}`);
   }

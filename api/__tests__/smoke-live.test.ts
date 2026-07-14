@@ -69,6 +69,7 @@ const LIVE_SELFVERIFY = {
   claimsMeasured: 19,
   claimsAsserted: 0,
   fingerprint: "a".repeat(64),
+  truthLedgerSummary: { count: 0 },
 };
 const LIVE_PROVIDERS = {
   bridge: "providers",
@@ -204,15 +205,16 @@ describe("smoke-live contract evaluators", () => {
     expect(checkHealth(200, LIVE_HEALTH, "deadbeef").passed).toBe(false);
   });
 
-  it("selfVerify passes on five-state verdicts + asserted=0 + sha256 fp", () => {
+  it("selfVerify passes on five-state verdicts + asserted=0 + sha256 fp + total count", () => {
     expect(checkSelfVerify(200, LIVE_SELFVERIFY).passed).toBe(true);
   });
-  it("selfVerify fails on asserted>0, bad verdict, or bad fingerprint", () => {
+  it("selfVerify fails on asserted>0, bad verdict, bad fingerprint, or invalid truthLedgerSummary.count", () => {
     expect(checkSelfVerify(200, { ...LIVE_SELFVERIFY, claimsAsserted: 1 }).passed).toBe(false);
     expect(
       checkSelfVerify(200, { ...LIVE_SELFVERIFY, items: [{ verdict: "MADE_UP", measured: true }] }).passed,
     ).toBe(false);
     expect(checkSelfVerify(200, { ...LIVE_SELFVERIFY, fingerprint: "short" }).passed).toBe(false);
+    expect(checkSelfVerify(200, { ...LIVE_SELFVERIFY, truthLedgerSummary: { count: -1 } }).passed).toBe(false);
   });
 
   it("rate disclosure accepts EITHER honest MEASURED backing store (STE-K-19)", () => {
@@ -500,7 +502,10 @@ describe("runSmoke orchestration (mocked fetch)", () => {
 
   it("truth_ledger_read passes on a populated ledger and surfaces drift flags", async () => {
     const report = await runSmoke("https://x.dev", {
-      fetchImpl: liveFetch({ truthHistory: trpcOk(LIVE_TRUTH_HISTORY_POPULATED) }),
+      fetchImpl: liveFetch({
+        truthHistory: trpcOk(LIVE_TRUTH_HISTORY_POPULATED),
+        selfVerify: trpcOk({ ...LIVE_SELFVERIFY, truthLedgerSummary: { count: 2 } }),
+      }),
       expectedSha: null,
       committedManifest: COMMITTED_MANIFEST,
     });
@@ -522,9 +527,21 @@ describe("checkTruthLedgerRead (STE-K-13)", () => {
   });
 
   it("accepts a well-formed populated ledger and counts drift", () => {
-    const r = checkTruthLedgerRead(200, LIVE_TRUTH_HISTORY_POPULATED);
+    const r = checkTruthLedgerRead(200, LIVE_TRUTH_HISTORY_POPULATED, 2);
     expect(r.passed).toBe(true);
     expect(r.detail).toMatch(/1 drift-flagged/);
+  });
+
+  it("fails when truthLedgerSummary.count is invalid", () => {
+    const r = checkTruthLedgerRead(200, LIVE_TRUTH_HISTORY_POPULATED, -1);
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/truthLedgerSummary\.count invalid/);
+  });
+
+  it("fails when truthLedgerSummary.count is smaller than the returned window", () => {
+    const r = checkTruthLedgerRead(200, LIVE_TRUTH_HISTORY_POPULATED, 1);
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/inconsistent total/);
   });
 
   it("fails on non-200", () => {
