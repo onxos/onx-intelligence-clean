@@ -253,10 +253,11 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 | STE-K-53 (W61) docs-only freeze for K-52 health-payload doctrine | `b7c219c` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1094) | docs-only freeze; no logic change, no new contracts; total remains 9 | run 29335260931 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=b7c219c`; pre-write live measure on served commit: `/health=b7c219c`, `status=ALIVE`, `env=production`, `truthLedgerSummary.count=50 (POSTGRES)`, latest `truthHistory.createdAt=2026-07-14T13:10:11.013Z` (age≈4m) |
 | STE-K-54 (W62) measured truthHistory row-structure coherence deepening | `6ece183` | `api/lib/smoke-contracts.ts`, `api/__tests__/smoke-live.test.ts`, `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `smoke-live.test.ts` (suite 1094→1095) | deepening inside existing `truth_ledger_read` contract only; total stays 9 | measured gap: contract validated row types/order but did not enforce requested page limit; activation now fails honest when returned rows exceed requested `limit`; deterministic failure test added; run 29336331282 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=6ece183` |
 | STE-K-55 (W63) docs-only freeze for K-54 row-structure doctrine | `7042a34` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1095) | docs-only freeze; no logic change, no new contracts; total remains 9 | run 29336981493 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=6ece183`; pre-write live measure on served K-54 commit: `/health=6ece183`, `status=ALIVE`, `env=production`, `truthLedgerSummary.count=52 (POSTGRES)`, latest `truthHistory.createdAt=2026-07-14T13:30:06.073Z` (age≈2m) |
-| STE-K-56 (W64) golden eval expansion round-3 (DEMO-derived) | `(this wave commit)` | `api/fixtures/golden-set.ts` (+8 cases), `api/fixtures/eval-floors.json`, `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `eval:golden` (65→73 cases, ratchet stays 1.0×3) | deepening — no new contract; same eval gate + same 9 smoke contracts | measured expansion focused on low-coverage edges: precedence (2→5), out-of-domain refusal (10→13), diacritized sensitivity (2→4), and complaint/results coverage (+1 each); weak phrasing corrected (`rj-movies-en`→`rj-private-en`) to keep refusal honesty truthful |
+| STE-K-56 (W64) golden eval expansion round-3 (DEMO-derived) | `e942407` | `api/fixtures/golden-set.ts` (+8 cases), `api/fixtures/eval-floors.json`, `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `eval:golden` (65→73 cases, ratchet stays 1.0×3) | deepening — no new contract; same eval gate + same 9 smoke contracts | measured expansion focused on low-coverage edges: precedence (2→5), out-of-domain refusal (10→13), diacritized sensitivity (2→4), and complaint/results coverage (+1 each); weak phrasing corrected (`rj-movies-en`→`rj-private-en`) to keep refusal honesty truthful; run 29338009114 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=e942407` |
+| STE-K-57 (W65) docs-only freeze for golden round-3 | `(this wave commit)` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1095) | docs-only freeze; no logic change, no new contracts; total remains 9 | pre-write live measure on served K-56 commit: `/health=e942407`, `status=ALIVE`, `env=production`, `truthLedgerSummary.count=54 (POSTGRES)`, latest `truthHistory.createdAt=2026-07-14T13:50:08.168Z` (age≈7m) |
 
-## Live measured status (as of W64 pre-write measurement / commit `7042a34`)
-- **/health:** `ALIVE`, `env=production`, pre-write live commit `7042a34` (measured via strict live gateway before committing K-56 golden expansion).
+## Live measured status (as of W65 pre-write measurement / commit `e942407`)
+- **/health:** `ALIVE`, `env=production`, pre-write live commit `e942407` (measured via strict live gateway before committing K-57 docs freeze).
 - **Official single origin (STE-K-20):** `main` retired from live service; every surface is
   reached through the gateway `https://onx-gateway.onrender.com`. MEASURED proxy map:
 
@@ -272,16 +273,16 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 - **Truth ledger (STE-K-38/K-39 measured semantics):** `onx.truthHistory.count` is the **response window size**
   (bounded by `limit`, default 20), not the global table total. Live measurement:
   `truthHistory(limit=20) => count=20` and the independent total surface
-  `onx.selfVerify.truthLedgerSummary.count => 53`.
+  `onx.selfVerify.truthLedgerSummary.count => 54`.
 - **Latest snapshot freshness (STE-K-49 live measure):**
-  latest `truthHistory.snapshots[0].createdAt = 2026-07-14T13:35:08.594Z` with
-  measured age `≈10` minutes at pre-write measurement time.
+  latest `truthHistory.snapshots[0].createdAt = 2026-07-14T13:50:08.168Z` with
+  measured age `≈7` minutes at pre-write measurement time.
 - **K-39 data-layer activation:** smoke deepening now enforces that `truthLedgerSummary.count`
   is a present non-negative integer and that total ≥ returned window rows (`onx.truthHistory`).
 - **Truth-ledger retention (STE-K-22):** bounded at **keep=168** (7 days hourly), pruned
   atomically at capture. MEASURED disclosure live on `onx.truthHistory` / `truthLedgerSummary`:
   `{keep:168, oldestRetainedId:1, oldestRetainedIsGenesis:true}` — the 168 retention window is not yet
-  reached (total retained snapshots currently 53), so genesis is honestly retained; measured pruning begins past 168.
+  reached (total retained snapshots currently 54), so genesis is honestly retained; measured pruning begins past 168.
 - **K-41 drift coherence judgment (measured from code+tests):** cross-row `drift` semantics are already guarded
   where measurable: for each visible predecessor pair, contract enforces `drift === (fp[i] !== fp[i+1])`;
   the unmeasurable edge (oldest row with predecessor خارج النافذة/مُقلَّم) remains explicitly named via
@@ -317,7 +318,7 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
   honest per-window fallback to `PER_INSTANCE_UNPERSISTED` (memory) if the DB is unreachable.
   Surfaced as a measured badge on /truth (STE-K-23).
 - **Golden floors:** 1.0 / 1.0 / 1.0 (intentAccuracy / refusalHonesty / retrievalHit) over
-  **65 measured cases** (expanded 49→57 in STE-K-33 ثم 57→65 في STE-K-42) —
+  **73 measured cases** (expanded 49→57 in STE-K-33 ثم 57→65 في STE-K-42 ثم 65→73 في STE-K-56) —
   a ratchet, never lowered.
 - **Live watchdog (STE-K-29):** implemented, but **inert on the governed branch** because
   GitHub Actions executes both `schedule` and `workflow_dispatch` for a workflow file only
@@ -329,10 +330,10 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
   Intelligence continues to prove all nine doctrine contracts through the gateway single origin;
   marketing web remains architecturally excluded by #118.
 
-## Environment truth (post K-14…K-56, `.env.example`)
+## Environment truth (post K-14…K-57, `.env.example`)
 All values MEASURED by `process.env` reads in code; none fabricated. See
 `docs/OPERATIONS_RUNBOOK.md` §و (environment truth scan) for the file:line inventory.
-No new **server-read** environment variable was introduced by K-14…K-56 — the cron capture,
+No new **server-read** environment variable was introduced by K-14…K-57 — the cron capture,
 DEMO→REAL tooling, Truth page, rate-limit persistence, bounded retention, single-origin gateway
 proof, the /truth retention/rate-limit deepening, the /truth render proof, the /truth
 deploy-freshness card, the /truth truthHistory row table, and the STE-K-33 golden-set expansion all
@@ -344,6 +345,6 @@ Two K-19/K-20 variables are **operator-tooling-only, NOT read by the running ser
 consumed solely by `scripts/smoke-live.ts`:
 - `GATEWAY_ORIGIN` (STE-K-20) — official gateway origin; derives the single-origin smoke base.
 - `EXPECT_RL_PERSISTENCE` (STE-K-19) — asserts the deployment's rate-limit backing store.
-- **STE-K-56 grep-verified (changed files only):** `process.env` ظهرت داخل نصوص
+- **STE-K-57 grep-verified (changed files only):** `process.env` ظهرت داخل نصوص
   توثيق/أمثلة فقط (`docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md`) ولا توجد
   إضافة لأي قراءة env تشغيلية جديدة في كود الخادم.
