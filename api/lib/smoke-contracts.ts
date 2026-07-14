@@ -381,6 +381,10 @@ export function checkBridgeFailClosed(
 // rather than fabricating history. When rows DO exist, every entry must
 // carry a sha256 fingerprint, numeric claim counts, and a boolean drift
 // flag (automatic truth-drift detection, truth-ledger.ts:138-146).
+// STE-K-36 deepening: this same contract (no new contract) also verifies
+// the row fields consumed by the human /truth table (K-31):
+// id / capturedAt(createdAt) / fingerprint / drift / predecessorPruned edge
+// + the derived genesis edge (id===1) constraints where applicable.
 export function checkTruthLedgerRead(
   status: number,
   data: {
@@ -437,12 +441,18 @@ export function checkTruthLedgerRead(
       detail: `ledger empty — honest: no live scheduled capture (persistence=${persistence})`,
     };
   for (const s of snaps) {
+    if (!Number.isInteger(s?.id) || Number(s.id) < 1)
+      return { name, passed: false, detail: `snapshot id is missing/invalid for table rows: ${s?.id}` };
+    if (typeof s?.createdAt !== "string" || !Number.isFinite(Date.parse(s.createdAt)))
+      return { name, passed: false, detail: `snapshot ${s?.id} missing/invalid createdAt` };
     if (!/^[0-9a-f]{64}$/.test(String(s?.fingerprint)))
       return { name, passed: false, detail: `snapshot ${s?.id} fingerprint not sha256` };
     if (typeof s?.claimsMeasured !== "number" || typeof s?.claimsAsserted !== "number")
       return { name, passed: false, detail: `snapshot ${s?.id} missing numeric claim counts` };
     if (typeof s?.drift !== "boolean")
       return { name, passed: false, detail: `snapshot ${s?.id} missing boolean drift flag` };
+    if (s?.predecessorPruned !== undefined && typeof s.predecessorPruned !== "boolean")
+      return { name, passed: false, detail: `snapshot ${s?.id} predecessorPruned must be boolean when present` };
   }
   // STE-K-15: with >=2 snapshots we can prove the ledger is honest over
   // TIME, not just shaped right. Snapshots are newest-first, so:
@@ -488,6 +498,24 @@ export function checkTruthLedgerRead(
         name,
         passed: false,
         detail: `snapshot ${snaps[i]?.id} predecessorPruned with drift=${snaps[i]?.drift} — drift is not measurable once the predecessor is pruned`,
+      };
+  }
+  // `GENESIS` on /truth is derived from id===1. If present in the page,
+  // genesis must be the OLDEST visible snapshot (newest-first order) and
+  // can never be marked predecessorPruned.
+  const genesisIdx = snaps.findIndex((s) => s?.id === 1);
+  if (genesisIdx >= 0) {
+    if (genesisIdx !== snaps.length - 1)
+      return {
+        name,
+        passed: false,
+        detail: "genesis row (id=1) is not the oldest visible snapshot",
+      };
+    if (snaps[genesisIdx]?.predecessorPruned === true)
+      return {
+        name,
+        passed: false,
+        detail: "genesis row (id=1) cannot be predecessorPruned",
       };
   }
   const drifted = snaps.filter((s) => s.drift).length;
