@@ -240,7 +240,8 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 | STE-K-40 (W48) docs-only measured refresh + milestone #124 reflection | `4d43ebe` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1090) | docs-only refresh — no new contracts; total remains 9 | run 29326419506 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=4d43ebe`; measured `window=20 / total=37` |
 | STE-K-41 (W49) measured judgment: drift cross-row coherence guard | `223be9b` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1090) | measured judgment — guard already enforced in existing 9th contract; total stays 9 | run 29327051165 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=223be9b` |
 | STE-K-42 (W50) golden eval expansion round 2 (DEMO-derived) | `b58ced1` | `api/fixtures/golden-set.ts` (+8 cases), `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `eval:golden` (57→65 cases, ratchet stays 1.0×3) | deepening — no new contract; same eval gate + same 9 smoke contracts | run 29327773343 (6 gates); pre-commit `eval:golden` FAIL كشف صياغة weak (`rt-strategy` hit RESULTS) ثم صياغة مصححة؛ final pre-commit PASS (`65/65`, retrieval `18/18`); strict gateway 9/9 @ `EXPECT_COMMIT=b58ced1` |
-| STE-K-43 (W51) docs-only freeze for golden round-2 | `(this wave commit)` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1090) | docs-only freeze — no new contracts; total remains 9 | pre-write live measure: `/health commit=b58ced1c174b…`; `selfVerify.truthLedgerSummary.count=39 (POSTGRES)` |
+| STE-K-43 (W51) docs-only freeze for golden round-2 | `9f82038` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1090) | docs-only freeze — no new contracts; total remains 9 | run 29328186171 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=9f82038`; pre-write live measure: `/health commit=b58ced1c174b…`; `selfVerify.truthLedgerSummary.count=39 (POSTGRES)` |
+| STE-K-44 (W52) measured judgment: fingerprint recomputation guard scope | `(this wave commit)` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1090) | measured judgment — no new contract; total stays 9 (non-measurable edge documented) | code measurement: snapshot fingerprint generated from normalized selfVerify stable payload (`self-verify.ts:66-82`) and stored as `report.fingerprint` (`truth-ledger.ts:111-127`); public `truthHistory` exposes summary rows only (`onx-router.ts:31-38`, `truth-ledger.ts:315-325`) so full payload recomputation is not measurable on this surface |
 
 ## Live measured status (as of W51 pre-write measurement / commit `b58ced1`)
 - **/health:** `ALIVE`, `env=production`, pre-write live commit `b58ced1` (measured direct + via gateway before committing K-43 docs).
@@ -313,10 +314,10 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
   Intelligence continues to prove all nine doctrine contracts through the gateway single origin;
   marketing web remains architecturally excluded by #118.
 
-## Environment truth (post K-14…K-43, `.env.example`)
+## Environment truth (post K-14…K-44, `.env.example`)
 All values MEASURED by `process.env` reads in code; none fabricated. See
 `docs/OPERATIONS_RUNBOOK.md` §و (environment truth scan) for the file:line inventory.
-No new **server-read** environment variable was introduced by K-14…K-43 — the cron capture,
+No new **server-read** environment variable was introduced by K-14…K-44 — the cron capture,
 DEMO→REAL tooling, Truth page, rate-limit persistence, bounded retention, single-origin gateway
 proof, the /truth retention/rate-limit deepening, the /truth render proof, the /truth
 deploy-freshness card, the /truth truthHistory row table, and the STE-K-33 golden-set expansion all
@@ -328,6 +329,6 @@ Two K-19/K-20 variables are **operator-tooling-only, NOT read by the running ser
 consumed solely by `scripts/smoke-live.ts`:
 - `GATEWAY_ORIGIN` (STE-K-20) — official gateway origin; derives the single-origin smoke base.
 - `EXPECT_RL_PERSISTENCE` (STE-K-19) — asserts the deployment's rate-limit backing store.
-- **STE-K-43 grep-verified (changed files only):** `process.env` ظهرت داخل نصوص
+- **STE-K-44 grep-verified (changed files only):** `process.env` ظهرت داخل نصوص
   توثيق/أمثلة فقط (`docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md`) ولا توجد
   إضافة لأي قراءة env تشغيلية جديدة في كود الخادم.
