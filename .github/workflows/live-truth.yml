@@ -1,0 +1,30 @@
+name: Live Truth Watchdog
+
+on:
+  # STE-K-29: periodic live production watchdog.
+  # GitHub schedules are best-effort (not hard real-time); every 6 hours
+  # is the minimum-noise cadence that still catches between-wave drift.
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+jobs:
+  smoke-live-watchdog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run live truth watchdog (gateway origin, no EXPECT_COMMIT)
+        env:
+          GATEWAY_ORIGIN: https://onx-gateway.onrender.com
+        run: npm run smoke:live

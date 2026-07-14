@@ -594,12 +594,14 @@ leak guard).
 الأسطح العامة الحية المقاسة: `providers.status`، `onx.selfVerify`، `corpusQuery.manifest`،
 `ask.onx`، `health.ready/status/*` (كلها `publicQuery` — `api/health-router.ts:189-320`).
 
-### و.2) تشغيل الدخان الحي — العقود الثمانية (`npm run smoke:live`)
+### و.2) تشغيل الدخان الحي — العقود التسعة (`npm run smoke:live`)
 
-المُشغّل: `scripts/smoke-live.ts` (خارج CI عمداً — يحتاج شبكة وبيئة حية، ملاحظة في رأس
-الملف `scripts/smoke-live.ts:1-6`). المنطق النقي في `api/lib/smoke-contracts.ts`، المُشغّل
+المُشغّل: `scripts/smoke-live.ts` (يحتاج شبكة وبيئة حية — ملاحظة في رأس الملف
+`scripts/smoke-live.ts:1-6`). المنطق النقي في `api/lib/smoke-contracts.ts`، المُشغّل
 `runSmoke` (`api/lib/smoke-contracts.ts:370-477`). البيئة: `BASE_URL` (افتراضي الرابط أعلاه،
 `scripts/smoke-live.ts:31`)، و`EXPECT_COMMIT` أو `EXPECTED_SHA` (`scripts/smoke-live.ts:34`).
+ملاحظة STE-K-29: بقياسٍ دوري مجدول صار هذا التشغيل يعمل أيضاً آلياً عبر
+`.github/workflows/live-truth.yml` (كل 6 ساعات + `workflow_dispatch`) عبر أصل البوابة الرسمية.
 
 | # | العقد | ماذا يثبت | ماذا يعني فشله للمشغّل | المرجع |
 | --- | --- | --- | --- | --- |
@@ -904,3 +906,25 @@ corpus sha `6fc2bed8` مطابق (DEMO)، truth-ledger 12 لقطة، صفر تس
 > base via `gatewayBaseUrl()` (`smoke-contracts.ts`). This is a DEEPENING (same 9 contracts, second
 > official origin), not new contracts. Live proof @`82d713f`: 9/9 through
 > `…/intelligence`, exit 0, `persistence=POSTGRES_PERSISTED`, 12 ledger snapshots, zero key leak.
+
+### و.10) رقيب الحقيقة الحية المجدول (STE-K-29) — قياس دوري بين الموجات
+
+**الملف:** `.github/workflows/live-truth.yml`
+
+**متى يعمل؟**
+- `schedule` كل 6 ساعات (`cron: 17 */6 * * *`) + تشغيل يدوي `workflow_dispatch`.
+- ملاحظة صادقة: تشغيل `schedule` غير لحظي في GitHub Actions (best-effort) وقد يتأخر دقائق.
+
+**ماذا يقيس؟**
+- نفس `npm run smoke:live` بعقوده التسعة القائمة، عبر أصل البوابة الرسمي
+  `GATEWAY_ORIGIN=https://onx-gateway.onrender.com`.
+- لا عقد جديد: **تعميق تشغيل** للعقود القائمة (المجموع يبقى 9).
+
+**دلالات الصدق (مقصودة):**
+- لا نضبط `EXPECT_COMMIT` في الرقيب المجدول؛ الهدف قياس ما يخدمه الإنتاج فعلياً الآن، لا ربط
+  الرن بـSHA متوقَّع قد يصبح قديماً بعد نشر طبيعي.
+- أي خرق عقد → فشل الرن (إشارة حمراء مرئية) بصدق.
+
+**الأسرار:**
+- لا أسرار جديدة. هذا الرقيب يستدعي أسطح قراءة عامة فقط؛ `smoke:live` يعمل بلا مفاتيح مزوّد/جسر.
+- متغير `GATEWAY_ORIGIN` في workflow متغير تشغيل CI فقط، وليس قراءة جديدة في كود السيرفر.

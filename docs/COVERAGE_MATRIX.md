@@ -224,6 +224,8 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 | STE-K-25 (W33) /truth render proof in no_key_leak | `f638194` | `api/lib/smoke-contracts.ts` (assertTruthPageRendered; folded into 9th contract), `api/__tests__/smoke-live.test.ts` (LIVE_TRUTH_HTML aligned to built shell), runbook pointer | `smoke-live` (+8: 3 runSmoke + 5 pure-fn) | deepening — same 9 contracts; no_key_leak now proves SPA root + built bundle | run 29309499837; live `RENDER_PROVEN=true`, 9/9 strict, detail `/truth render-proven` |
 | STE-K-26 (W34) unified docs wave K-24/K-25 | `8658d65` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs) | 6 gates green | run 29309943161 (6 gates) |
 | STE-K-27 (W35) /truth deploy-freshness card from /commit | `b5363f1` | `api/lib/truth-page-model.ts` (CommitData, FreshnessSection, buildFreshness), `src/pages/Truth.tsx` (commitSiblingUrl, freshness card), `api/__tests__/truth-page-model.test.ts` | `truth-page-model` (+4) | deepening — /truth + /commit already in 9 contracts; total stays 9 | run 29310913038; live commit `b5363f1`, /truth freshness card + 9/9 strict |
+| STE-K-28 (W36) unified docs wave K-26/K-27 | `cb9848c` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs) | 6 gates green | run 29311534451 (6 gates) |
+| STE-K-29 (W37) scheduled live truth watchdog | `(this wave commit)` | `.github/workflows/live-truth.yml`, `docs/OPERATIONS_RUNBOOK.md`, `docs/COVERAGE_MATRIX.md` | — (ops workflow + docs) | deepening — schedules existing 9 contracts; no EXPECT_COMMIT in cron | workflow_dispatch proof run: recorded after dispatch; first scheduled run occurs later by cadence |
 
 ## Live measured status (as of W35 / commit `b5363f1`)
 - **/health:** `ALIVE`, `env=production`, live commit `b5363f1` (measured direct + via gateway).
@@ -265,15 +267,21 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
   Surfaced as a measured badge on /truth (STE-K-23).
 - **Golden floors:** 1.0 / 1.0 / 1.0 (intentAccuracy / refusalHonesty / retrievalHit) —
   a ratchet, never lowered.
+- **Live watchdog (STE-K-29):** scheduled `smoke:live` now runs every 6 hours from GitHub
+  Actions (`.github/workflows/live-truth.yml`) against the official gateway origin, with
+  `EXPECT_COMMIT` intentionally unset so the watchdog measures what production serves now.
+  Any contract breach fails the run red (honest signal); this is operational deepening,
+  not a new contract (total stays 9).
 
-## Environment truth (post K-14…K-27, `.env.example`)
+## Environment truth (post K-14…K-29, `.env.example`)
 All values MEASURED by `process.env` reads in code; none fabricated. See
 `docs/OPERATIONS_RUNBOOK.md` §و (environment truth scan) for the file:line inventory.
-No new **server-read** environment variable was introduced by K-14…K-27 — the cron capture,
+No new **server-read** environment variable was introduced by K-14…K-29 — the cron capture,
 DEMO→REAL tooling, Truth page, rate-limit persistence, bounded retention, single-origin gateway
 proof, the /truth retention/rate-limit deepening, the /truth render proof, and the /truth
 deploy-freshness card all reuse existing surfaces and the existing `BRIDGE_SHARED_SECRET` /
-`DATABASE_URL` inputs.
+`DATABASE_URL` inputs. STE-K-29 adds only a GitHub workflow env (`GATEWAY_ORIGIN`) consumed by
+the CI runner process for `npm run smoke:live`; it is NOT a new server-side env read.
 Two K-19/K-20 variables are **operator-tooling-only, NOT read by the running server** — both
 consumed solely by `scripts/smoke-live.ts`:
 - `GATEWAY_ORIGIN` (STE-K-20) — official gateway origin; derives the single-origin smoke base.
