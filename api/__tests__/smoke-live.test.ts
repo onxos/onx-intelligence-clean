@@ -45,6 +45,12 @@ function trpcErr(message: string, httpStatus: number): SmokeResponse {
     error: { json: { message, code: -32603, data: { httpStatus, code: "INTERNAL_SERVER_ERROR" } } },
   });
 }
+function html(status: number, body: string): SmokeResponse {
+  return { status, json: async () => ({}), text: async () => body };
+}
+
+// The served /truth SPA shell — a static HTML document with no secrets.
+const LIVE_TRUTH_HTML = '<!doctype html><html lang="ar" dir="rtl"><head><title>Truth</title></head><body><div id="root"></div><script src="/assets/index.js"></script></body></html>';
 
 const COMMIT = "810700e2bdee353947b4460f83200a1274941046";
 
@@ -152,6 +158,7 @@ function liveFetch(overrides: Partial<Record<string, SmokeResponse>> = {}): Fetc
     }
     if (url.includes("corpusQuery.ingest") && init?.method === "POST")
       return overrides.bridge ?? trpcErr("BRIDGE_UNAUTHORIZED: Missing or invalid x-onx-bridge-key", 401);
+    if (url.endsWith("/truth")) return overrides.truthPage ?? html(200, LIVE_TRUTH_HTML);
     throw new Error(`unexpected url ${url}`);
   };
 }
@@ -296,7 +303,7 @@ describe("runSmoke orchestration (mocked fetch)", () => {
     });
     expect(report.passed).toBe(true);
     expect(report.failedCount).toBe(0);
-    expect(report.total).toBe(9); // 8 contracts + no_key_leak guard
+    expect(report.total).toBe(9); // 8 contracts + no_key_leak guard (also scans /truth page)
     expect(report.contracts.map((c) => c.name)).toContain("corpus_manifest_truth");
     expect(report.contracts.map((c) => c.name)).toContain("truth_ledger_read");
     expect(report.contracts.map((c) => c.name)).toContain("no_key_leak");
@@ -354,6 +361,19 @@ describe("runSmoke orchestration (mocked fetch)", () => {
     });
     expect(report.passed).toBe(false);
     expect(report.contracts.find((c) => c.name === "no_key_leak")?.passed).toBe(false);
+  });
+
+  it("no_key_leak (STE-K-17) also fails when the /truth page HTML leaks a full key", async () => {
+    const leakyTruth = html(200, '<div>sk-abcdefghijklmnopqrstuvwxyz012345</div>');
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({ truthPage: leakyTruth }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    expect(report.passed).toBe(false);
+    const leak = report.contracts.find((c) => c.name === "no_key_leak");
+    expect(leak?.passed).toBe(false);
+    expect(leak?.detail).toMatch(/truthPage:/);
   });
 
   it("fails when the bridge is OPEN (mutation succeeds without a key)", async () => {

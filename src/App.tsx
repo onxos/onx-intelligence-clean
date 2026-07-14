@@ -15,6 +15,7 @@ import ConstitutionalDashboard from "./pages/ConstitutionalDashboard"
 import IUCDashboard from "./pages/IUCDashboard"
 import AdminPilot from "./pages/AdminPilot"
 import TitanPulse from "./pages/TitanPulse"
+import Truth from "./pages/Truth"
 import Navigation from "./components/Navigation"
 
 function Layout({ children }: { children: React.ReactNode }) {
@@ -45,6 +46,7 @@ export default function App() {
       <Route path="/iuc" element={<Layout><IUCDashboard /></Layout>} />
       <Route path="/admin/pilot" element={<Layout><AdminPilot /></Layout>} />
       <Route path="/titan-conclave/pulse" element={<Layout><TitanPulse /></Layout>} />
+      <Route path="/truth" element={<Layout><Truth /></Layout>} />
       <Route path="/login" element={<Login />} />
       <Route path="*" element={<Layout><NotFound /></Layout>} />
     </Routes>

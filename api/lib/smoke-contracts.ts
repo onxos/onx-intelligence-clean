@@ -553,6 +553,17 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
     if (leak) leaks.push(`onx.truthHistory:${leak}`);
   }
 
+  // 9) /truth — the public human-readable truth page (STE-K-17). It is
+  // rendered ENTIRELY from the honest surfaces already checked above, so
+  // its own bytes must also never echo a full provider key. A single GET
+  // of the served HTML feeds the same leak guard (deep-link SPA route).
+  {
+    const res = await fetchImpl(`${base}/truth`, { headers: { accept: "text/html" } });
+    const raw = await res.text();
+    const leak = assertNoKeyLeak(raw);
+    if (leak) leaks.push(`truthPage:${leak}`);
+  }
+
   // Leak guard is itself a contract.
   contracts.push({
     name: "no_key_leak",

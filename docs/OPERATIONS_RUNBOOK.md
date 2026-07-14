@@ -519,7 +519,51 @@ stays conservatively `DEMO`.
 
 ---
 
-## و) توطيد المشغّل + مسح حقيقة البيئة — STE-K-12
+## صفحة الحقيقة العامة القابلة للقراءة (STE-K-17)
+
+مسار `/truth` (`src/pages/Truth.tsx`، مُوجَّه في `src/App.tsx`) نافذة **قراءة-فقط** بلغة
+بشرية على صدق النظام المقاس — مرآة W25/C-13. لا يحمل أي قيمة صلبة: كل حقل يُقرأ حيًّا من
+الأسطح الصادقة القائمة عبر النواة النقية `buildTruthPageModel` في `api/lib/truth-page-model.ts`.
+
+**الأسطح الثلاثة المقروءة** (نداءات tRPC قائمة، لا سطح جديد):
+- `onx.selfVerify` → ادعاءات مقاسة/مُدّعاة + البصمة + الجسور fail-closed + `truthLedgerSummary`.
+- `corpusQuery.manifest` → إفصاح الذخيرة (شارة DEMO/REAL) + `sha256` مختصر + عدد الوثائق/النطاقات.
+- `providers.status` → إفصاح حدّ المعدّل (`PER_INSTANCE_UNPERSISTED`).
+
+**حالات القسم الصادقة** (`api/lib/truth-page-model.ts`):
+- `OK` — السطح أجاب بالبيانات.
+- `EMPTY` — أجاب لكن المورد فارغ بصدق (سجل حقيقة بلا لقطات = `state:"EMPTY"`)، لا تاريخ مُلفّق.
+- `FETCH_FAILED` — تعذّر جلب السطح؛ الصفحة تُظهر فشلاً صريحاً **لا صفراً زائفاً**. القيم تبقى
+  `null` (غياب صادق) لا `0`. سطح ميت لا يُسمّم البقية (كل مصدر مستقل).
+
+**RTL عربي أولاً** مع تسميات إنجليزية مرافقة لكل حقل وشارة.
+
+**توسيع عقد `no_key_leak`** (`api/lib/smoke-contracts.ts`، الفحص التاسع في `runSmoke`): بعد
+العقود الثمانية يُجلب `/truth` بنداء واحد ويُمرَّر عبر `assertNoKeyLeak` — فبايتات الصفحة نفسها
+لا يجوز أن تُظهر مفتاح مزود كاملاً (لا يضيف عقداً؛ يغذّي حارس التسريب القائم).
+
+> **الحالة الحية الصادقة**: الصفحة تعرض ما تقيسه الأسطح — الذخيرة تبقى `DEMO` حتى أرشيف REC-06،
+> وسجل الحقيقة يُظهر عدده الفعلي أو `EMPTY`. لا ادعاء يسبق القياس.
+
+## Public human-readable Truth page (STE-K-17) [EN]
+
+The `/truth` route (`src/pages/Truth.tsx`, wired in `src/App.tsx`) is a **read-only**,
+plain-language window onto the system's MEASURED honesty (mirror of W25/C-13). It hard-codes
+nothing: every field is read live from the existing honest surfaces via the pure
+`buildTruthPageModel` core in `api/lib/truth-page-model.ts`. Three existing tRPC reads feed
+it: `onx.selfVerify` (measured/asserted claims + fingerprint + fail-closed bridges +
+`truthLedgerSummary`), `corpusQuery.manifest` (DEMO/REAL disclosure badge + short `sha256` +
+doc/domain counts), `providers.status` (rate-limit disclosure `PER_INSTANCE_UNPERSISTED`).
+Honest section states: `OK` (surface answered), `EMPTY` (answered but the resource is
+honestly empty — an unpopulated ledger reports `state:"EMPTY"`, never fabricated history),
+and `FETCH_FAILED` (surface unreachable → an explicit failure, **never a fake zero**; values
+stay `null`, and one dead surface never poisons the others). Arabic-first RTL with English
+labels. The `no_key_leak` contract (`api/lib/smoke-contracts.ts`, the 9th fetch in
+`runSmoke`) additionally GETs `/truth` once and runs its HTML through `assertNoKeyLeak` — the
+page's own bytes must never echo a full provider key (no new contract; it feeds the existing
+leak guard).
+
+---
 
 > **مبدأ هذا القسم**: كل رقم وشكل أدناه **مقاس** من الكود (`ملف:سطر`) أو من نداء حي فعلي
 > ضد `https://onx-intelligence-clean.onrender.com` وقت كتابة الموجة 20 (الخدمة على
