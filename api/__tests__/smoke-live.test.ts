@@ -899,4 +899,42 @@ describe("gateway single-origin (STE-K-20)", () => {
     });
     expect(report.contracts.find((c) => c.name === "no_key_leak")?.passed).toBe(false);
   });
+
+  it("fails honestly when gateway core facts diverge from a direct parity base (STE-K-58)", async () => {
+    const gatewayBase = gatewayBaseUrl("https://gw.example.com");
+    const directBase = "https://direct.example.com";
+    const shared = liveFetch({
+      selfVerify: trpcOk({ ...LIVE_SELFVERIFY, truthLedgerSummary: { count: 2 } }),
+      truthHistory: trpcOk(LIVE_TRUTH_HISTORY_POPULATED),
+    });
+    const parityFetch: FetchLike = async (url, init) => {
+      if (url === `${directBase}/health`) return resp(200, { ...LIVE_HEALTH, commit: "f".repeat(40) });
+      if (url.startsWith(`${directBase}/api/trpc/onx.selfVerify`))
+        return trpcOk({
+          ...LIVE_SELFVERIFY,
+          fingerprint: "f".repeat(64),
+          truthLedgerSummary: { count: 9 },
+        });
+      if (url.startsWith(`${directBase}/api/trpc/onx.truthHistory`))
+        return trpcOk({
+          ...LIVE_TRUTH_HISTORY_POPULATED,
+          snapshots: [
+            { ...LIVE_TRUTH_HISTORY_POPULATED.snapshots[0], fingerprint: "c".repeat(64) },
+            LIVE_TRUTH_HISTORY_POPULATED.snapshots[1],
+          ],
+        });
+      return shared(url, init);
+    };
+    const report = await runSmoke(gatewayBase, {
+      fetchImpl: parityFetch,
+      expectedSha: "810700e",
+      committedManifest: COMMITTED_MANIFEST,
+      parityBaseUrl: directBase,
+    });
+    expect(report.total).toBe(9);
+    expect(report.passed).toBe(false);
+    expect(report.contracts.find((c) => c.name === "health_live")?.detail).toMatch(/parity mismatch/);
+    expect(report.contracts.find((c) => c.name === "honest_status_selfverify")?.detail).toMatch(/parity mismatch/);
+    expect(report.contracts.find((c) => c.name === "truth_ledger_read")?.detail).toMatch(/parity mismatch/);
+  });
 });

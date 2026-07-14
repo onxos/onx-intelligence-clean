@@ -10,6 +10,9 @@
  * This is a DEEPENING (same 9 contracts, second origin), not new
  * contracts. Explicit BASE_URL always wins if set. Example:
  *   GATEWAY_ORIGIN=https://onx-gateway.onrender.com EXPECT_COMMIT=<sha> npm run smoke:live
+ *   PARITY_BASE_URL=https://onx-intelligence-clean.onrender.com (optional):
+ *     compare core facts (commit/count/fingerprint) between measured base and
+ *     this direct base; mismatch fails inside existing contracts.
  *
  * 9 contracts: health, honest self-verify, rate-limit disclosure, ask.onx
  * honest refusal, ask.onx cited answer, bridge fail-closed, corpus manifest
@@ -27,6 +30,7 @@
 //                    prefix). Leave unset to skip the SHA contract.
 //                    EXPECTED_SHA is accepted as an alias.
 //   EXPECT_RL_PERSISTENCE — optional; assert rate-limit backing store.
+//   PARITY_BASE_URL — optional; compare gateway/direct core payload parity.
 //
 // PRODUCTION SAFETY: exactly one request per contract. We prove the
 // rate-limit disclosure from a SINGLE call — we never flood the live
@@ -62,6 +66,7 @@ async function main() {
   // store (e.g. POSTGRES_PERSISTED on a DB-backed deploy). Unset → the
   // measured value is accepted as long as it is an honest known mode.
   const expectedRatePersistence = process.env.EXPECT_RL_PERSISTENCE?.trim() || null;
+  const parityBaseUrl = process.env.PARITY_BASE_URL?.trim() || null;
 
   // Inject the committed corpus contract (fs read stays OUT of the pure
   // contract logic — the evaluator receives the parsed object).
@@ -94,7 +99,13 @@ async function main() {
     };
   };
 
-  const report = await runSmoke(baseUrl, { expectedSha, fetchImpl, committedManifest, expectedRatePersistence });
+  const report = await runSmoke(baseUrl, {
+    expectedSha,
+    fetchImpl,
+    committedManifest,
+    expectedRatePersistence,
+    parityBaseUrl,
+  });
 
   console.log(JSON.stringify(report, null, 2));
 

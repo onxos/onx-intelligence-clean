@@ -658,6 +658,9 @@ export interface SmokeOptions {
   expectedSha?: string | null;
   fetchImpl: FetchLike;
   timeoutMs?: number;
+  // Optional second base URL (typically direct origin) used to assert that
+  // gateway-facing core payload facts remain parity-consistent.
+  parityBaseUrl?: string | null;
   // STE-K-11: the committed corpus-manifest.json contract, injected by
   // the CLI (fs read stays out of the pure contract logic). When null
   // the corpus_manifest_truth contract fails honestly.
@@ -681,18 +684,52 @@ async function getJson(fetchImpl: FetchLike, url: string): Promise<{ status: num
 }
 
 export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<SmokeReport> {
-  const { fetchImpl, expectedSha = null, committedManifest = null, expectedRatePersistence = null } = opts;
+  const {
+    fetchImpl,
+    expectedSha = null,
+    committedManifest = null,
+    expectedRatePersistence = null,
+    parityBaseUrl = null,
+  } = opts;
   const base = baseUrl.replace(/\/$/, "");
+  const parityBase = parityBaseUrl?.trim() ? parityBaseUrl.replace(/\/$/, "") : null;
   const contracts: ContractResult[] = [];
   const leaks: string[] = [];
   let deployFresh = false;
   let truthLedgerTotalCountFromSummary: number | undefined = undefined;
 
+  function mergeParity(contract: ContractResult, mismatch: string | null): ContractResult {
+    if (!mismatch || !contract.passed) return contract;
+    return {
+      name: contract.name,
+      passed: false,
+      detail: `${contract.detail}; gateway/direct parity mismatch: ${mismatch}`,
+    };
+  }
+
   // 1) /health
   {
     const { status, body, raw } = await getJson(fetchImpl, `${base}/health`);
     const healthBody = (body ?? {}) as { commit?: string };
-    contracts.push(checkHealth(status, healthBody as never, expectedSha, Date.now()));
+    let contract = checkHealth(status, healthBody as never, expectedSha, Date.now());
+    if (parityBase) {
+      let mismatch: string | null = null;
+      try {
+        const { status: parityStatus, body: parityBody } = await getJson(fetchImpl, `${parityBase}/health`);
+        const peer = (parityBody ?? {}) as { status?: string; env?: string; commit?: string };
+        if (parityStatus !== 200) mismatch = `direct /health returned ${parityStatus}`;
+        else if (!commitMatches(healthBody.commit, peer.commit))
+          mismatch = `commit gateway=${String(healthBody.commit)} direct=${String(peer.commit)}`;
+        else if (String((healthBody as { status?: string }).status) !== String(peer.status))
+          mismatch = `status gateway=${String((healthBody as { status?: string }).status)} direct=${String(peer.status)}`;
+        else if (String((healthBody as { env?: string }).env) !== String(peer.env))
+          mismatch = `env gateway=${String((healthBody as { env?: string }).env)} direct=${String(peer.env)}`;
+      } catch (error) {
+        mismatch = `direct /health fetch failed (${error instanceof Error ? error.message : String(error)})`;
+      }
+      contract = mergeParity(contract, mismatch);
+    }
+    contracts.push(contract);
     // Freshness signal for the corpus manifest contract: the live
     // commit is confirmed to equal EXPECT_COMMIT.
     deployFresh = !!expectedSha && commitMatches(healthBody.commit, expectedSha);
@@ -705,7 +742,32 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
     const { status, body, raw } = await getJson(fetchImpl, trpcGetUrl(base, "onx.selfVerify"));
     const u = unwrapTrpc(body);
     const selfVerifyData = (u.data ?? {}) as { truthLedgerSummary?: { count?: number } };
-    contracts.push(checkSelfVerify(status, selfVerifyData as never));
+    let contract = checkSelfVerify(status, selfVerifyData as never);
+    if (parityBase) {
+      let mismatch: string | null = null;
+      try {
+        const { status: parityStatus, body: parityBody } = await getJson(
+          fetchImpl,
+          trpcGetUrl(parityBase, "onx.selfVerify"),
+        );
+        const parityUnwrapped = unwrapTrpc(parityBody);
+        const peer = (parityUnwrapped.data ?? {}) as {
+          truthLedgerSummary?: { count?: number };
+          fingerprint?: string;
+        };
+        if (parityStatus !== 200) mismatch = `direct onx.selfVerify returned ${parityStatus}`;
+        else if (String((selfVerifyData as { fingerprint?: string }).fingerprint) !== String(peer.fingerprint))
+          mismatch = `fingerprint gateway=${String((selfVerifyData as { fingerprint?: string }).fingerprint).slice(0, 12)} direct=${String(peer.fingerprint).slice(0, 12)}`;
+        else if (
+          Number(selfVerifyData?.truthLedgerSummary?.count) !== Number(peer?.truthLedgerSummary?.count)
+        ) mismatch =
+            `truthLedgerSummary.count gateway=${String(selfVerifyData?.truthLedgerSummary?.count)} direct=${String(peer?.truthLedgerSummary?.count)}`;
+      } catch (error) {
+        mismatch = `direct onx.selfVerify fetch failed (${error instanceof Error ? error.message : String(error)})`;
+      }
+      contract = mergeParity(contract, mismatch);
+    }
+    contracts.push(contract);
     truthLedgerTotalCountFromSummary = selfVerifyData?.truthLedgerSummary?.count;
     const leak = assertNoKeyLeak(raw);
     if (leak) leaks.push(`selfVerify:${leak}`);
@@ -781,15 +843,44 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
       trpcGetUrl(base, "onx.truthHistory", { limit: truthHistoryLimit }),
     );
     const u = unwrapTrpc(body);
-    contracts.push(
-      checkTruthLedgerRead(
-        status,
-        (u.data ?? {}) as never,
-        truthLedgerTotalCountFromSummary,
-        Date.now(),
-        truthHistoryLimit,
-      ),
+    const truthData = (u.data ?? {}) as {
+      count?: number;
+      snapshots?: Array<{ fingerprint?: string }>;
+    };
+    let contract = checkTruthLedgerRead(
+      status,
+      truthData as never,
+      truthLedgerTotalCountFromSummary,
+      Date.now(),
+      truthHistoryLimit,
     );
+    if (parityBase) {
+      let mismatch: string | null = null;
+      try {
+        const { status: parityStatus, body: parityBody } = await getJson(
+          fetchImpl,
+          trpcGetUrl(parityBase, "onx.truthHistory", { limit: truthHistoryLimit }),
+        );
+        const parityUnwrapped = unwrapTrpc(parityBody);
+        const peer = (parityUnwrapped.data ?? {}) as {
+          count?: number;
+          snapshots?: Array<{ fingerprint?: string }>;
+        };
+        if (parityStatus !== 200) mismatch = `direct onx.truthHistory returned ${parityStatus}`;
+        else if (Number(truthData.count) !== Number(peer.count))
+          mismatch = `window count gateway=${String(truthData.count)} direct=${String(peer.count)}`;
+        else {
+          const gwLatest = truthData.snapshots?.[0]?.fingerprint ?? "none";
+          const directLatest = peer.snapshots?.[0]?.fingerprint ?? "none";
+          if (String(gwLatest) !== String(directLatest))
+            mismatch = `latest fingerprint gateway=${String(gwLatest).slice(0, 12)} direct=${String(directLatest).slice(0, 12)}`;
+        }
+      } catch (error) {
+        mismatch = `direct onx.truthHistory fetch failed (${error instanceof Error ? error.message : String(error)})`;
+      }
+      contract = mergeParity(contract, mismatch);
+    }
+    contracts.push(contract);
     const leak = assertNoKeyLeak(raw);
     if (leak) leaks.push(`onx.truthHistory:${leak}`);
   }
