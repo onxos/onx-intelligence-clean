@@ -1,6 +1,6 @@
 // ============================================================
 // GOLDEN SET (STE-K-06) — the institutional quality ratchet's
-// measured ground truth. 45 deterministic cases across Arabic +
+// measured ground truth. 57 deterministic cases across Arabic +
 // English covering all seven intents, deliberate honest-refusal
 // cases (out-of-corpus questions: weather / politics / cooking),
 // and retrieval cases (unique English topic terms that DO hit a
@@ -104,6 +104,16 @@ export const GOLDEN_SET: GoldenCase[] = [
   { id: "rt-islamic", question: "usul fiqh hadith authentication ijma qiyas", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "ISLAMIC" },
   { id: "rt-mfg", question: "six sigma lean production digital twin", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "MANUFACTURING" },
   { id: "rt-eng", question: "control systems signal processing load balancing", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "ENGINEERING" },
+  { id: "rt-legal", question: "contract law tort liability jurisprudence precedent", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "LEGAL" },
+  { id: "rt-med", question: "oncology diagnosis epidemiology cardiology treatment", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "MEDICINE" },
+  { id: "rt-edu", question: "curriculum pedagogy formative assessment classroom", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "EDUCATION" },
+  { id: "rt-fin", question: "portfolio diversification derivatives hedging yield curve", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "FINANCE" },
+  { id: "rt-env", question: "biodiversity conservation watershed reforestation emissions", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "ENVIRONMENT" },
+  { id: "rt-transport", question: "transportation multimodal transit railway aviation maritime", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "TRANSPORTATION" },
+
+  // ---- Additional out-of-corpus honest refusals (deterministic INFO→refuse) ----
+  { id: "rj-sports-ar", question: "من سيفوز بكأس العالم القادم", expectedIntent: "INFO", expectRefusal: true, note: "sports" },
+  { id: "rj-sports-en", question: "who will win the next world cup", expectedIntent: "INFO", expectRefusal: true, note: "sports" },
 ];
 
 // The seven canonical intents the set must fully cover.
