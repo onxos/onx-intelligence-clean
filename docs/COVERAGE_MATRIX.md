@@ -239,6 +239,7 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 | STE-K-39 (W47) activate K-38 via total-count coherence guard | `8169151` | `api/lib/smoke-contracts.ts`, `api/__tests__/smoke-live.test.ts`, `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `smoke-live` (+2 deterministic tests; suite 1088→1090) | deepening — same 9 contracts; enforce `truthLedgerSummary.count` presence + total≥window coherence | run 29325490217 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=8169151`; live guard detail proved total count=36 |
 | STE-K-40 (W48) docs-only measured refresh + milestone #124 reflection | `4d43ebe` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1090) | docs-only refresh — no new contracts; total remains 9 | run 29326419506 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=4d43ebe`; measured `window=20 / total=37` |
 | STE-K-41 (W49) measured judgment: drift cross-row coherence guard | `(this wave commit)` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1090) | measured judgment — guard already enforced in existing 9th contract; total stays 9 | pre-write live measure: `/health commit=4d43ebe449f5…`; `truthHistory window count=20`, `selfVerify.truthLedgerSummary.count=37`; strict gateway 9/9 @ `EXPECT_COMMIT=4d43ebe` |
+| STE-K-42 (W50) golden eval expansion round 2 (DEMO-derived) | `(this wave commit)` | `api/fixtures/golden-set.ts` (+8 cases), `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `eval:golden` (57→65 cases, ratchet stays 1.0×3) | deepening — no new contract; same eval gate + same 9 smoke contracts | pre-commit `eval:golden` FAIL كشف صياغة weak (`rt-strategy` hit RESULTS) ثم صياغة مصححة؛ final pre-commit `eval:golden` PASS (`65/65`, retrieval `18/18`) |
 
 ## Live measured status (as of W49 pre-write measurement / commit `4d43ebe`)
 - **/health:** `ALIVE`, `env=production`, pre-write live commit `4d43ebe` (measured direct + via gateway before committing K-41 docs).
@@ -299,7 +300,7 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
   honest per-window fallback to `PER_INSTANCE_UNPERSISTED` (memory) if the DB is unreachable.
   Surfaced as a measured badge on /truth (STE-K-23).
 - **Golden floors:** 1.0 / 1.0 / 1.0 (intentAccuracy / refusalHonesty / retrievalHit) over
-  **57 measured cases** (expanded from 49 in STE-K-33) —
+  **65 measured cases** (expanded 49→57 in STE-K-33 ثم 57→65 في STE-K-42) —
   a ratchet, never lowered.
 - **Live watchdog (STE-K-29):** implemented, but **inert on the governed branch** because
   GitHub Actions executes both `schedule` and `workflow_dispatch` for a workflow file only
@@ -311,10 +312,10 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
   Intelligence continues to prove all nine doctrine contracts through the gateway single origin;
   marketing web remains architecturally excluded by #118.
 
-## Environment truth (post K-14…K-41, `.env.example`)
+## Environment truth (post K-14…K-42, `.env.example`)
 All values MEASURED by `process.env` reads in code; none fabricated. See
 `docs/OPERATIONS_RUNBOOK.md` §و (environment truth scan) for the file:line inventory.
-No new **server-read** environment variable was introduced by K-14…K-41 — the cron capture,
+No new **server-read** environment variable was introduced by K-14…K-42 — the cron capture,
 DEMO→REAL tooling, Truth page, rate-limit persistence, bounded retention, single-origin gateway
 proof, the /truth retention/rate-limit deepening, the /truth render proof, the /truth
 deploy-freshness card, the /truth truthHistory row table, and the STE-K-33 golden-set expansion all
@@ -326,6 +327,6 @@ Two K-19/K-20 variables are **operator-tooling-only, NOT read by the running ser
 consumed solely by `scripts/smoke-live.ts`:
 - `GATEWAY_ORIGIN` (STE-K-20) — official gateway origin; derives the single-origin smoke base.
 - `EXPECT_RL_PERSISTENCE` (STE-K-19) — asserts the deployment's rate-limit backing store.
-- **STE-K-41 grep-verified (changed files only):** `process.env` ظهرت داخل نصوص
+- **STE-K-42 grep-verified (changed files only):** `process.env` ظهرت داخل نصوص
   توثيق/أمثلة فقط (`docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md`) ولا توجد
   إضافة لأي قراءة env تشغيلية جديدة في كود الخادم.

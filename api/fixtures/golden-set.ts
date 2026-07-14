@@ -1,6 +1,6 @@
 // ============================================================
 // GOLDEN SET (STE-K-06) — the institutional quality ratchet's
-// measured ground truth. 57 deterministic cases across Arabic +
+// measured ground truth. 65 deterministic cases across Arabic +
 // English covering all seven intents, deliberate honest-refusal
 // cases (out-of-corpus questions: weather / politics / cooking),
 // and retrieval cases (unique English topic terms that DO hit a
@@ -114,6 +114,20 @@ export const GOLDEN_SET: GoldenCase[] = [
   // ---- Additional out-of-corpus honest refusals (deterministic INFO→refuse) ----
   { id: "rj-sports-ar", question: "من سيفوز بكأس العالم القادم", expectedIntent: "INFO", expectRefusal: true, note: "sports" },
   { id: "rj-sports-en", question: "who will win the next world cup", expectedIntent: "INFO", expectRefusal: true, note: "sports" },
+
+  // ---- Additional out-of-corpus honest refusals (ar/en) ----
+  { id: "rj-space-ar", question: "ما اسم أقرب مجرة إلى درب التبانة", expectedIntent: "INFO", expectRefusal: true, note: "astronomy" },
+  { id: "rj-space-en", question: "what is the nearest galaxy to the milky way", expectedIntent: "INFO", expectRefusal: true, note: "astronomy" },
+
+  // ---- Precedence edges: EMERGENCY must outrank BOOKING/PRICING cues ----
+  { id: "px-em-book-ar", question: "أريد حجز موعد لكن القطة تنزف الآن", expectedIntent: "EMERGENCY", expectRefusal: true, note: "emergency priority over booking" },
+  { id: "px-em-book-en", question: "book an appointment tomorrow my cat is bleeding now", expectedIntent: "EMERGENCY", expectRefusal: true, note: "emergency priority over booking" },
+
+  // ---- Retrieval expansion (DEMO-derived, deterministic, no external provider) ----
+  { id: "rt-strategy", question: "blue ocean strategic foresight game theory balanced scorecard", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "STRATEGY" },
+  { id: "rt-agri", question: "hydroponics crop rotation soil science vertical farming", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "AGRICULTURE" },
+  { id: "rt-media", question: "programmatic advertising audience analytics ott platforms podcasting", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "MEDIA" },
+  { id: "rt-defense", question: "electronic warfare cyber threat intelligence border security", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "DEFENSE" },
 ];
 
 // The seven canonical intents the set must fully cover.
