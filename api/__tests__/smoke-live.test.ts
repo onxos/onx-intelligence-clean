@@ -20,6 +20,7 @@ import {
   unwrapTrpc,
   trpcGetUrl,
   assertNoKeyLeak,
+  assertTruthPageRendered,
   gatewayBaseUrl,
   DEFAULT_GATEWAY_ORIGIN,
   GATEWAY_APP_MOUNT,
@@ -52,8 +53,9 @@ function html(status: number, body: string): SmokeResponse {
   return { status, json: async () => ({}), text: async () => body };
 }
 
-// The served /truth SPA shell — a static HTML document with no secrets.
-const LIVE_TRUTH_HTML = '<!doctype html><html lang="ar" dir="rtl"><head><title>Truth</title></head><body><div id="root"></div><script src="/assets/index.js"></script></body></html>';
+// The served /truth SPA shell — mirrors the REAL built index.html
+// (SPA root + type="module" bundle from /assets/*), with no secrets.
+const LIVE_TRUTH_HTML = '<!doctype html><html lang="ar" dir="rtl"><head><title>ONX Intelligence</title><script type="module" crossorigin src="/assets/index-TImycC0a.js"></script></head><body><div id="root"></div></body></html>';
 
 const COMMIT = "810700e2bdee353947b4460f83200a1274941046";
 
@@ -388,6 +390,81 @@ describe("runSmoke orchestration (mocked fetch)", () => {
     const leak = report.contracts.find((c) => c.name === "no_key_leak");
     expect(leak?.passed).toBe(false);
     expect(leak?.detail).toMatch(/truthPage:/);
+  });
+
+  it("no_key_leak render proof (STE-K-25) passes when /truth serves the real built SPA shell", async () => {
+    // The default LIVE_TRUTH_HTML fixture is the real shell (root + bundle).
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({}),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    const guard = report.contracts.find((c) => c.name === "no_key_leak");
+    expect(guard?.passed).toBe(true);
+    expect(guard?.detail).toMatch(/render-proven/);
+    expect(report.total).toBe(9); // still 9 — deepened, not a new contract
+  });
+
+  it("no_key_leak render proof (STE-K-25) FAILS on a hollow 200 shell (no root, no bundle)", async () => {
+    const hollow = html(200, "<!doctype html><html><head></head><body></body></html>");
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({ truthPage: hollow }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    expect(report.passed).toBe(false);
+    const guard = report.contracts.find((c) => c.name === "no_key_leak");
+    expect(guard?.passed).toBe(false);
+    expect(guard?.detail).toMatch(/not-rendered/);
+    expect(guard?.detail).toMatch(/no SPA root/);
+    expect(guard?.detail).toMatch(/no built module bundle/);
+  });
+
+  it("no_key_leak render proof (STE-K-25) FAILS when /truth returns non-200", async () => {
+    const errored = html(500, "<!doctype html><html><body><div id=\"root\"></div></body></html>");
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({ truthPage: errored }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    expect(report.passed).toBe(false);
+    const guard = report.contracts.find((c) => c.name === "no_key_leak");
+    expect(guard?.passed).toBe(false);
+    expect(guard?.detail).toMatch(/not-rendered \(status 500\)/);
+  });
+
+  describe("assertTruthPageRendered (STE-K-25 pure render-proof)", () => {
+    const shell =
+      '<!doctype html><html lang="ar" dir="rtl"><head><title>ONX</title>' +
+      '<script type="module" crossorigin src="/assets/index-abc123.js"></script></head>' +
+      '<body><div id="root"></div></body></html>';
+
+    it("passes for the real built SPA shell", () => {
+      expect(assertTruthPageRendered(200, shell)).toBeNull();
+    });
+
+    it("fails when the SPA root is missing", () => {
+      const noRoot = shell.replace('<div id="root"></div>', "<div></div>");
+      expect(assertTruthPageRendered(200, noRoot)).toMatch(/no SPA root/);
+    });
+
+    it("fails when the built module bundle is missing", () => {
+      const noBundle = shell.replace(
+        '<script type="module" crossorigin src="/assets/index-abc123.js"></script>',
+        "",
+      );
+      expect(assertTruthPageRendered(200, noBundle)).toMatch(/no built module bundle/);
+    });
+
+    it("fails on a non-200 status even with markers present", () => {
+      expect(assertTruthPageRendered(503, shell)).toBe("status 503");
+    });
+
+    it("reports BOTH missing markers on a hollow shell", () => {
+      const reason = assertTruthPageRendered(200, "<html><body></body></html>");
+      expect(reason).toMatch(/no SPA root/);
+      expect(reason).toMatch(/no built module bundle/);
+    });
   });
 
   it("fails when the bridge is OPEN (mutation succeeds without a key)", async () => {
