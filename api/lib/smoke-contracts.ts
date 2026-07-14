@@ -438,6 +438,32 @@ export function checkTruthLedgerRead(
 
 export const DEFAULT_BASE_URL = "https://onx-intelligence-clean.onrender.com";
 
+// STE-K-20: the OFFICIAL single-origin gateway. `main` has retired from
+// live service; every surface is reached through onx-gateway. The
+// intelligence service is mounted (full-app, no path rewrite) under
+// `/intelligence/*`, so the gateway preserves upstream paths exactly:
+//   {origin}/intelligence/health            -> upstream /health
+//   {origin}/intelligence/commit            -> upstream /commit
+//   {origin}/intelligence/api/trpc/<proc>   -> upstream /api/trpc/<proc>
+//   {origin}/intelligence/truth             -> upstream /truth
+// This is MEASURED, not assumed: the sibling `/api/intelligence/*` mount
+// rewrites to upstream `/api/*` (so it serves tRPC at
+// /api/intelligence/trpc/<proc> but NOT /health or /commit, which live at
+// the app root). The full-app mount below is therefore the ONE base that
+// serves ALL nine doctrine surfaces through the single official origin.
+export const DEFAULT_GATEWAY_ORIGIN = "https://onx-gateway.onrender.com";
+export const GATEWAY_APP_MOUNT = "/intelligence";
+
+/**
+ * Build the single-origin smoke base URL for the official gateway.
+ * Given a gateway origin, returns the full-app mount base that the
+ * existing 9 contracts run against UNCHANGED — {base}/health,
+ * {base}/commit, {base}/api/trpc/<proc>, {base}/truth all resolve.
+ */
+export function gatewayBaseUrl(origin: string = DEFAULT_GATEWAY_ORIGIN): string {
+  return `${origin.replace(/\/$/, "")}${GATEWAY_APP_MOUNT}`;
+}
+
 // Deterministic out-of-corpus and in-corpus probes.
 export const OUT_OF_CORPUS_QUESTION = "who will win the next presidential election";
 export const IN_CORPUS_QUESTION = "neural networks transformer edge computing";

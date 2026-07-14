@@ -796,3 +796,48 @@ Postgres ويعيد `UNAVAILABLE` لو لم يكن postgres (`health-router.ts:5
 > `truth_ledger_read` contract is hardened for drift-over-time: with ≥2 snapshots it verifies
 > newest-first order (id + createdAt) and drift-flag INTEGRITY (drift must equal
 > `fp[i]!==fp[i+1]`); a flag contradicting the fingerprint comparison is a fabrication breach.
+
+### و.9) الرابط الواحد — قياس الحقيقة عبر أصل البوابة الرسمية (STE-K-20)
+
+**السياق المقاس:** `main` تقاعد كلياً من الخدمة الحية؛ كل الأسطح تُبلغ عبر البوابة الرسمية
+`https://onx-gateway.onrender.com`. البوابة تركّب خدمة الذكاء بمسارين مختلفين في إعادة الكتابة —
+والحقيقة **مقاسة لا مفترضة**:
+
+| المسار عبر البوابة | القياس الحي | إعادة الكتابة للـupstream |
+|---|---|---|
+| `/api/intelligence/v1/health` | **404** | المسار المفترض خاطئ |
+| `/api/intelligence/health` | 404 | مُركّب `/api/*` → upstream `/api/health` (غير موجود) |
+| `/api/intelligence/trpc/<proc>` | 200 | مُركّب `/api/*` → upstream `/api/trpc/<proc>` ✓ |
+| `/intelligence/health` | **200** | full-app بلا إعادة كتابة → upstream `/health` ✓ |
+| `/intelligence/commit` | **200** | full-app → `/commit` ✓ |
+| `/intelligence/truth` | **200** | full-app → `/truth` ✓ |
+| `/intelligence/api/trpc/<proc>` | **200** | full-app → `/api/trpc/<proc>` ✓ |
+
+**الأصل الواحد الذي يخدم كل الأسطح التسعة** هو التركيب full-app `…/intelligence` — يحفظ مسارات
+الـupstream حرفياً، فـ`{base}/health` و`{base}/commit` و`{base}/api/trpc/<proc>` و`{base}/truth` كلها
+تُحلّ. لذلك **العقود التسعة نفسها تعمل بلا تغيير** عبر هذا الأصل — **تعميق لا إضافة** (نفس العقيدة،
+أصل ثانٍ رسمي مبرهَن الوصول).
+
+**التشغيل:** عيّن `GATEWAY_ORIGIN` فيُشتقّ الأساس تلقائياً من التركيب المقاس (`gatewayBaseUrl` في
+`api/lib/smoke-contracts.ts` → `DEFAULT_GATEWAY_ORIGIN` + `GATEWAY_APP_MOUNT="/intelligence"`).
+`BASE_URL` الصريح يتقدّم دائماً إن وُجد.
+
+```bash
+GATEWAY_ORIGIN=https://onx-gateway.onrender.com EXPECT_COMMIT=<sha> \
+  EXPECT_RL_PERSISTENCE=POSTGRES_PERSISTED npm run smoke:live
+# → 9/9، baseUrl=https://onx-gateway.onrender.com/intelligence (gateway origin)
+```
+
+**البرهان الحي (commit `82d713f`):** 9/9 عبر الأصل الواحد، exit 0 — health ALIVE،
+selfVerify 19/0، rate-limit `POSTGRES_PERSISTED` مقاس، ask رفض+استشهاد، الجسر 401 fail-closed،
+corpus sha `6fc2bed8` مطابق (DEMO)، truth-ledger 12 لقطة، صفر تسريب مفاتيح.
+
+> **English mirror (STE-K-20 — و.9):** `main` has retired from live service; every surface is
+> reached through the official gateway `https://onx-gateway.onrender.com`. MEASURED, not assumed:
+> the sibling `/api/intelligence/*` mount rewrites to upstream `/api/*` (serves tRPC at
+> `/api/intelligence/trpc/<proc>` but NOT `/health` or `/commit`, which live at the app root),
+> while the full-app mount `/intelligence/*` preserves upstream paths exactly and is therefore the
+> ONE base serving all nine doctrine surfaces. Set `GATEWAY_ORIGIN` and `smoke:live` derives the
+> base via `gatewayBaseUrl()` (`smoke-contracts.ts`). This is a DEEPENING (same 9 contracts, second
+> official origin), not new contracts. Live proof @`82d713f`: 9/9 through
+> `…/intelligence`, exit 0, `persistence=POSTGRES_PERSISTED`, 12 ledger snapshots, zero key leak.

@@ -20,6 +20,9 @@ import {
   unwrapTrpc,
   trpcGetUrl,
   assertNoKeyLeak,
+  gatewayBaseUrl,
+  DEFAULT_GATEWAY_ORIGIN,
+  GATEWAY_APP_MOUNT,
   OUT_OF_CORPUS_QUESTION,
   IN_CORPUS_QUESTION,
   type FetchLike,
@@ -540,5 +543,63 @@ describe("checkTruthLedgerRead (STE-K-13)", () => {
     });
     expect(r.passed).toBe(true);
     expect(r.detail).toMatch(/1 drift-flagged/);
+  });
+});
+
+// ---- STE-K-20: single-origin gateway proof (deepening, same 9 contracts) ----
+describe("gateway single-origin (STE-K-20)", () => {
+  it("gatewayBaseUrl shapes the MEASURED full-app mount", () => {
+    expect(gatewayBaseUrl()).toBe(`${DEFAULT_GATEWAY_ORIGIN}${GATEWAY_APP_MOUNT}`);
+    expect(gatewayBaseUrl()).toBe("https://onx-gateway.onrender.com/intelligence");
+    // Custom origin + trailing slash is normalized (no double slash).
+    expect(gatewayBaseUrl("https://gw.example.com/")).toBe("https://gw.example.com/intelligence");
+  });
+
+  it("every contract URL resolves under the single gateway /intelligence origin", async () => {
+    const base = gatewayBaseUrl();
+    const seen: string[] = [];
+    // Wrap the honest live double, asserting the gateway prefix on EVERY url
+    // and that upstream paths are preserved exactly through the mount.
+    const inner = liveFetch();
+    const gatewayFetch: FetchLike = async (url, init) => {
+      seen.push(url);
+      expect(url.startsWith(`${DEFAULT_GATEWAY_ORIGIN}${GATEWAY_APP_MOUNT}/`)).toBe(true);
+      return inner(url, init);
+    };
+    const report = await runSmoke(base, {
+      fetchImpl: gatewayFetch,
+      expectedSha: "810700e",
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    // Same 9 contracts, all green through the gateway origin.
+    expect(report.passed).toBe(true);
+    expect(report.total).toBe(9);
+    expect(report.baseUrl).toBe(base);
+    // The four doctrine surface shapes were all reached via the mount:
+    expect(seen.some((u) => u === `${base}/health`)).toBe(true);
+    expect(seen.some((u) => u === `${base}/truth`)).toBe(true);
+    expect(seen.some((u) => u.startsWith(`${base}/api/trpc/onx.selfVerify`))).toBe(true);
+    expect(seen.some((u) => u.startsWith(`${base}/api/trpc/providers.status`))).toBe(true);
+  });
+
+  it("is deterministic: gateway origin yields identical verdicts to direct origin", async () => {
+    const opts = { fetchImpl: liveFetch(), expectedSha: null, committedManifest: COMMITTED_MANIFEST };
+    const direct = await runSmoke("https://onx-intelligence-clean.onrender.com", opts);
+    const gateway = await runSmoke(gatewayBaseUrl(), { ...opts, fetchImpl: liveFetch() });
+    const strip = (r: Awaited<ReturnType<typeof runSmoke>>) =>
+      r.contracts.map((c) => ({ name: c.name, passed: c.passed, detail: c.detail }));
+    // Verdicts are origin-independent: the gateway is a faithful proxy.
+    expect(strip(gateway)).toEqual(strip(direct));
+  });
+
+  it("no_key_leak still scans the gateway-served /truth page", async () => {
+    // A leaking gateway response must still be caught (guard is origin-agnostic).
+    const leaky = html(200, '<div id="root"></div><!-- key=sk-abcdefghijklmnopqrstuvwxyz012345 -->');
+    const report = await runSmoke(gatewayBaseUrl(), {
+      fetchImpl: liveFetch({ truthPage: leaky }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    expect(report.contracts.find((c) => c.name === "no_key_leak")?.passed).toBe(false);
   });
 });
