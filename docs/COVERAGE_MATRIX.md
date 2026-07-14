@@ -187,7 +187,7 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 | # | Gate | Command | Proves |
 |---|------|---------|--------|
 | 1 | TypeScript build | `npm run check` (`tsc -b`) | zero type errors across app + server |
-| 2 | Full test suite | `npm test` (`vitest run`) | 1079 passed / 5 skipped / 0 failed |
+| 2 | Full test suite | `npm test` (`vitest run`) | 1084 passed / 5 skipped / 0 failed |
 | 3 | Codex Guard | `npm run guard:scan` | zero NEW charter deviations (15 legacy tracked) |
 | 4 | OSVA self-verify | `npm run verify:self` | honest self-audit fingerprint, measured≥asserted |
 | 5 | Golden eval ratchet | `npm run eval:golden` | intent/refusal/retrieval floors held at 1.0×3 |
@@ -227,10 +227,12 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 | STE-K-28 (W36) unified docs wave K-26/K-27 | `cb9848c` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs) | 6 gates green | run 29311534451 (6 gates) |
 | STE-K-29 (W37) scheduled live truth watchdog | `c6e3026` | `.github/workflows/live-truth.yml`, `docs/OPERATIONS_RUNBOOK.md`, `docs/COVERAGE_MATRIX.md` | — (ops workflow + docs) | **IMPLEMENTED_BUT_INERT_ON_GOVERNED_BRANCH** — deepening only (same 9 contracts), no EXPECT_COMMIT in cron | truth-gates run 29312071048 green; watchdog mode measured 9/9 via `GATEWAY_ORIGIN` locally; actual workflow runs blocked until default-branch availability |
 | STE-K-30 (W38) watchdog constraint truth correction | `d722cb6` | `docs/OPERATIONS_RUNBOOK.md`, `docs/COVERAGE_MATRIX.md` | — (docs) | 6 gates green | run 29312565358 (6 gates) |
-| STE-K-31 (W39) /truth truth-ledger row table | `(this wave commit)` | `api/lib/truth-page-model.ts` (truthHistory rows model), `src/pages/Truth.tsx` (human-readable table + honest badges), `api/__tests__/truth-page-model.test.ts`, docs | `truth-page-model` (+6 injected row-state tests) | deepening — /truth already scanned, truthHistory already in 9 contracts; total stays 9 | live proof recorded after strict EXPECT_COMMIT gateway run |
+| STE-K-31 (W39) /truth truth-ledger row table | `6e995f7` | `api/lib/truth-page-model.ts` (truthHistory rows model), `src/pages/Truth.tsx` (human-readable table + honest badges), `api/__tests__/truth-page-model.test.ts`, docs | `truth-page-model` (+6 injected row-state tests) | deepening — /truth already scanned, truthHistory already in 9 contracts; total stays 9 | run 29313702273; strict gateway 9/9 @ `EXPECT_COMMIT=6e995f7` |
 
-## Live measured status (as of W35 / commit `b5363f1`)
-- **/health:** `ALIVE`, `env=production`, live commit `b5363f1` (measured direct + via gateway).
+| STE-K-32 (W40) unified docs wave K-30/K-31 + measured refresh | `(this wave commit)` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs) | 6 gates green | run recorded after push |
+
+## Live measured status (as of W39 / commit `6e995f7`)
+- **/health:** `ALIVE`, `env=production`, live commit `6e995f7` (measured direct + via gateway).
 - **Official single origin (STE-K-20):** `main` retired from live service; every surface is
   reached through the gateway `https://onx-gateway.onrender.com`. MEASURED proxy map:
 
@@ -242,13 +244,13 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
   | `/intelligence/api/trpc/<proc>` | 200 | full-app → `/api/trpc/<proc>` |
 
   The full-app mount `…/intelligence` is the ONE base serving all nine contracts; live 9/9
-  via the single origin (run against `b5363f1`, `EXPECT_COMMIT` strict).
-- **Truth ledger:** grows hourly from the web cron — **20 snapshots** measured live via the
-  gateway (`truth_ledger_read`: 20 snapshots, 0 drift-flagged, persistence=POSTGRES).
+  via the single origin (run against `6e995f7`, `EXPECT_COMMIT` strict).
+- **Truth ledger:** grows hourly from the web cron — **24 snapshots** measured live via the
+  gateway (`truth_ledger_read`: 24 snapshots, 0 drift-flagged, persistence=POSTGRES).
 - **Truth-ledger retention (STE-K-22):** bounded at **keep=168** (7 days hourly), pruned
   atomically at capture. MEASURED disclosure live on `onx.truthHistory` / `truthLedgerSummary`:
   `{keep:168, oldestRetainedId:1, oldestRetainedIsGenesis:true}` — the 168 window is not yet
-  reached (20 snapshots), so genesis is honestly retained; measured pruning begins past 168.
+  reached (24 snapshots), so genesis is honestly retained; measured pruning begins past 168.
 - **/truth page:** LIVE (HTTP 200), rendered entirely from honest surfaces, zero key leak.
   Surfaces (STE-K-23) a bounded-retention card (keep / oldestRetainedId / genesis-retained
   vs older-pruned edge) and a MEASURED rate-limit persistence badge — the stale hard-coded
@@ -278,16 +280,20 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
   intentionally unset; any contract breach would fail red), but activation requires one of:
   founder-approved narrow main exception (#117), merge-to-default, or external scheduler.
   This is operational deepening, not a new contract (total stays 9).
+- **Milestone #119 (single-origin API truth, tri-repo):** completed across the three repos.
+  Intelligence continues to prove all nine doctrine contracts through the gateway single origin;
+  marketing web remains architecturally excluded by #118.
 
-## Environment truth (post K-14…K-29, `.env.example`)
+## Environment truth (post K-14…K-31, `.env.example`)
 All values MEASURED by `process.env` reads in code; none fabricated. See
 `docs/OPERATIONS_RUNBOOK.md` §و (environment truth scan) for the file:line inventory.
-No new **server-read** environment variable was introduced by K-14…K-29 — the cron capture,
+No new **server-read** environment variable was introduced by K-14…K-31 — the cron capture,
 DEMO→REAL tooling, Truth page, rate-limit persistence, bounded retention, single-origin gateway
-proof, the /truth retention/rate-limit deepening, the /truth render proof, and the /truth
-deploy-freshness card all reuse existing surfaces and the existing `BRIDGE_SHARED_SECRET` /
-`DATABASE_URL` inputs. STE-K-29 adds only a GitHub workflow env (`GATEWAY_ORIGIN`) consumed by
-the CI runner process for `npm run smoke:live`; it is NOT a new server-side env read.
+proof, the /truth retention/rate-limit deepening, the /truth render proof, the /truth
+deploy-freshness card, and the /truth truthHistory row table all reuse existing surfaces and the
+existing `BRIDGE_SHARED_SECRET` / `DATABASE_URL` inputs. STE-K-29 adds only a GitHub workflow env
+(`GATEWAY_ORIGIN`) consumed by the CI runner process for `npm run smoke:live`; it is NOT a new
+server-side env read.
 Two K-19/K-20 variables are **operator-tooling-only, NOT read by the running server** — both
 consumed solely by `scripts/smoke-live.ts`:
 - `GATEWAY_ORIGIN` (STE-K-20) — official gateway origin; derives the single-origin smoke base.
