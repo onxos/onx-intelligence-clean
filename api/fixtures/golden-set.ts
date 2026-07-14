@@ -1,6 +1,6 @@
 // ============================================================
 // GOLDEN SET (STE-K-06) — the institutional quality ratchet's
-// measured ground truth. 81 deterministic cases across Arabic +
+// measured ground truth. 89 deterministic cases across Arabic +
 // English covering all seven intents, deliberate honest-refusal
 // cases (out-of-corpus questions: weather / politics / cooking),
 // and retrieval cases (unique English topic terms that DO hit a
@@ -39,6 +39,7 @@ export const GOLDEN_SET: GoldenCase[] = [
   { id: "em-en-1", question: "my dog is bleeding badly please help", expectedIntent: "EMERGENCY", expectRefusal: true },
   { id: "em-en-2", question: "cat poisoned emergency what do I do", expectedIntent: "EMERGENCY", expectRefusal: true },
   { id: "em-en-3", question: "my dog collapsed and had a seizure", expectedIntent: "EMERGENCY", expectRefusal: false, note: "keywords: collapsed+seizure (retrieval-evidenced)" },
+  { id: "em-en-4", question: "my puppy is choking right now", expectedIntent: "EMERGENCY", expectRefusal: true, note: "keyword edge: choking" },
 
   // ---- BOOKING (incl. Gulf colloquial) ----
   { id: "bk-ar-1", question: "ابغى موعد بكرة للعيادة", expectedIntent: "BOOKING", expectRefusal: true, note: "gulf" },
@@ -47,6 +48,7 @@ export const GOLDEN_SET: GoldenCase[] = [
   { id: "bk-en-1", question: "book an appointment tomorrow", expectedIntent: "BOOKING", expectRefusal: true },
   { id: "bk-en-2", question: "reschedule my visit please", expectedIntent: "BOOKING", expectRefusal: true },
   { id: "bk-en-3", question: "book appointment tomorrow if weather is cloudy", expectedIntent: "BOOKING", expectRefusal: true, note: "booking cues must survive weather negatives" },
+  { id: "bk-en-4", question: "make an appointment for my dog next week", expectedIntent: "BOOKING", expectRefusal: true, note: "phrase edge: make an appointment" },
 
   // ---- PRICING ----
   { id: "pr-ar-1", question: "كم سعر تطعيم القطط", expectedIntent: "PRICING", expectRefusal: true },
@@ -55,18 +57,21 @@ export const GOLDEN_SET: GoldenCase[] = [
   { id: "pr-en-1", question: "how much does vaccination cost", expectedIntent: "PRICING", expectRefusal: true },
   { id: "pr-en-2", question: "what is the price of the surgery", expectedIntent: "PRICING", expectRefusal: true },
   { id: "pr-en-3", question: "what does it cost for the checkup", expectedIntent: "PRICING", expectRefusal: true, note: "pricing phrase edge" },
+  { id: "pr-ar-4", question: "كم يكلف تنظيف أسنان القط", expectedIntent: "PRICING", expectRefusal: true, note: "phrase edge: كم يكلف" },
 
   // ---- COMPLAINT ----
   { id: "co-ar-1", question: "أريد تقديم شكوى عاجلة", expectedIntent: "COMPLAINT", expectRefusal: true },
   { id: "co-ar-2", question: "خدمة سيئة جدا وأنا مستاء", expectedIntent: "COMPLAINT", expectRefusal: true, note: "phrase" },
   { id: "co-en-1", question: "I want to file a complaint bad service", expectedIntent: "COMPLAINT", expectRefusal: true },
   { id: "co-en-2", question: "I am disappointed this is terrible service", expectedIntent: "COMPLAINT", expectRefusal: true, note: "complaint keyword edge" },
+  { id: "co-en-3", question: "I want to complain because I am unhappy with the service", expectedIntent: "COMPLAINT", expectRefusal: true, note: "complain+unhappy edge" },
 
   // ---- RESULTS ----
   { id: "re-ar-1", question: "متى تظهر نتائج التحليل", expectedIntent: "RESULTS", expectRefusal: true, note: "phrase" },
   { id: "re-ar-2", question: "أريد نتيجة الأشعة", expectedIntent: "RESULTS", expectRefusal: true },
   { id: "re-en-1", question: "when are the lab results ready", expectedIntent: "RESULTS", expectRefusal: true },
   { id: "re-en-2", question: "when is my bloodwork scan result available", expectedIntent: "RESULTS", expectRefusal: true, note: "results keyword edge" },
+  { id: "re-en-3", question: "are the xray analysis labs available", expectedIntent: "RESULTS", expectRefusal: true, note: "xray+analysis+labs edge" },
 
   // ---- REFILL ----
   { id: "rf-ar-1", question: "أحتاج إعادة صرف دواء", expectedIntent: "REFILL", expectRefusal: true, note: "phrase" },
@@ -81,6 +86,7 @@ export const GOLDEN_SET: GoldenCase[] = [
   { id: "in-en-1", question: "what are your opening hours", expectedIntent: "INFO", expectRefusal: true },
   { id: "in-en-2", question: "where is your address", expectedIntent: "INFO", expectRefusal: true },
   { id: "in-en-3", question: "I have a question about your location", expectedIntent: "INFO", expectRefusal: false, note: "info keyword edge (retrieval-evidenced)" },
+  { id: "in-en-4", question: "what are your working hours", expectedIntent: "INFO", expectRefusal: true, note: "phrase edge: working hours" },
 
   // ---- Deliberate out-of-corpus REFUSALS (weather/politics/cooking):
   //      no intent keywords → INFO fallback; no evidence → refuse. ----
@@ -136,6 +142,8 @@ export const GOLDEN_SET: GoldenCase[] = [
   { id: "px-em-results-en", question: "when are lab results ready my dog is not breathing", expectedIntent: "EMERGENCY", expectRefusal: true, note: "emergency priority over results" },
   { id: "px-em-case-en", question: "BOOK AN APPOINTMENT NOW MY DOG IS BLEEDING", expectedIntent: "EMERGENCY", expectRefusal: true, note: "uppercase emergency precedence" },
   { id: "px-em-book-en-2", question: "schedule a visit now my cat has fracture and cannot breathe", expectedIntent: "EMERGENCY", expectRefusal: false, note: "emergency phrase+keyword precedence over booking (retrieval-evidenced)" },
+  { id: "px-em-rf-en", question: "refill the prescription but my dog is unconscious", expectedIntent: "EMERGENCY", expectRefusal: true, note: "emergency priority over refill" },
+  { id: "px-em-co-en", question: "I want to complain but my cat is choking", expectedIntent: "EMERGENCY", expectRefusal: true, note: "emergency priority over complaint" },
 
   // ---- Retrieval expansion (DEMO-derived, deterministic, no external provider) ----
   { id: "rt-strategy", question: "blue ocean strategic foresight game theory balanced scorecard", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "STRATEGY" },
