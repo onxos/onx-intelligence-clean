@@ -45,6 +45,7 @@ function selfVerify(overrides: Partial<SelfVerifyData> = {}): SelfVerifyData {
       claimsMeasured: 19,
       claimsAsserted: 0,
       drift: false,
+      retention: { keep: 168, oldestRetainedId: 1, oldestRetainedIsGenesis: true },
     },
     ...overrides,
   } as SelfVerifyData;
@@ -132,6 +133,7 @@ describe("STE-K-17 truth page view-model", () => {
           claimsMeasured: 19,
           claimsAsserted: 0,
           drift: true,
+          retention: { keep: 168, oldestRetainedId: 1, oldestRetainedIsGenesis: true },
         },
       }),
     };
@@ -156,6 +158,7 @@ describe("STE-K-17 truth page view-model", () => {
           claimsMeasured: null,
           claimsAsserted: null,
           drift: false,
+          retention: { keep: 168, oldestRetainedId: null, oldestRetainedIsGenesis: false },
         },
       }),
     };

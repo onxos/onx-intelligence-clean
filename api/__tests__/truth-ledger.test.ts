@@ -8,9 +8,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const queryMock = vi.fn();
+const releaseMock = vi.fn();
 vi.mock("pg", () => ({
   Pool: class {
     query = queryMock;
+    // STE-K-22: recordTruthSnapshot wraps insert+prune in a transaction via
+    // a pooled client. The client routes to the same queryMock so SQL
+    // contracts remain observable in queryMock.mock.calls.
+    connect = async () => ({ query: queryMock, release: releaseMock });
   },
 }));
 
@@ -174,4 +179,100 @@ describe("truth ledger (STE-K-03)", () => {
     expect(summary.count).toBe(2);
     expect(summary.drift).toBe(true); // latest differs from predecessor
   });
+
+  // ============================================================
+  // STE-K-22: bounded retention with MEASURED honest disclosure.
+  // ============================================================
+  it("memory capture: pruned=0 and retentionKeep disclosed while under the window", async () => {
+    const snap = await recordTruthSnapshot();
+    expect(snap.persistence).toBe("UNPERSISTED");
+    expect(snap.pruned).toBe(0);
+    expect(snap.retentionKeep).toBe(168);
+  });
+
+  it("memory read: retention disclosure names genesis retained when nothing was pruned", async () => {
+    await recordTruthSnapshot();
+    await recordTruthSnapshot();
+    const history = await getTruthHistory(10);
+    expect(history.retention.keep).toBe(168);
+    expect(history.retention.oldestRetainedId).toBe(1);
+    expect(history.retention.oldestRetainedIsGenesis).toBe(true);
+    // predecessor NOT pruned (genesis is present) → no fabricated edge flag
+    expect(history.snapshots[history.snapshots.length - 1].predecessorPruned).toBeUndefined();
+    expect(summaryDrift(history.snapshots)).toBe(false);
+  });
+
+  it("summary carries the measured retention disclosure", async () => {
+    await recordTruthSnapshot();
+    const summary = await summarizeTruthLedger();
+    expect(summary.retention.keep).toBe(168);
+    expect(summary.retention.oldestRetainedId).toBe(1);
+    expect(summary.retention.oldestRetainedIsGenesis).toBe(true);
+  });
+
+  it("postgres capture: insert+prune are ATOMIC (BEGIN/INSERT/DELETE OFFSET keep/COMMIT)", async () => {
+    process.env.DATABASE_URL = "postgres://localhost:5432/onx";
+    const order: string[] = [];
+    queryMock.mockImplementation(async (sql: string) => {
+      const s = String(sql);
+      order.push(s.trim().split(/\s+/).slice(0, 2).join(" "));
+      if (s.includes("INSERT INTO onx_truth_ledger")) return { rowCount: 1, rows: [{ id: 200 }] };
+      if (s.includes("DELETE FROM onx_truth_ledger")) return { rowCount: 3, rows: [] };
+      return { rowCount: 0, rows: [] };
+    });
+
+    const snap = await recordTruthSnapshot();
+    expect(snap.persistence).toBe("POSTGRES");
+    expect(snap.id).toBe(200);
+    expect(snap.retentionKeep).toBe(168);
+    expect(snap.pruned).toBe(3);
+
+    const del = queryMock.mock.calls.find(([s]) => String(s).includes("DELETE FROM onx_truth_ledger"));
+    expect(del).toBeTruthy();
+    expect(del![1]).toEqual([168]); // OFFSET bound = retention keep
+    expect(String(del![0])).toContain("OFFSET $1");
+    // transaction envelope present and correctly ordered around the writes
+    const begin = order.findIndex((o) => o.startsWith("BEGIN"));
+    const insert = order.findIndex((o) => o.startsWith("INSERT INTO"));
+    const delIdx = order.findIndex((o) => o.startsWith("DELETE FROM"));
+    const commit = order.findIndex((o) => o.startsWith("COMMIT"));
+    expect(begin).toBeGreaterThanOrEqual(0);
+    expect(insert).toBeGreaterThan(begin);
+    expect(delIdx).toBeGreaterThan(insert);
+    expect(commit).toBeGreaterThan(delIdx);
+  });
+
+  it("postgres read: discloses measured retention + NAMES a pruned-predecessor edge honestly", async () => {
+    process.env.DATABASE_URL = "postgres://localhost:5432/onx";
+    queryMock.mockImplementation(async (sql: string) => {
+      const s = String(sql);
+      if (s.includes("MIN(id)")) return { rowCount: 1, rows: [{ m: 40 }] }; // oldest retained id=40 (older pruned)
+      if (s.includes("SELECT id, fingerprint"))
+        return {
+          rowCount: 2,
+          rows: [
+            { id: 41, fingerprint: "b".repeat(64), claims_measured: 19, claims_asserted: 0, created_at: new Date("2026-01-02T00:00:00Z") },
+            { id: 40, fingerprint: "a".repeat(64), claims_measured: 19, claims_asserted: 0, created_at: new Date("2026-01-01T00:00:00Z") },
+          ],
+        };
+      return { rowCount: 0, rows: [] };
+    });
+
+    const history = await getTruthHistory(50); // asks 51, gets 2 → reached bottom of the retained window
+    expect(history.retention.keep).toBe(168);
+    expect(history.retention.oldestRetainedId).toBe(40);
+    expect(history.retention.oldestRetainedIsGenesis).toBe(false);
+
+    const oldest = history.snapshots[history.snapshots.length - 1];
+    expect(oldest.id).toBe(40);
+    // predecessor was pruned by retention → named, and drift stays false
+    // (drift is not measurable once the predecessor is gone).
+    expect(oldest.predecessorPruned).toBe(true);
+    expect(oldest.drift).toBe(false);
+  });
 });
+
+// local helper: latest-flag reading used by the retention disclosure test
+function summaryDrift(snaps: Array<{ drift: boolean }>): boolean {
+  return snaps[0]?.drift ?? false;
+}

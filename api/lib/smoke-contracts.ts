@@ -364,6 +364,11 @@ export function checkTruthLedgerRead(
   data: {
     persistence?: string;
     count?: number;
+    retention?: {
+      keep?: number;
+      oldestRetainedId?: number | null;
+      oldestRetainedIsGenesis?: boolean;
+    };
     snapshots?: Array<{
       id?: number;
       fingerprint?: string;
@@ -371,6 +376,7 @@ export function checkTruthLedgerRead(
       claimsAsserted?: number;
       createdAt?: string;
       drift?: boolean;
+      predecessorPruned?: boolean;
     }>;
   },
 ): ContractResult {
@@ -379,6 +385,23 @@ export function checkTruthLedgerRead(
   const persistence = data?.persistence;
   if (persistence !== "POSTGRES" && persistence !== "UNPERSISTED")
     return { name, passed: false, detail: `unknown ledger persistence: ${persistence}` };
+  // STE-K-22 (DEEPENING of the 9th contract — NOT a new contract; total stays
+  // 9): the read surface discloses a MEASURED bounded-retention policy. When
+  // present it must be honest: a positive keep window, and the live invariant
+  // that the returned page never exceeds it. Tolerant when absent so older
+  // fixtures/surfaces still validate.
+  const retention = data?.retention;
+  if (retention !== undefined) {
+    if (typeof retention.keep !== "number" || !Number.isFinite(retention.keep) || retention.keep < 1)
+      return { name, passed: false, detail: `retention.keep is not a positive number: ${retention.keep}` };
+    const snapsForBound = Array.isArray(data?.snapshots) ? data!.snapshots! : [];
+    if (snapsForBound.length > retention.keep)
+      return {
+        name,
+        passed: false,
+        detail: `page (${snapsForBound.length}) exceeds retention.keep (${retention.keep}) — retention not enforced`,
+      };
+  }
   const snaps = data?.snapshots;
   if (!Array.isArray(snaps))
     return { name, passed: false, detail: "snapshots is not an array" };
@@ -426,11 +449,33 @@ export function checkTruthLedgerRead(
         };
     }
   }
+  // STE-K-22 edge honesty: `predecessorPruned` may appear ONLY on the oldest
+  // (last, newest-first) snapshot — it names the case where retention removed
+  // that snapshot's true predecessor. It must never carry a fabricated drift:
+  // with no measurable predecessor, drift must be false (named, not implied).
+  for (let i = 0; i < snaps.length; i++) {
+    if (!snaps[i]?.predecessorPruned) continue;
+    if (i !== snaps.length - 1)
+      return {
+        name,
+        passed: false,
+        detail: `snapshot ${snaps[i]?.id} flagged predecessorPruned but is not the oldest in the page — dishonest edge`,
+      };
+    if (snaps[i]?.drift !== false)
+      return {
+        name,
+        passed: false,
+        detail: `snapshot ${snaps[i]?.id} predecessorPruned with drift=${snaps[i]?.drift} — drift is not measurable once the predecessor is pruned`,
+      };
+  }
   const drifted = snaps.filter((s) => s.drift).length;
+  const retentionNote = retention
+    ? `, retention keep=${retention.keep} oldestRetainedId=${retention.oldestRetainedId ?? "none"}${retention.oldestRetainedIsGenesis ? " (genesis retained)" : " (older pruned)"}`
+    : "";
   return {
     name,
     passed: true,
-    detail: `${snaps.length} snapshots, ${drifted} drift-flagged, persistence=${persistence}`,
+    detail: `${snaps.length} snapshots, ${drifted} drift-flagged, persistence=${persistence}${retentionNote}`,
   };
 }
 

@@ -135,6 +135,7 @@ const LIVE_TRUTH_HISTORY_EMPTY = {
   persistence: "POSTGRES",
   count: 0,
   snapshots: [] as Array<Record<string, unknown>>,
+  retention: { keep: 168, oldestRetainedId: null, oldestRetainedIsGenesis: false },
 };
 const LIVE_TRUTH_HISTORY_POPULATED = {
   rateLimit: { limit: 60, remaining: 59, category: "PUBLIC_READ", persistence: "PER_INSTANCE_UNPERSISTED" },
@@ -144,6 +145,7 @@ const LIVE_TRUTH_HISTORY_POPULATED = {
     { id: 2, fingerprint: LEDGER_FP_B, claimsMeasured: 19, claimsAsserted: 0, createdAt: "2026-01-02T00:00:00.000Z", drift: true },
     { id: 1, fingerprint: LEDGER_FP_A, claimsMeasured: 19, claimsAsserted: 0, createdAt: "2026-01-01T00:00:00.000Z", drift: false },
   ],
+  retention: { keep: 168, oldestRetainedId: 1, oldestRetainedIsGenesis: true },
 };
 
 // A full honest-live fetch double routing by URL.
@@ -543,6 +545,90 @@ describe("checkTruthLedgerRead (STE-K-13)", () => {
     });
     expect(r.passed).toBe(true);
     expect(r.detail).toMatch(/1 drift-flagged/);
+  });
+
+  // ---- STE-K-22: bounded-retention disclosure (deepening; total stays 9) ----
+  it("accepts a valid retention disclosure and reports it (genesis retained)", () => {
+    const r = checkTruthLedgerRead(200, {
+      persistence: "POSTGRES",
+      count: 1,
+      retention: { keep: 168, oldestRetainedId: 1, oldestRetainedIsGenesis: true },
+      snapshots: [{ id: 1, fingerprint: "a".repeat(64), claimsMeasured: 19, claimsAsserted: 0, createdAt: "2026-01-01T00:00:00.000Z", drift: false }],
+    });
+    expect(r.passed).toBe(true);
+    expect(r.detail).toMatch(/keep=168/);
+    expect(r.detail).toMatch(/genesis retained/);
+  });
+
+  it("fails when retention.keep is not a positive number", () => {
+    const r = checkTruthLedgerRead(200, {
+      persistence: "POSTGRES",
+      count: 0,
+      retention: { keep: 0, oldestRetainedId: null, oldestRetainedIsGenesis: false },
+      snapshots: [],
+    });
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/retention\.keep/);
+  });
+
+  it("fails when the returned page exceeds the retention window", () => {
+    const snaps = Array.from({ length: 3 }, (_, k) => ({
+      id: 3 - k,
+      fingerprint: "a".repeat(64),
+      claimsMeasured: 19,
+      claimsAsserted: 0,
+      createdAt: `2026-01-0${3 - k}T00:00:00.000Z`,
+      drift: false,
+    }));
+    const r = checkTruthLedgerRead(200, {
+      persistence: "POSTGRES",
+      count: 3,
+      retention: { keep: 2, oldestRetainedId: 1, oldestRetainedIsGenesis: true },
+      snapshots: snaps,
+    });
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/exceeds retention\.keep/);
+  });
+
+  it("accepts predecessorPruned NAMED on the oldest snapshot with drift=false", () => {
+    const r = checkTruthLedgerRead(200, {
+      persistence: "POSTGRES",
+      count: 2,
+      retention: { keep: 168, oldestRetainedId: 40, oldestRetainedIsGenesis: false },
+      snapshots: [
+        { id: 41, fingerprint: "b".repeat(64), claimsMeasured: 19, claimsAsserted: 0, createdAt: "2026-01-02T00:00:00.000Z", drift: true },
+        { id: 40, fingerprint: "a".repeat(64), claimsMeasured: 19, claimsAsserted: 0, createdAt: "2026-01-01T00:00:00.000Z", drift: false, predecessorPruned: true },
+      ],
+    });
+    expect(r.passed).toBe(true);
+    expect(r.detail).toMatch(/older pruned/);
+  });
+
+  it("fails when predecessorPruned appears on a NON-oldest snapshot", () => {
+    const r = checkTruthLedgerRead(200, {
+      persistence: "POSTGRES",
+      count: 2,
+      retention: { keep: 168, oldestRetainedId: 40, oldestRetainedIsGenesis: false },
+      snapshots: [
+        { id: 41, fingerprint: "b".repeat(64), claimsMeasured: 19, claimsAsserted: 0, createdAt: "2026-01-02T00:00:00.000Z", drift: true, predecessorPruned: true },
+        { id: 40, fingerprint: "a".repeat(64), claimsMeasured: 19, claimsAsserted: 0, createdAt: "2026-01-01T00:00:00.000Z", drift: false },
+      ],
+    });
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/not the oldest/);
+  });
+
+  it("fails when predecessorPruned carries a fabricated drift=true", () => {
+    const r = checkTruthLedgerRead(200, {
+      persistence: "POSTGRES",
+      count: 1,
+      retention: { keep: 168, oldestRetainedId: 40, oldestRetainedIsGenesis: false },
+      snapshots: [
+        { id: 40, fingerprint: "a".repeat(64), claimsMeasured: 19, claimsAsserted: 0, createdAt: "2026-01-01T00:00:00.000Z", drift: true, predecessorPruned: true },
+      ],
+    });
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/not measurable once the predecessor is pruned/);
   });
 });
 
