@@ -15,6 +15,8 @@
 // trigger a real 429.
 // ============================================================
 
+import { TRUTH_SNAPSHOT_INTERVAL_MS } from "./truth-snapshot-cron";
+
 // Minimal response shape we depend on (Node/undici fetch compatible).
 export interface SmokeResponse {
   status: number;
@@ -391,12 +393,9 @@ export function checkBridgeFailClosed(
 
 // STE-K-13: truth-ledger read surface (onx.truthHistory, public read).
 // Proves the chronological OSVA snapshot store is reachable and shaped
-// honestly. An EMPTY ledger is a VALID, HONEST state: on the live web
-// deployment no scheduler records snapshots (the recording worker
-// `onx-scheduler` is autoDeploy:false / branch:main — render.yaml:179,196;
-// the web-internal cron in boot.ts:83-104 runs ticks but does NOT call
-// recordTruthSnapshot). So the contract accepts count===0 and REPORTS it
-// rather than fabricating history. When rows DO exist, every entry must
+// honestly. An EMPTY ledger remains a VALID, HONEST state (fresh boot
+// before first capture tick, or prolonged capture failures) and is
+// reported instead of fabricating history. When rows DO exist, every entry must
 // carry a sha256 fingerprint, numeric claim counts, and a boolean drift
 // flag (automatic truth-drift detection, truth-ledger.ts:138-146).
 // STE-K-36 deepening: this same contract (no new contract) also verifies
@@ -424,6 +423,7 @@ export function checkTruthLedgerRead(
     }>;
   },
   truthLedgerTotalCount?: number,
+  nowMs?: number,
 ): ContractResult {
   const name = "truth_ledger_read";
   if (status !== 200) return { name, passed: false, detail: `expected 200, got ${status}` };
@@ -476,6 +476,10 @@ export function checkTruthLedgerRead(
           ? `ledger empty — honest: no live scheduled capture (persistence=${persistence})`
           : `ledger empty window (persistence=${persistence}); truthful total count=${truthLedgerTotalCount}`,
     };
+  const now = typeof nowMs === "number" && Number.isFinite(nowMs) ? nowMs : null;
+  // STE-K-49 deepening: freshness threshold derived from measured hourly
+  // cadence (TRUTH_SNAPSHOT_INTERVAL_MS) with an explicit jitter margin.
+  const freshnessMaxAgeMs = (2 * TRUTH_SNAPSHOT_INTERVAL_MS) + (10 * 60 * 1000);
   for (const s of snaps) {
     if (!Number.isInteger(s?.id) || Number(s.id) < 1)
       return { name, passed: false, detail: `snapshot id is missing/invalid for table rows: ${s?.id}` };
@@ -489,6 +493,18 @@ export function checkTruthLedgerRead(
       return { name, passed: false, detail: `snapshot ${s?.id} missing boolean drift flag` };
     if (s?.predecessorPruned !== undefined && typeof s.predecessorPruned !== "boolean")
       return { name, passed: false, detail: `snapshot ${s?.id} predecessorPruned must be boolean when present` };
+  }
+  if (now != null) {
+    const latestCreatedAtMs = Date.parse(String(snaps[0]?.createdAt ?? ""));
+    if (!Number.isFinite(latestCreatedAtMs))
+      return { name, passed: false, detail: `snapshot ${snaps[0]?.id} missing/invalid createdAt` };
+    const ageMs = now - latestCreatedAtMs;
+    if (ageMs > freshnessMaxAgeMs)
+      return {
+        name,
+        passed: false,
+        detail: `latest snapshot is stale (${Math.floor(ageMs / 60000)}m old > ${Math.floor(freshnessMaxAgeMs / 60000)}m threshold for hourly capture)`,
+      };
   }
   // STE-K-15: with >=2 snapshots we can prove the ledger is honest over
   // TIME, not just shaped right. Snapshots are newest-first, so:
@@ -717,7 +733,8 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
   }
 
   // 8) onx.truthHistory — the truth-ledger read surface (STE-K-13).
-  // An empty ledger is honest (no live scheduled capture) and reported.
+  // Empty remains a named honest state; when populated, latest capture
+  // freshness is enforced against the measured hourly cadence (STE-K-49).
   {
     const { status, body, raw } = await getJson(
       fetchImpl,
@@ -725,7 +742,7 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
     );
     const u = unwrapTrpc(body);
     contracts.push(
-      checkTruthLedgerRead(status, (u.data ?? {}) as never, truthLedgerTotalCountFromSummary),
+      checkTruthLedgerRead(status, (u.data ?? {}) as never, truthLedgerTotalCountFromSummary, Date.now()),
     );
     const leak = assertNoKeyLeak(raw);
     if (leak) leaks.push(`onx.truthHistory:${leak}`);

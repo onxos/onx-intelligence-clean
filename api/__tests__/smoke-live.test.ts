@@ -129,10 +129,12 @@ const COMMITTED_MANIFEST: CorpusManifestContract = {
   sha256: MANIFEST_SHA,
 };
 
-// Truth-ledger read surface. Live production returns an EMPTY ledger
-// (no scheduled capture on the web deploy) — the honest default here.
+// Truth-ledger read surface fixtures.
 const LEDGER_FP_A = "a".repeat(64);
 const LEDGER_FP_B = "b".repeat(64);
+const LEDGER_NOW_MS = Date.now();
+const LEDGER_TS_NEW = new Date(LEDGER_NOW_MS - (30 * 60 * 1000)).toISOString();
+const LEDGER_TS_OLD = new Date(LEDGER_NOW_MS - (90 * 60 * 1000)).toISOString();
 const LIVE_TRUTH_HISTORY_EMPTY = {
   rateLimit: { limit: 60, remaining: 59, category: "PUBLIC_READ", persistence: "PER_INSTANCE_UNPERSISTED" },
   persistence: "POSTGRES",
@@ -145,8 +147,8 @@ const LIVE_TRUTH_HISTORY_POPULATED = {
   persistence: "UNPERSISTED",
   count: 2,
   snapshots: [
-    { id: 2, fingerprint: LEDGER_FP_B, claimsMeasured: 19, claimsAsserted: 0, createdAt: "2026-01-02T00:00:00.000Z", drift: true },
-    { id: 1, fingerprint: LEDGER_FP_A, claimsMeasured: 19, claimsAsserted: 0, createdAt: "2026-01-01T00:00:00.000Z", drift: false },
+    { id: 2, fingerprint: LEDGER_FP_B, claimsMeasured: 19, claimsAsserted: 0, createdAt: LEDGER_TS_NEW, drift: true },
+    { id: 1, fingerprint: LEDGER_FP_A, claimsMeasured: 19, claimsAsserted: 0, createdAt: LEDGER_TS_OLD, drift: false },
   ],
   retention: { keep: 168, oldestRetainedId: 1, oldestRetainedIsGenesis: true },
 };
@@ -493,7 +495,7 @@ describe("runSmoke orchestration (mocked fetch)", () => {
     expect(report.contracts.find((c) => c.name === "ask_onx_honest_refusal")?.passed).toBe(false);
   });
 
-  it("truth_ledger_read passes on an honest EMPTY live ledger (no scheduled capture)", async () => {
+  it("truth_ledger_read passes on an honest EMPTY live ledger (named empty state)", async () => {
     const report = await runSmoke("https://x.dev", {
       fetchImpl: liveFetch(),
       expectedSha: null,
@@ -531,9 +533,37 @@ describe("checkTruthLedgerRead (STE-K-13)", () => {
   });
 
   it("accepts a well-formed populated ledger and counts drift", () => {
-    const r = checkTruthLedgerRead(200, LIVE_TRUTH_HISTORY_POPULATED, 2);
+    const r = checkTruthLedgerRead(200, LIVE_TRUTH_HISTORY_POPULATED, 2, LEDGER_NOW_MS);
     expect(r.passed).toBe(true);
     expect(r.detail).toMatch(/1 drift-flagged/);
+  });
+
+  it("fails when the latest snapshot is stale beyond the hourly freshness threshold", () => {
+    const nowMs = Date.parse("2026-07-14T12:00:00.000Z");
+    const stale = {
+      ...LIVE_TRUTH_HISTORY_POPULATED,
+      snapshots: [
+        {
+          id: 2,
+          fingerprint: LEDGER_FP_B,
+          claimsMeasured: 19,
+          claimsAsserted: 0,
+          createdAt: "2026-07-14T09:00:00.000Z",
+          drift: true,
+        },
+        {
+          id: 1,
+          fingerprint: LEDGER_FP_A,
+          claimsMeasured: 19,
+          claimsAsserted: 0,
+          createdAt: "2026-07-14T08:00:00.000Z",
+          drift: false,
+        },
+      ],
+    };
+    const r = checkTruthLedgerRead(200, stale, 2, nowMs);
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/latest snapshot is stale/);
   });
 
   it("fails when truthLedgerSummary.count is invalid", () => {
