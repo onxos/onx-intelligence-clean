@@ -13,6 +13,7 @@ import {
   type SelfVerifyData,
   type CorpusManifestData,
   type ProvidersStatusData,
+  type CommitData,
 } from "../lib/truth-page-model";
 
 const FROZEN = () => "2026-01-01T00:00:00.000Z";
@@ -74,11 +75,22 @@ function providers(overrides: Partial<ProvidersStatusData> = {}): ProvidersStatu
   };
 }
 
+function commit(overrides: Partial<CommitData> = {}): CommitData {
+  return {
+    commit: "8658d65140454b905f788a37e2231beeb58b707b",
+    service: "onx-intelligence-clean",
+    bootTime: "2026-01-01T00:00:00.000Z",
+    timestamp: "2026-01-01T00:05:00.000Z",
+    ...overrides,
+  };
+}
+
 function allOk(): TruthPageSources {
   return {
     selfVerify: { ok: true, data: selfVerify() },
     corpus: { ok: true, data: corpus() },
     providers: { ok: true, data: providers() },
+    commit: { ok: true, data: commit() },
   };
 }
 
@@ -177,6 +189,7 @@ describe("STE-K-17 truth page view-model", () => {
       selfVerify: { ok: false, error: "network: 503" },
       corpus: { ok: false, error: "timeout" },
       providers: { ok: false, error: "parse error" },
+      commit: { ok: false, error: "commit surface 502" },
     };
     const m = buildTruthPageModel(src, FROZEN);
     expect(m.claims.state).toBe("FETCH_FAILED");
@@ -189,6 +202,8 @@ describe("STE-K-17 truth page view-model", () => {
     expect(m.rateLimit.state).toBe("FETCH_FAILED");
     expect(m.bridges.state).toBe("FETCH_FAILED");
     expect(m.bridges.items).toHaveLength(0);
+    expect(m.freshness.state).toBe("FETCH_FAILED");
+    expect(m.freshness.commitShort).toBeNull(); // NOT a fake sha
   });
 
   it("mixes states independently — one dead surface does not poison the others", () => {
@@ -276,5 +291,46 @@ describe("STE-K-17 truth page view-model", () => {
     const m = buildTruthPageModel(src, FROZEN);
     expect(m.rateLimit.state).toBe("OK");
     expect(m.rateLimit.persistence).toBe("POSTGRES_PERSISTED");
+  });
+
+  // ---- STE-K-27: deploy-freshness card (measured from /commit) ----
+  it("discloses the MEASURED served commit + boot time from /commit", () => {
+    const m = buildTruthPageModel(allOk(), FROZEN);
+    expect(m.freshness.state).toBe("OK");
+    expect(m.freshness.commitShort).toBe("8658d6514045"); // 12-char short of the served sha
+    expect(m.freshness.service).toBe("onx-intelligence-clean");
+    expect(m.freshness.bootTime).toBe("2026-01-01T00:00:00.000Z");
+  });
+
+  it("names an EMPTY freshness state when the surface omits commit (never a fake sha)", () => {
+    const src = allOk();
+    src.commit = { ok: true, data: commit({ commit: undefined }) };
+    const m = buildTruthPageModel(src, FROZEN);
+    expect(m.freshness.state).toBe("EMPTY");
+    expect(m.freshness.commitShort).toBeNull();
+    // a partial surface still passes through the fields it DID carry
+    expect(m.freshness.service).toBe("onx-intelligence-clean");
+  });
+
+  it("marks freshness FETCH_FAILED when the /commit surface is unreachable, not a fake zero", () => {
+    const src = allOk();
+    src.commit = { ok: false, error: "commit surface 502" };
+    const m = buildTruthPageModel(src, FROZEN);
+    expect(m.freshness.state).toBe("FETCH_FAILED");
+    expect(m.freshness.error).toBe("commit surface 502");
+    expect(m.freshness.commitShort).toBeNull();
+    expect(m.freshness.bootTime).toBeNull();
+    // a dead /commit does not poison the other live surfaces
+    expect(m.claims.state).toBe("OK");
+    expect(m.ledger.state).toBe("OK");
+  });
+
+  it("rides bootTime through null-honest when the surface omits it", () => {
+    const src = allOk();
+    src.commit = { ok: true, data: commit({ bootTime: undefined }) };
+    const m = buildTruthPageModel(src, FROZEN);
+    expect(m.freshness.state).toBe("OK");
+    expect(m.freshness.bootTime).toBeNull();
+    expect(m.freshness.commitShort).toBe("8658d6514045");
   });
 });

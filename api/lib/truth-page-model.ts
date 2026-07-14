@@ -43,10 +43,22 @@ export type ProvidersStatusData = {
   providers?: Array<{ id: string; status: string }>;
 };
 
+// STE-K-27: the /commit deploy-info surface (Express route on the app
+// root — the SAME surface proven live by the smoke `health`/`commit`
+// contracts). Shape MEASURED live: { commit, service, bootTime, timestamp }.
+// buildTime is NOT emitted by the surface, so we never fabricate it.
+export type CommitData = {
+  commit?: string;
+  service?: string;
+  bootTime?: string;
+  timestamp?: string;
+};
+
 export interface TruthPageSources {
   selfVerify: SourceOutcome<SelfVerifyData>;
   corpus: SourceOutcome<CorpusManifestData>;
   providers: SourceOutcome<ProvidersStatusData>;
+  commit: SourceOutcome<CommitData>;
 }
 
 export interface ClaimsSection {
@@ -104,6 +116,21 @@ export interface BridgesSection {
   items: Array<{ id: string; failClosed: boolean; enabled: boolean; hasSharedSecret: boolean }>;
 }
 
+// STE-K-27: deploy-freshness disclosure for the human reader — the
+// SERVED commit + boot time, measured from the existing /commit surface
+// (no new fetch surface; /commit is already covered by the smoke
+// health/commit contracts and /truth by no_key_leak). A reachable
+// surface that omits `commit` is a NAMED EMPTY state (never a fake sha);
+// an unreachable surface is FETCH_FAILED. bootTime is null-honest when
+// the surface does not carry it.
+export interface FreshnessSection {
+  state: SectionState; // OK (commit present) / EMPTY (no commit field) / FETCH_FAILED
+  error: string | null;
+  commitShort: string | null;
+  service: string | null;
+  bootTime: string | null;
+}
+
 export interface TruthPageModel {
   generatedAt: string;
   claims: ClaimsSection;
@@ -112,6 +139,7 @@ export interface TruthPageModel {
   retention: RetentionSection;
   rateLimit: RateLimitSection;
   bridges: BridgesSection;
+  freshness: FreshnessSection;
 }
 
 export function shortHash(h: string | null | undefined, n = 12): string | null {
@@ -270,6 +298,39 @@ function buildBridges(src: SourceOutcome<SelfVerifyData>): BridgesSection {
   };
 }
 
+// STE-K-27: surface the MEASURED deploy freshness from /commit. A
+// reachable surface missing `commit` is a NAMED EMPTY state (distinct
+// from a fetch failure), never a fabricated sha. bootTime rides through
+// null-honest when the surface omits it.
+function buildFreshness(src: SourceOutcome<CommitData>): FreshnessSection {
+  if (!src.ok) {
+    return {
+      state: "FETCH_FAILED",
+      error: src.error,
+      commitShort: null,
+      service: null,
+      bootTime: null,
+    };
+  }
+  const d = src.data;
+  if (!d || typeof d.commit !== "string" || d.commit.length === 0) {
+    return {
+      state: "EMPTY",
+      error: null,
+      commitShort: null,
+      service: d?.service ?? null,
+      bootTime: d?.bootTime ?? null,
+    };
+  }
+  return {
+    state: "OK",
+    error: null,
+    commitShort: shortHash(d.commit),
+    service: d.service ?? null,
+    bootTime: d.bootTime ?? null,
+  };
+}
+
 export function buildTruthPageModel(
   sources: TruthPageSources,
   now: () => string = () => new Date().toISOString(),
@@ -282,5 +343,6 @@ export function buildTruthPageModel(
     retention: buildRetention(sources.selfVerify),
     rateLimit: buildRateLimit(sources.providers),
     bridges: buildBridges(sources.selfVerify),
+    freshness: buildFreshness(sources.commit),
   };
 }

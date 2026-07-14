@@ -9,15 +9,17 @@
 // renders a named EMPTY state. Arabic-first RTL with English labels.
 // ============================================================
 import { trpc } from "@/providers/trpc";
+import { useQuery } from "@tanstack/react-query";
 import BackButton from "@/components/BackButton";
 import { Badge } from "@/components/ui/badge";
-import { ShieldCheck, Database, History, GaugeCircle, Link2, AlertTriangle, Archive } from "lucide-react";
+import { ShieldCheck, Database, History, GaugeCircle, Link2, AlertTriangle, Archive, Rocket } from "lucide-react";
 import {
   buildTruthPageModel,
   type SourceOutcome,
   type SelfVerifyData,
   type CorpusManifestData,
   type ProvidersStatusData,
+  type CommitData,
 } from "../../api/lib/truth-page-model";
 
 function toOutcome<T>(q: { isError: boolean; error: unknown; data: T | undefined }): SourceOutcome<T> {
@@ -27,6 +29,16 @@ function toOutcome<T>(q: { isError: boolean; error: unknown; data: T | undefined
   }
   if (q.data !== undefined) return { ok: true, data: q.data };
   return { ok: false, error: "loading" };
+}
+
+// STE-K-27: the /commit deploy-info route is a SIBLING of this page under
+// whichever mount serves it (app root `/truth` directly, or `…/intelligence/truth`
+// via the gateway full-app mount). Derive the sibling URL from the live
+// pathname so the freshness card reads the SAME origin/mount — no new surface,
+// no hard-coded host.
+function commitSiblingUrl(): string {
+  const path = typeof window !== "undefined" ? window.location.pathname : "/truth";
+  return path.replace(/truth\/?$/, "commit");
 }
 
 function StateBadge({ state }: { state: "OK" | "EMPTY" | "FETCH_FAILED" }) {
@@ -95,14 +107,23 @@ export default function Truth() {
   const selfVerifyQ = trpc.onx.selfVerify.useQuery();
   const corpusQ = trpc.corpusQuery.manifest.useQuery();
   const providersQ = trpc.providers.status.useQuery();
+  const commitQ = useQuery<CommitData>({
+    queryKey: ["truth-commit"],
+    queryFn: async () => {
+      const res = await fetch(commitSiblingUrl(), { headers: { accept: "application/json" } });
+      if (!res.ok) throw new Error(`commit surface ${res.status}`);
+      return (await res.json()) as CommitData;
+    },
+  });
 
   const model = buildTruthPageModel({
     selfVerify: toOutcome<SelfVerifyData>(selfVerifyQ as never),
     corpus: toOutcome<CorpusManifestData>(corpusQ as never),
     providers: toOutcome<ProvidersStatusData>(providersQ as never),
+    commit: toOutcome<CommitData>(commitQ as never),
   });
 
-  const { claims, corpus, ledger, retention, rateLimit, bridges } = model;
+  const { claims, corpus, ledger, retention, rateLimit, bridges, freshness } = model;
 
   const rlPersisted = rateLimit.persistence === "POSTGRES_PERSISTED";
 
@@ -126,6 +147,25 @@ export default function Truth() {
             </span>
           </p>
         </header>
+
+        {/* Deploy freshness (STE-K-27) */}
+        <Section icon={<Rocket className="w-5 h-5" />} title="طزاجة النشر" en="Deploy freshness" state={freshness.state} error={freshness.error}>
+          {freshness.state === "EMPTY" ? (
+            <p className="text-sm text-gray-500">
+              سطح النشر لا يُصدر بصمة الـcommit. · Deploy surface exposes no commit fingerprint.
+            </p>
+          ) : (
+            <>
+              <Row label="الإصدار المخدوم" en="served commit" value={freshness.commitShort ?? dash} />
+              <Row label="اسم الخدمة" en="service" value={freshness.service ?? dash} />
+              <Row label="وقت الإقلاع" en="bootTime" value={freshness.bootTime ?? dash} />
+              <p className="mt-2 text-xs text-gray-500">
+                الإصدار ووقت الإقلاع مقاسان من سطح <span dir="ltr">/commit</span> الحي — لا قيمة صلبة.
+                <span className="text-gray-400"> · Served commit and boot time measured live from the /commit surface — no hard-coded value.</span>
+              </p>
+            </>
+          )}
+        </Section>
 
         {/* Self-verification claims */}
         <Section icon={<ShieldCheck className="w-5 h-5" />} title="التحقّق الذاتي" en="Self-verification" state={claims.state} error={claims.error}>
