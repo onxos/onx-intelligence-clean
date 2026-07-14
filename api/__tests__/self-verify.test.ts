@@ -4,6 +4,7 @@
 // and the runner's exit-code contract (asserted claims → 1).
 // ============================================================
 import { describe, it, expect } from "vitest";
+import { createHash } from "node:crypto";
 import { appRouter } from "../router";
 import {
   buildSelfVerification,
@@ -49,6 +50,30 @@ describe("OSVA self-verification (STE-V-01)", () => {
       claimsMeasured: first.claimsMeasured + 1,
     };
     expect(fingerprintReport(mutated)).not.toBe(first.fingerprint);
+  });
+
+  it("matches independent sha256 recomputation of the canonical stable payload", async () => {
+    const report = await buildSelfVerification();
+    const stable = {
+      items: report.items.map((i) => ({ area: i.area, name: i.name, verdict: i.verdict, measured: i.measured })),
+      health: report.health.map((h) => ({ name: h.name, status: h.status })),
+      corpus: {
+        rawTotal: report.corpus.rawTotal,
+        uniqueByTitleBody: report.corpus.uniqueByTitleBody,
+        duplicates: report.corpus.duplicates,
+        persistence: report.corpus.persistence,
+      },
+      providers: report.providers.map((p) => ({ id: p.id, status: p.status })),
+      bridges: report.bridges,
+      claimsMeasured: report.claimsMeasured,
+      claimsAsserted: report.claimsAsserted,
+    };
+    const independent = createHash("sha256").update(JSON.stringify(stable)).digest("hex");
+    expect(independent).toBe(report.fingerprint);
+
+    const tampered = { ...stable, claimsMeasured: stable.claimsMeasured + 1 };
+    const tamperedHash = createHash("sha256").update(JSON.stringify(tampered)).digest("hex");
+    expect(tamperedHash).not.toBe(report.fingerprint);
   });
 
   it("onx.selfVerify is public and leaks no env values", async () => {
