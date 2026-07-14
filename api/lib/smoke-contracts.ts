@@ -282,6 +282,20 @@ export function checkSelfVerify(
       };
     };
   },
+  schedulerCoherence?: {
+    status: number;
+    rows?: Array<{
+      active?: boolean;
+      interval?: number;
+      intervalHuman?: string;
+      lastRun?: string | null;
+      nextRun?: string | null;
+      msUntilNext?: number | null;
+      runCount?: number;
+      status?: string;
+    }>;
+    nowMs?: number;
+  },
 ): ContractResult {
   const name = "honest_status_selfverify";
   if (status !== 200) return { name, passed: false, detail: `expected 200, got ${status}` };
@@ -371,6 +385,157 @@ export function checkSelfVerify(
       return { name, passed: false, detail: `truthLedgerSummary.claimsMeasured invalid (${String(summary.claimsMeasured)})` };
     if (!Number.isInteger(summary.claimsAsserted) || Number(summary.claimsAsserted) < 0)
       return { name, passed: false, detail: `truthLedgerSummary.claimsAsserted invalid (${String(summary.claimsAsserted)})` };
+  }
+  if (schedulerCoherence) {
+    if (schedulerCoherence.status !== 200)
+      return {
+        name,
+        passed: false,
+        detail: `scheduler.status unavailable for coherence check (status ${schedulerCoherence.status})`,
+      };
+    const rows = schedulerCoherence.rows;
+    if (!Array.isArray(rows) || rows.length === 0)
+      return { name, passed: false, detail: "scheduler.status rows missing/empty for coherence check" };
+    const schedulerItem = items.find((i) => i.name === "Scheduler");
+    if (!schedulerItem)
+      return { name, passed: false, detail: "selfVerify missing Scheduler item for scheduler coherence check" };
+    const detail = String((schedulerItem as { detail?: string }).detail ?? "");
+    const m = detail.match(/^(\d+)\/(\d+) rhythms active, (\d+) failing; IUC cron (active|paused)(?:, last tick (.+))?$/);
+    if (!m)
+      return {
+        name,
+        passed: false,
+        detail: `Scheduler detail shape mismatch (${detail || "missing"})`,
+      };
+    const detailActive = Number(m[1]);
+    const detailTotal = Number(m[2]);
+    const detailFailing = Number(m[3]);
+    const cronStatus = m[4];
+    const lastTickAt = m[5];
+    if ((cronStatus !== "active" && cronStatus !== "paused"))
+      return { name, passed: false, detail: `Scheduler cron status invalid (${cronStatus})` };
+    if (lastTickAt !== undefined && !Number.isFinite(Date.parse(lastTickAt)))
+      return { name, passed: false, detail: `Scheduler last tick timestamp invalid (${lastTickAt})` };
+
+    let activeCount = 0;
+    let failingCount = 0;
+    for (const row of rows) {
+      if (typeof row?.active !== "boolean")
+        return { name, passed: false, detail: "scheduler.status row missing boolean active" };
+      if (!Number.isInteger(row?.interval) || Number(row.interval) < 1000)
+        return {
+          name,
+          passed: false,
+          detail: `scheduler.status row interval invalid (${String(row?.interval)})`,
+        };
+      const expectedIntervalHuman =
+        row.interval >= 86400000 ? `${row.interval / 86400000}d`
+          : row.interval >= 3600000 ? `${row.interval / 3600000}h`
+            : row.interval >= 60000 ? `${row.interval / 60000}m`
+              : `${row.interval / 1000}s`;
+      if (String(row.intervalHuman) !== expectedIntervalHuman)
+        return {
+          name,
+          passed: false,
+          detail: `scheduler intervalHuman mismatch (${String(row.intervalHuman)} != ${expectedIntervalHuman})`,
+        };
+      if (row.nextRun == null && row.msUntilNext != null)
+        return { name, passed: false, detail: "scheduler nextRun/msUntilNext mismatch (nextRun=null with msUntilNext present)" };
+      if (row.nextRun != null && row.msUntilNext == null)
+        return { name, passed: false, detail: "scheduler nextRun/msUntilNext mismatch (nextRun present with msUntilNext=null)" };
+      if (row.nextRun != null) {
+        const nextRunMs = Date.parse(String(row.nextRun));
+        if (!Number.isFinite(nextRunMs))
+          return {
+            name,
+            passed: false,
+            detail: `scheduler nextRun invalid (${String(row.nextRun)})`,
+          };
+        if (!Number.isFinite(Number(row.msUntilNext)) || Number(row.msUntilNext) < 0)
+          return {
+            name,
+            passed: false,
+            detail: `scheduler msUntilNext invalid (${String(row.msUntilNext)})`,
+          };
+        const now = typeof schedulerCoherence.nowMs === "number" && Number.isFinite(schedulerCoherence.nowMs)
+          ? schedulerCoherence.nowMs
+          : null;
+        if (now != null) {
+          const expectedMsUntilNext = Math.max(0, nextRunMs - now);
+          // Server clock + network jitter tolerance (2 minutes).
+          if (Math.abs(Number(row.msUntilNext) - expectedMsUntilNext) > 120000)
+            return {
+              name,
+              passed: false,
+              detail: `scheduler msUntilNext inconsistent with nextRun (${String(row.msUntilNext)} vs expected ${String(expectedMsUntilNext)})`,
+            };
+        }
+      }
+      if (row.active === false && row.nextRun != null)
+        return {
+          name,
+          passed: false,
+          detail: "scheduler active/nextRun mismatch (inactive rhythm has nextRun)",
+        };
+      if (row.active === true && row.nextRun == null)
+        return {
+          name,
+          passed: false,
+          detail: "scheduler active/nextRun mismatch (active rhythm missing nextRun)",
+        };
+      if (!Number.isInteger(row.runCount) || Number(row.runCount) < 0)
+        return {
+          name,
+          passed: false,
+          detail: `scheduler runCount invalid (${String(row.runCount)})`,
+        };
+      if (row.runCount === 0 && row.lastRun != null)
+        return {
+          name,
+          passed: false,
+          detail: "scheduler runCount/lastRun mismatch (runCount=0 with lastRun present)",
+        };
+      if (row.runCount > 0 && row.lastRun == null)
+        return {
+          name,
+          passed: false,
+          detail: "scheduler runCount/lastRun mismatch (runCount>0 with lastRun missing)",
+        };
+      if (row.lastRun != null && !Number.isFinite(Date.parse(String(row.lastRun))))
+        return {
+          name,
+          passed: false,
+          detail: `scheduler lastRun invalid (${String(row.lastRun)})`,
+        };
+      if (row.lastRun != null && row.nextRun != null && Date.parse(String(row.lastRun)) > Date.parse(String(row.nextRun)))
+        return {
+          name,
+          passed: false,
+          detail: "scheduler lastRun/nextRun order invalid (lastRun > nextRun)",
+        };
+      if (row.active) activeCount++;
+      if (String(row.status) === "FAILING") failingCount++;
+      if (!["HEALTHY", "DEGRADED", "FAILING"].includes(String(row.status)))
+        return {
+          name,
+          passed: false,
+          detail: `scheduler status invalid (${String(row.status)})`,
+        };
+    }
+    const totalCount = rows.length;
+    if (detailActive !== activeCount || detailTotal !== totalCount || detailFailing !== failingCount)
+      return {
+        name,
+        passed: false,
+        detail: `Scheduler detail mismatch vs scheduler.status (detail ${detailActive}/${detailTotal} failing=${detailFailing}; live ${activeCount}/${totalCount} failing=${failingCount})`,
+      };
+    const expectedSchedulerVerdict = failingCount > 0 ? "PARTIAL" : "IMPLEMENTED_PROVEN";
+    if (String(schedulerItem.verdict) !== expectedSchedulerVerdict)
+      return {
+        name,
+        passed: false,
+        detail: `Scheduler verdict (${String(schedulerItem.verdict)}) inconsistent with failing rhythms (${failingCount})`,
+      };
   }
   return {
     name,
@@ -971,6 +1136,8 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
   // 2) onx.selfVerify — honest status surface
   {
     const { status, body, raw } = await getJson(fetchImpl, trpcGetUrl(base, "onx.selfVerify"));
+    const schedulerStatusResponse = await getJson(fetchImpl, trpcGetUrl(base, "scheduler.status"));
+    const schedulerStatusUnwrapped = unwrapTrpc(schedulerStatusResponse.body);
     const u = unwrapTrpc(body);
     const selfVerifyData = (u.data ?? {}) as {
       truthLedgerSummary?: {
@@ -989,7 +1156,23 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
         };
       };
     };
-    let contract = checkSelfVerify(status, selfVerifyData as never);
+    const schedulerRows = Array.isArray(schedulerStatusUnwrapped.data)
+      ? (schedulerStatusUnwrapped.data as Array<{
+          active?: boolean;
+          interval?: number;
+          intervalHuman?: string;
+          lastRun?: string | null;
+          nextRun?: string | null;
+          msUntilNext?: number | null;
+          runCount?: number;
+          status?: string;
+        }>)
+      : undefined;
+    let contract = checkSelfVerify(
+      status,
+      selfVerifyData as never,
+      { status: schedulerStatusResponse.status, rows: schedulerRows },
+    );
     if (parityBase) {
       let mismatch: string | null = null;
       try {

@@ -169,13 +169,91 @@ const LIVE_SUMMARY_POPULATED = {
   drift: true,
   retention: { keep: 168, oldestRetainedId: 1, oldestRetainedIsGenesis: true },
 };
+const LIVE_SCHEDULER_STATUS = [
+  {
+    id: "pulse",
+    name: "Pulse",
+    nameAr: "النبض",
+    active: true,
+    interval: 60000,
+    intervalHuman: "1m",
+    lastRun: "2026-01-01T00:00:00.000Z",
+    nextRun: "2026-01-01T00:01:00.000Z",
+    msUntilNext: 60000,
+    runCount: 1,
+    avgDuration: 30,
+    status: "HEALTHY",
+    actions: 5,
+  },
+  {
+    id: "breath",
+    name: "Breath",
+    nameAr: "التنفس",
+    active: true,
+    interval: 300000,
+    intervalHuman: "5m",
+    lastRun: "2026-01-01T00:00:00.000Z",
+    nextRun: "2026-01-01T00:05:00.000Z",
+    msUntilNext: 300000,
+    runCount: 1,
+    avgDuration: 40,
+    status: "HEALTHY",
+    actions: 5,
+  },
+  {
+    id: "digest",
+    name: "Digest",
+    nameAr: "الهضم",
+    active: false,
+    interval: 900000,
+    intervalHuman: "15m",
+    lastRun: null,
+    nextRun: null,
+    msUntilNext: null,
+    runCount: 0,
+    avgDuration: 0,
+    status: "HEALTHY",
+    actions: 5,
+  },
+  {
+    id: "dream",
+    name: "Dream",
+    nameAr: "الحلم",
+    active: false,
+    interval: 3600000,
+    intervalHuman: "1h",
+    lastRun: null,
+    nextRun: null,
+    msUntilNext: null,
+    runCount: 0,
+    avgDuration: 0,
+    status: "HEALTHY",
+    actions: 5,
+  },
+  {
+    id: "renew",
+    name: "Renew",
+    nameAr: "التجديد",
+    active: false,
+    interval: 86400000,
+    intervalHuman: "1d",
+    lastRun: null,
+    nextRun: null,
+    msUntilNext: null,
+    runCount: 0,
+    avgDuration: 0,
+    status: "HEALTHY",
+    actions: 8,
+  },
+];
 const LIVE_SELFVERIFY = {
   items: [
     { area: "health", name: "Database", verdict: "IMPLEMENTED_PROVEN", measured: true },
+    { area: "health", name: "Scheduler", verdict: "IMPLEMENTED_PROVEN", measured: true, detail: "2/5 rhythms active, 0 failing; IUC cron active, last tick 2026-01-01T00:00:00.000Z" },
     { area: "corpus", name: "Corpus", verdict: "DEMO", measured: true },
     { area: "providers", name: "openai", verdict: "DOCUMENTED_ONLY", measured: true },
   ],
-  claimsMeasured: 3,
+  claimsMeasured: 4,
   claimsAsserted: 0,
   fingerprint: "a".repeat(64),
   truthLedgerSummary: LIVE_SUMMARY_EMPTY,
@@ -186,6 +264,7 @@ function liveFetch(overrides: Partial<Record<string, SmokeResponse>> = {}): Fetc
   return async (url, init) => {
     if (url.endsWith("/health")) return overrides.health ?? resp(200, LIVE_HEALTH);
     if (url.includes("onx.selfVerify")) return overrides.selfVerify ?? trpcOk(LIVE_SELFVERIFY);
+    if (url.includes("scheduler.status")) return overrides.schedulerStatus ?? trpcOk(LIVE_SCHEDULER_STATUS);
     if (url.includes("providers.status")) return overrides.providers ?? trpcOk(LIVE_PROVIDERS);
     if (url.includes("corpusQuery.manifest")) return overrides.manifest ?? trpcOk(LIVE_MANIFEST);
     if (url.includes("onx.truthHistory")) return overrides.truthHistory ?? trpcOk(LIVE_TRUTH_HISTORY_EMPTY);
@@ -250,7 +329,13 @@ describe("smoke-live contract evaluators", () => {
   });
 
   it("selfVerify passes on five-state verdicts + asserted=0 + sha256 fp + total count", () => {
-    expect(checkSelfVerify(200, LIVE_SELFVERIFY).passed).toBe(true);
+    expect(
+      checkSelfVerify(
+        200,
+        LIVE_SELFVERIFY,
+        { status: 200, rows: LIVE_SCHEDULER_STATUS, nowMs: Date.parse("2026-01-01T00:00:00.000Z") },
+      ).passed,
+    ).toBe(true);
   });
   it("selfVerify fails on forged counters, bad verdict/measured flag, bad fingerprint, or invalid truthLedgerSummary.count", () => {
     expect(checkSelfVerify(200, { ...LIVE_SELFVERIFY, claimsMeasured: 2 }).passed).toBe(false);
@@ -280,6 +365,37 @@ describe("smoke-live contract evaluators", () => {
           retention: { ...LIVE_SUMMARY_POPULATED.retention, oldestRetainedId: 1, oldestRetainedIsGenesis: false },
         },
       }).passed,
+    ).toBe(false);
+  });
+
+  it("selfVerify fails when scheduler detail-derived counts diverge from scheduler.status", () => {
+    expect(
+      checkSelfVerify(
+        200,
+        {
+          ...LIVE_SELFVERIFY,
+          items: LIVE_SELFVERIFY.items.map((it) =>
+            it.name === "Scheduler"
+              ? { ...it, detail: "1/5 rhythms active, 0 failing; IUC cron active, last tick 2026-01-01T00:00:00.000Z" }
+              : it,
+          ),
+        },
+        { status: 200, rows: LIVE_SCHEDULER_STATUS, nowMs: Date.parse("2026-01-01T00:00:00.000Z") },
+      ).passed,
+    ).toBe(false);
+  });
+
+  it("selfVerify fails when scheduler nextRun/msUntilNext coherence is forged", () => {
+    expect(
+      checkSelfVerify(
+        200,
+        LIVE_SELFVERIFY,
+        {
+          status: 200,
+          rows: LIVE_SCHEDULER_STATUS.map((r, i) => (i === 0 ? { ...r, active: false, nextRun: "2026-01-01T00:01:00.000Z", msUntilNext: 60000 } : r)),
+          nowMs: Date.parse("2026-01-01T00:00:00.000Z"),
+        },
+      ).passed,
     ).toBe(false);
   });
 
