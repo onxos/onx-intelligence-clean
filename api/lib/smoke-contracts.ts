@@ -428,11 +428,12 @@ export function checkSelfVerify(
           passed: false,
           detail: `scheduler.status row interval invalid (${String(row?.interval)})`,
         };
+      const interval = Number(row.interval);
       const expectedIntervalHuman =
-        row.interval >= 86400000 ? `${row.interval / 86400000}d`
-          : row.interval >= 3600000 ? `${row.interval / 3600000}h`
-            : row.interval >= 60000 ? `${row.interval / 60000}m`
-              : `${row.interval / 1000}s`;
+        interval >= 86400000 ? `${interval / 86400000}d`
+          : interval >= 3600000 ? `${interval / 3600000}h`
+            : interval >= 60000 ? `${interval / 60000}m`
+              : `${interval / 1000}s`;
       if (String(row.intervalHuman) !== expectedIntervalHuman)
         return {
           name,
@@ -489,13 +490,14 @@ export function checkSelfVerify(
           passed: false,
           detail: `scheduler runCount invalid (${String(row.runCount)})`,
         };
-      if (row.runCount === 0 && row.lastRun != null)
+      const runCount = Number(row.runCount);
+      if (runCount === 0 && row.lastRun != null)
         return {
           name,
           passed: false,
           detail: "scheduler runCount/lastRun mismatch (runCount=0 with lastRun present)",
         };
-      if (row.runCount > 0 && row.lastRun == null)
+      if (runCount > 0 && row.lastRun == null)
         return {
           name,
           passed: false,
