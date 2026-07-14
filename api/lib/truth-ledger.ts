@@ -13,6 +13,15 @@ import { buildSelfVerification, type SelfVerificationReport } from "./self-verif
 
 export type LedgerPersistence = "POSTGRES" | "UNPERSISTED";
 
+// STE-K-22: BOUNDED RETENTION. The ledger is captured hourly by the web
+// cron (truth-snapshot-cron.ts) and would otherwise grow without limit in
+// a production table. We keep only the newest N rows, pruning the oldest
+// ATOMICALLY at capture time (same transaction as the insert). N=168 is
+// exactly 7 days at the hourly cadence — long enough to observe week-scale
+// truth drift, bounded enough to keep the table small. The bound is
+// DISCLOSED on the read surface (measured), never a silent delete.
+export const LEDGER_RETENTION_KEEP = 168;
+
 export interface TruthSnapshotRow {
   id: number;
   fingerprint: string;
@@ -25,14 +34,18 @@ export interface TruthHistoryEntry extends TruthSnapshotRow {
   // true when this snapshot's fingerprint differs from the one
   // immediately before it — automatic truth-drift detection.
   drift: boolean;
+  // STE-K-22: set ONLY on the oldest retained snapshot when its true
+  // predecessor was pruned by bounded retention (so drift here is NOT a
+  // measured comparison — it is named honestly, not implied false).
+  predecessorPruned?: boolean;
 }
 
 let pool: Pool | null = null;
 let schemaReady = false;
 
-// In-memory fallback ring (newest last), capped to keep it honest
-// about being a bounded diagnostic buffer, not a database.
-const MEMORY_CAP = 200;
+// In-memory fallback ring (newest last). Bounded by the same retention
+// window as Postgres so the fallback is honest about being a bounded
+// diagnostic buffer, not an unbounded database.
 const memoryLedger: TruthSnapshotRow[] = [];
 let memoryIdCounter = 0;
 
@@ -84,6 +97,10 @@ export interface RecordSnapshotResult {
   claimsMeasured: number;
   claimsAsserted: number;
   persistence: LedgerPersistence;
+  // STE-K-22: how many oldest rows were pruned by retention in THIS
+  // capture (measured), and the configured retention window.
+  pruned: number;
+  retentionKeep: number;
 }
 
 // Build the CURRENT self-verification report and append it to the
@@ -96,19 +113,44 @@ export async function recordTruthSnapshot(): Promise<RecordSnapshotResult> {
   if (isTruthLedgerPersistenceConfigured()) {
     await ensureSchema();
     const p = getPool();
-    const result = await p.query(
-      `INSERT INTO onx_truth_ledger (fingerprint, claims_measured, claims_asserted, report)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id`,
-      [report.fingerprint, report.claimsMeasured, report.claimsAsserted, JSON.stringify(report)],
-    );
-    return {
-      id: result.rows[0]?.id ?? -1,
-      fingerprint: report.fingerprint,
-      claimsMeasured: report.claimsMeasured,
-      claimsAsserted: report.claimsAsserted,
-      persistence: "POSTGRES",
-    };
+    // Insert + bounded-retention prune in ONE transaction so the table
+    // never transiently exceeds the window and a concurrent reader never
+    // sees a half-applied trim.
+    const client = await p.connect();
+    try {
+      await client.query("BEGIN");
+      const ins = await client.query(
+        `INSERT INTO onx_truth_ledger (fingerprint, claims_measured, claims_asserted, report)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id`,
+        [report.fingerprint, report.claimsMeasured, report.claimsAsserted, JSON.stringify(report)],
+      );
+      // Delete everything older than the newest LEDGER_RETENTION_KEEP rows.
+      // The threshold is the id of the (keep+1)-th newest row; rows with
+      // id <= it are pruned. COALESCE(…,0) → delete nothing when the table
+      // holds <= keep rows (OFFSET past the end returns no row).
+      const del = await client.query(
+        `DELETE FROM onx_truth_ledger
+         WHERE id <= COALESCE(
+           (SELECT id FROM onx_truth_ledger ORDER BY id DESC OFFSET $1 LIMIT 1), 0)`,
+        [LEDGER_RETENTION_KEEP],
+      );
+      await client.query("COMMIT");
+      return {
+        id: ins.rows[0]?.id ?? -1,
+        fingerprint: report.fingerprint,
+        claimsMeasured: report.claimsMeasured,
+        claimsAsserted: report.claimsAsserted,
+        persistence: "POSTGRES",
+        pruned: del.rowCount ?? 0,
+        retentionKeep: LEDGER_RETENTION_KEEP,
+      };
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
   }
 
   const row: TruthSnapshotRow = {
@@ -119,13 +161,19 @@ export async function recordTruthSnapshot(): Promise<RecordSnapshotResult> {
     createdAt: new Date().toISOString(),
   };
   memoryLedger.push(row);
-  if (memoryLedger.length > MEMORY_CAP) memoryLedger.shift();
+  let pruned = 0;
+  while (memoryLedger.length > LEDGER_RETENTION_KEEP) {
+    memoryLedger.shift();
+    pruned++;
+  }
   return {
     id: row.id,
     fingerprint: row.fingerprint,
     claimsMeasured: row.claimsMeasured,
     claimsAsserted: row.claimsAsserted,
     persistence: "UNPERSISTED",
+    pruned,
+    retentionKeep: LEDGER_RETENTION_KEEP,
   };
 }
 
