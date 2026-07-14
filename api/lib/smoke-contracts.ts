@@ -255,16 +255,30 @@ export function checkSelfVerify(
   const badVerdict = items.find((i) => !FIVE_STATE.has(String(i.verdict)));
   if (badVerdict)
     return { name, passed: false, detail: `non-five-state verdict: ${badVerdict.verdict}` };
-  // Honest by construction: no claim may be asserted-but-unmeasured.
-  if (Number(data?.claimsAsserted) !== 0)
-    return { name, passed: false, detail: `claimsAsserted=${data?.claimsAsserted} (expected 0)` };
+  const badMeasured = items.find((i) => typeof i.measured !== "boolean");
+  if (badMeasured)
+    return { name, passed: false, detail: `item ${badMeasured.name ?? "?"} measured flag is not boolean` };
+  const measuredCount = items.filter((i) => i.measured === true).length;
+  const assertedCount = items.length - measuredCount;
+  if (Number(data?.claimsMeasured) !== measuredCount)
+    return {
+      name,
+      passed: false,
+      detail: `claimsMeasured=${data?.claimsMeasured} mismatches measured items (${measuredCount})`,
+    };
+  if (Number(data?.claimsAsserted) !== assertedCount)
+    return {
+      name,
+      passed: false,
+      detail: `claimsAsserted=${data?.claimsAsserted} mismatches asserted items (${assertedCount})`,
+    };
   const total = data?.truthLedgerSummary?.count;
   if (!Number.isInteger(total) || Number(total) < 0)
     return { name, passed: false, detail: `truthLedgerSummary.count missing/invalid (${total})` };
   return {
     name,
     passed: true,
-    detail: `${items.length} items, measured=${data?.claimsMeasured} asserted=0, truthLedgerSummary.count=${total}`,
+    detail: `${items.length} items, measured=${measuredCount} asserted=${assertedCount}, truthLedgerSummary.count=${total}`,
   };
 }
 

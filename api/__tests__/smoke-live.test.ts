@@ -66,7 +66,7 @@ const LIVE_SELFVERIFY = {
     { area: "corpus", name: "Corpus", verdict: "DEMO", measured: true },
     { area: "providers", name: "openai", verdict: "DOCUMENTED_ONLY", measured: true },
   ],
-  claimsMeasured: 19,
+  claimsMeasured: 3,
   claimsAsserted: 0,
   fingerprint: "a".repeat(64),
   truthLedgerSummary: { count: 0 },
@@ -208,10 +208,14 @@ describe("smoke-live contract evaluators", () => {
   it("selfVerify passes on five-state verdicts + asserted=0 + sha256 fp + total count", () => {
     expect(checkSelfVerify(200, LIVE_SELFVERIFY).passed).toBe(true);
   });
-  it("selfVerify fails on asserted>0, bad verdict, bad fingerprint, or invalid truthLedgerSummary.count", () => {
+  it("selfVerify fails on forged counters, bad verdict/measured flag, bad fingerprint, or invalid truthLedgerSummary.count", () => {
+    expect(checkSelfVerify(200, { ...LIVE_SELFVERIFY, claimsMeasured: 2 }).passed).toBe(false);
     expect(checkSelfVerify(200, { ...LIVE_SELFVERIFY, claimsAsserted: 1 }).passed).toBe(false);
     expect(
       checkSelfVerify(200, { ...LIVE_SELFVERIFY, items: [{ verdict: "MADE_UP", measured: true }] }).passed,
+    ).toBe(false);
+    expect(
+      checkSelfVerify(200, { ...LIVE_SELFVERIFY, items: [{ verdict: "DEMO", measured: "yes" as never }] }).passed,
     ).toBe(false);
     expect(checkSelfVerify(200, { ...LIVE_SELFVERIFY, fingerprint: "short" }).passed).toBe(false);
     expect(checkSelfVerify(200, { ...LIVE_SELFVERIFY, truthLedgerSummary: { count: -1 } }).passed).toBe(false);
