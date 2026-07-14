@@ -225,7 +225,7 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 | STE-K-26 (W34) unified docs wave K-24/K-25 | `8658d65` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs) | 6 gates green | run 29309943161 (6 gates) |
 | STE-K-27 (W35) /truth deploy-freshness card from /commit | `b5363f1` | `api/lib/truth-page-model.ts` (CommitData, FreshnessSection, buildFreshness), `src/pages/Truth.tsx` (commitSiblingUrl, freshness card), `api/__tests__/truth-page-model.test.ts` | `truth-page-model` (+4) | deepening — /truth + /commit already in 9 contracts; total stays 9 | run 29310913038; live commit `b5363f1`, /truth freshness card + 9/9 strict |
 | STE-K-28 (W36) unified docs wave K-26/K-27 | `cb9848c` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs) | 6 gates green | run 29311534451 (6 gates) |
-| STE-K-29 (W37) scheduled live truth watchdog | `(this wave commit)` | `.github/workflows/live-truth.yml`, `docs/OPERATIONS_RUNBOOK.md`, `docs/COVERAGE_MATRIX.md` | — (ops workflow + docs) | deepening — schedules existing 9 contracts; no EXPECT_COMMIT in cron | workflow_dispatch proof run: recorded after dispatch; first scheduled run occurs later by cadence |
+| STE-K-29 (W37) scheduled live truth watchdog | `c6e3026` | `.github/workflows/live-truth.yml`, `docs/OPERATIONS_RUNBOOK.md`, `docs/COVERAGE_MATRIX.md` | — (ops workflow + docs) | **IMPLEMENTED_BUT_INERT_ON_GOVERNED_BRANCH** — deepening only (same 9 contracts), no EXPECT_COMMIT in cron | truth-gates run 29312071048 green; watchdog mode measured 9/9 via `GATEWAY_ORIGIN` locally; actual workflow runs blocked until default-branch availability |
 
 ## Live measured status (as of W35 / commit `b5363f1`)
 - **/health:** `ALIVE`, `env=production`, live commit `b5363f1` (measured direct + via gateway).
@@ -267,11 +267,12 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
   Surfaced as a measured badge on /truth (STE-K-23).
 - **Golden floors:** 1.0 / 1.0 / 1.0 (intentAccuracy / refusalHonesty / retrievalHit) —
   a ratchet, never lowered.
-- **Live watchdog (STE-K-29):** scheduled `smoke:live` now runs every 6 hours from GitHub
-  Actions (`.github/workflows/live-truth.yml`) against the official gateway origin, with
-  `EXPECT_COMMIT` intentionally unset so the watchdog measures what production serves now.
-  Any contract breach fails the run red (honest signal); this is operational deepening,
-  not a new contract (total stays 9).
+- **Live watchdog (STE-K-29):** implemented, but **inert on the governed branch** because
+  GitHub Actions executes both `schedule` and `workflow_dispatch` for a workflow file only
+  when that file exists on the default branch. Semantics remain honest by design (`EXPECT_COMMIT`
+  intentionally unset; any contract breach would fail red), but activation requires one of:
+  founder-approved narrow main exception (#117), merge-to-default, or external scheduler.
+  This is operational deepening, not a new contract (total stays 9).
 
 ## Environment truth (post K-14…K-29, `.env.example`)
 All values MEASURED by `process.env` reads in code; none fabricated. See

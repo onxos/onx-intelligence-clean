@@ -600,8 +600,8 @@ leak guard).
 `scripts/smoke-live.ts:1-6`). المنطق النقي في `api/lib/smoke-contracts.ts`، المُشغّل
 `runSmoke` (`api/lib/smoke-contracts.ts:370-477`). البيئة: `BASE_URL` (افتراضي الرابط أعلاه،
 `scripts/smoke-live.ts:31`)، و`EXPECT_COMMIT` أو `EXPECTED_SHA` (`scripts/smoke-live.ts:34`).
-ملاحظة STE-K-29: بقياسٍ دوري مجدول صار هذا التشغيل يعمل أيضاً آلياً عبر
-`.github/workflows/live-truth.yml` (كل 6 ساعات + `workflow_dispatch`) عبر أصل البوابة الرسمية.
+ملاحظة STE-K-29/30: الرقيب موجود في `.github/workflows/live-truth.yml` (كل 6 ساعات +
+`workflow_dispatch`) لكنّه **خامل على الفرع المحكوم** حتى يتوفر الملف على default branch.
 
 | # | العقد | ماذا يثبت | ماذا يعني فشله للمشغّل | المرجع |
 | --- | --- | --- | --- | --- |
@@ -912,8 +912,10 @@ corpus sha `6fc2bed8` مطابق (DEMO)، truth-ledger 12 لقطة، صفر تس
 **الملف:** `.github/workflows/live-truth.yml`
 
 **متى يعمل؟**
-- `schedule` كل 6 ساعات (`cron: 17 */6 * * *`) + تشغيل يدوي `workflow_dispatch`.
-- ملاحظة صادقة: تشغيل `schedule` غير لحظي في GitHub Actions (best-effort) وقد يتأخر دقائق.
+- **على الفرع المحكوم (غير default): خامل بالكامل**.
+- قيد GitHub Actions المقاس: `workflow_dispatch` و`schedule` كلاهما default-branch-only لملف
+  workflow؛ لذلك وجود `live-truth.yml` على فرع STE وحده لا ينتج تشغيلات فعلية.
+- على default branch يعمل وفق الضبط (`cron: 17 */6 * * *`) + تشغيل يدوي.
 
 **ماذا يقيس؟**
 - نفس `npm run smoke:live` بعقوده التسعة القائمة، عبر أصل البوابة الرسمي
@@ -928,3 +930,10 @@ corpus sha `6fc2bed8` مطابق (DEMO)، truth-ledger 12 لقطة، صفر تس
 **الأسرار:**
 - لا أسرار جديدة. هذا الرقيب يستدعي أسطح قراءة عامة فقط؛ `smoke:live` يعمل بلا مفاتيح مزوّد/جسر.
 - متغير `GATEWAY_ORIGIN` في workflow متغير تشغيل CI فقط، وليس قراءة جديدة في كود السيرفر.
+
+**REC-07 (تصحيح صادق):**
+- القيد لا يخص `workflow_dispatch` فقط؛ يشمل `schedule` أيضاً ما دام الملف خارج default branch.
+- الخيارات التشغيلية الصادقة:
+  1) استثناء ضيّق معتمد من المؤسس لملف workflow واحد إلى `main` (#117).
+  2) قبول الخمول حتى الدمج النهائي إلى default branch.
+  3) تشغيل مجدول خارجي مستقل (scheduler خارج GitHub Actions).
