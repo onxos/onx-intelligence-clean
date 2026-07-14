@@ -528,7 +528,7 @@ stays conservatively `DEMO`.
 **الأسطح الثلاثة المقروءة** (نداءات tRPC قائمة، لا سطح جديد):
 - `onx.selfVerify` → ادعاءات مقاسة/مُدّعاة + البصمة + الجسور fail-closed + `truthLedgerSummary`.
 - `corpusQuery.manifest` → إفصاح الذخيرة (شارة DEMO/REAL) + `sha256` مختصر + عدد الوثائق/النطاقات.
-- `providers.status` → إفصاح حدّ المعدّل (`PER_INSTANCE_UNPERSISTED`).
+- `providers.status` → إفصاح حدّ المعدّل (وضع مقاس: `POSTGRES_PERSISTED` حياً أو ارتداد `PER_INSTANCE_UNPERSISTED`).
 
 **حالات القسم الصادقة** (`api/lib/truth-page-model.ts`):
 - `OK` — السطح أجاب بالبيانات.
@@ -553,7 +553,7 @@ nothing: every field is read live from the existing honest surfaces via the pure
 `buildTruthPageModel` core in `api/lib/truth-page-model.ts`. Three existing tRPC reads feed
 it: `onx.selfVerify` (measured/asserted claims + fingerprint + fail-closed bridges +
 `truthLedgerSummary`), `corpusQuery.manifest` (DEMO/REAL disclosure badge + short `sha256` +
-doc/domain counts), `providers.status` (rate-limit disclosure `PER_INSTANCE_UNPERSISTED`).
+doc/domain counts), `providers.status` (rate-limit disclosure — measured `POSTGRES_PERSISTED` or honest `PER_INSTANCE_UNPERSISTED` fallback).
 Honest section states: `OK` (surface answered), `EMPTY` (answered but the resource is
 honestly empty — an unpopulated ledger reports `state:"EMPTY"`, never fabricated history),
 and `FETCH_FAILED` (surface unreachable → an explicit failure, **never a fake zero**; values
@@ -605,7 +605,7 @@ leak guard).
 | --- | --- | --- | --- | --- |
 | 1 | `health_live` | الخدمة حية (`ALIVE`) وحقل `commit` موجود؛ ومع `EXPECT_COMMIT` = تطابق النشر | الخدمة ساقطة أو نشرت commit غير متوقع | `smoke-contracts.ts:192-215` |
 | 2 | `honest_status_selfverify` | OSVA: بنود بأحكام خماسية، بصمة sha256، و`claimsAsserted=0` | ادّعاء غير مقاس تسلّل — تحقيق فوري | `smoke-contracts.ts:217-243` |
-| 3 | `rate_limit_disclosure` | سطح قراءة عام يصرّح `rateLimit.persistence="PER_INSTANCE_UNPERSISTED"` | غياب تصريح الحدّ = انحراف صدق | `smoke-contracts.ts:245-260` |
+| 3 | `rate_limit_disclosure` | سطح قراءة عام يصرّح `rateLimit.persistence` بوضع مقاس صادق (`POSTGRES_PERSISTED` أو ارتداد `PER_INSTANCE_UNPERSISTED`)؛ `EXPECT_RL_PERSISTENCE` يؤكد الوضع | غياب التصريح أو تسمية غير معروفة أو عدم تطابق الوضع المتوقَّع = انحراف صدق | `smoke-contracts.ts:245-272` |
 | 4 | `ask_onx_honest_refusal` | سؤال خارج الذخيرة → `INSUFFICIENT_EVIDENCE`، `answer=null`، صفر استشهاد، `DEMO` | تلفيق/حشو بلا دليل — كسر عقيدة | `smoke-contracts.ts:262-282` |
 | 5 | `ask_onx_cited_answer` | سؤال داخل الذخيرة → `ANSWERED` باستشهادات + إفصاح `DEMO` | إجابة بلا استشهاد أو بلا إفصاح | `smoke-contracts.ts:284-307` |
 | 6 | `corpus_manifest_truth` | بصمة الكوربوس المنشور == المرتكب في `corpus-manifest.json` | محتوى معرفي منشور يخالف العقد المرتكب | `smoke-contracts.ts:137-190` |
@@ -654,14 +654,27 @@ Postgres ويعيد `UNAVAILABLE` لو لم يكن postgres (`health-router.ts:5
 `401 BRIDGE_UNAUTHORIZED` (مفتاح خاطئ)، `BRIDGE_DISABLED` (معطّل)،
 `BRIDGE_SECRET_NOT_CONFIGURED` (بلا سرّ) — `api/bridge-guard.ts:6,10,13-15`.
 
-### و.5) حقيقة rate-limit — تبعات `PER_INSTANCE_UNPERSISTED` للمشغّل
+### و.5) حقيقة rate-limit — إصرار مقاس `POSTGRES_PERSISTED` / ارتداد صادق `PER_INSTANCE_UNPERSISTED` (STE-K-19)
 
 الحدّ: `PUBLIC_READ_LIMIT=60` طلب / `PUBLIC_READ_WINDOW_SEC=60` ثانية
-(`api/lib/rate-limiter.ts:24-28`)، والثابت `RATE_LIMIT_PERSISTENCE="PER_INSTANCE_UNPERSISTED"`
-(`rate-limiter.ts:31`) يُصرَّح في **كل** استجابة عامة (مقاس: `rateLimit.persistence` في
-`providers.status`). تبعات للمشغّل:
-- العدّاد **في ذاكرة كل نسخة (instance)**، **يتصفّر عند كل إقلاع/إعادة نشر**، ولا يُشارَك بين نسخ متعددة.
-- ليس حماية أمنية موزّعة — هو ضبط إساءة أساسي per-instance. للحماية الجادّة أضف طبقة حافة (WAF/بوابة) — موثّق بصدق كحدّ لا كوعد.
+(`api/lib/rate-limiter.ts:35-42`). **الإفصاح مقاس لكل نافذة، لا مُدّعى** — كل قرار يحمل مخزن
+الدعم الذي خدمه فعلاً (`RateDecision.persistence`، مقاس حياً في `rateLimit.persistence` على
+`providers.status`):
+- **`POSTGRES_PERSISTED`**: حالة الدلو قُرئت وكُتبت في Postgres داخل معاملة
+  `SELECT … FOR UPDATE` (`rate-limiter.ts` — `postgresStore.step`، جدول `onx_rate_limit_buckets`
+  عبر `ensureSchema` كمرآة truth-ledger). مُشترك بين النسخ، يصمد عبر إعادة النشر.
+- **`PER_INSTANCE_UNPERSISTED`**: ارتداد صادق — يُخدَم من ذاكرة النسخة فقط، **يتصفّر عند الإقلاع**،
+  غير مُشارك. ينقلب إليه الإفصاح تلقائياً حين يغيب `DATABASE_URL` **أو** حين يفشل نداء Postgres
+  (`decideRateLimit` يلتقط الخطأ، يسجّله server-side عبر `getLastRateLimitFallback`، ويخدم من الذاكرة).
+  **غير قاتل**: فشل مخزن الحدّ لا يُسقط السطح العام أبداً.
+
+تبعات للمشغّل:
+- الوضع المقاس **يعكس الواقع تلك اللحظة**، لا وعداً. `POSTGRES_PERSISTED` = حدّ يصمد عبر النسخ/النشر؛
+  `PER_INSTANCE_UNPERSISTED` = حدّ per-instance يتصفّر (راجع سجل `getLastRateLimitFallback` لسبب التدهور).
+- **البرهان الحي**: العقد الثالث `rate_limit_disclosure` (`npm run smoke:live`) يقبل الوضعين الصادقين
+  ويرفض أي تسمية أخرى؛ اضبط `EXPECT_RL_PERSISTENCE=POSTGRES_PERSISTED` لتأكيد أن النشر المدعوم بقاعدة
+  يقيس فعلاً الإصرار — عدم تطابق الوضع المقاس مع المتوقَّع = خرق حقيقي.
+- ليس حماية أمنية موزّعة كاملة — للحماية الجادّة أضف طبقة حافة (WAF/بوابة). موثّق بصدق كحدّ لا كوعد.
 - `/health` و`/commit` **معفيان** (فحوصات Render)؛ مسارات الجسر محمية بالمفتاح لا بالحدّ.
 
 ### و.6) عمليات manifest الكوربوس — معنى انحراف sha256
@@ -756,8 +769,12 @@ Postgres ويعيد `UNAVAILABLE` لو لم يكن postgres (`health-router.ts:5
 > Environment truth scan (و.3): every `process.env` read from `api/lib/env.ts:11-22` and
 > callers, classified required/optional/default. **`DATABASE_URL` is genuinely used** —
 > live `health.ready` returns `Database: HEALTHY` (real `SELECT 1`, `health-router.ts:57-72`).
-> Bridge ops (و.4) → section B; live `hasSharedSecret:true`. Rate-limit truth (و.5):
-> `PER_INSTANCE_UNPERSISTED`, 60/60s, resets on boot, not distributed. Corpus sha256 drift
+> Bridge ops (و.4) → section B; live `hasSharedSecret:true`. Rate-limit truth (و.5, STE-K-19):
+> MEASURED per window — `POSTGRES_PERSISTED` (bucket state in `onx_rate_limit_buckets` via a
+> `SELECT … FOR UPDATE` transaction, survives redeploy) or honest `PER_INSTANCE_UNPERSISTED`
+> fallback (memory, resets on boot) when the DB is absent/unreachable — non-fatal, never claimed
+> ahead of measurement; 60/60s; `EXPECT_RL_PERSISTENCE` asserts the deployment's backing store.
+> Corpus sha256 drift
 > (و.6): intended → `verify:corpus --write` + commit; unintended → investigate; tied to the
 > live `corpus_manifest_truth` contract. Incidents (و.7): honest-status first; golden floors
 > 1.0×3 are a tripwire that is never lowered.

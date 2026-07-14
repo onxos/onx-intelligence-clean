@@ -20,12 +20,19 @@ vi.mock("../lib/env", async (importOriginal) => {
 import {
   consumeToken,
   enforceRateLimit,
+  decideRateLimit,
+  stepBucket,
   clientKeyFromCtx,
   PUBLIC_READ_LIMIT,
   PUBLIC_READ_WINDOW_SEC,
   RATE_LIMIT_PERSISTENCE,
+  RATE_LIMIT_PERSISTENCE_MEMORY,
+  RATE_LIMIT_PERSISTENCE_POSTGRES,
+  getLastRateLimitFallback,
+  __setBucketStoreForTests,
   __setRateLimiterClockForTests,
   __resetRateLimiterForTests,
+  type BucketStore,
 } from "../lib/rate-limiter";
 import { TRPCError } from "@trpc/server";
 import { appRouter } from "../router";
@@ -92,13 +99,13 @@ describe("rate limiter (STE-K-05)", () => {
     expect(clientKeyFromCtx(ctxWith())).toBe("anonymous");
   });
 
-  it("enforceRateLimit throws TOO_MANY_REQUESTS carrying retryAfter, sets Retry-After header", () => {
+  it("enforceRateLimit throws TOO_MANY_REQUESTS carrying retryAfter, sets Retry-After header", async () => {
     const t = 9_000_000;
     __setRateLimiterClockForTests(() => t);
     const ctx = ctxWith({ "x-forwarded-for": "1.2.3.4" });
-    for (let i = 0; i < PUBLIC_READ_LIMIT; i++) enforceRateLimit(ctx);
+    for (let i = 0; i < PUBLIC_READ_LIMIT; i++) await enforceRateLimit(ctx);
     try {
-      enforceRateLimit(ctx);
+      await enforceRateLimit(ctx);
       throw new Error("expected throw");
     } catch (err) {
       expect(err).toBeInstanceOf(TRPCError);
@@ -166,6 +173,86 @@ describe("rate limiter (STE-K-05)", () => {
       const runB: boolean[] = [];
       for (let i = 0; i < PUBLIC_READ_LIMIT + 2; i++) runB.push(consumeToken("det", "PUBLIC_READ").allowed);
       expect(JSON.stringify(runA)).toBe(JSON.stringify(runB));
+    });
+  });
+
+  // ---- STE-K-19: persistence upgrade + honest MEASURED disclosure ----
+  describe("persistence upgrade (STE-K-19)", () => {
+    const makeFakeStore = (persistence: typeof RATE_LIMIT_PERSISTENCE_POSTGRES) => {
+      const map = new Map<string, { tokens: number; last: number }>();
+      const store: BucketStore & { calls: number } = {
+        persistence,
+        calls: 0,
+        async step(mapKey, now, category) {
+          store.calls++;
+          const { bucket, decision } = stepBucket(map.get(mapKey) ?? null, now, category, persistence);
+          map.set(mapKey, bucket);
+          return decision;
+        },
+      };
+      return store;
+    };
+
+    it("declares BOTH honest measured modes; back-compat alias is memory mode", () => {
+      expect(RATE_LIMIT_PERSISTENCE_MEMORY).toBe("PER_INSTANCE_UNPERSISTED");
+      expect(RATE_LIMIT_PERSISTENCE_POSTGRES).toBe("POSTGRES_PERSISTED");
+      expect(RATE_LIMIT_PERSISTENCE).toBe(RATE_LIMIT_PERSISTENCE_MEMORY);
+    });
+
+    it("stepBucket is pure: spends one token, refills honestly, and never mutates its input", () => {
+      const first = stepBucket(null, 0, "PUBLIC_READ", RATE_LIMIT_PERSISTENCE_POSTGRES);
+      expect(first.decision.allowed).toBe(true);
+      expect(first.decision.remaining).toBe(PUBLIC_READ_LIMIT - 1);
+      expect(first.decision.persistence).toBe("POSTGRES_PERSISTED");
+
+      const drained = { tokens: 0.4, last: 0 };
+      const denied = stepBucket(drained, 0, "PUBLIC_READ", RATE_LIMIT_PERSISTENCE_MEMORY);
+      expect(denied.decision.allowed).toBe(false);
+      expect(denied.decision.retryAfterSeconds).toBeGreaterThanOrEqual(1);
+      // input object untouched (pure) → identical inputs give identical output
+      expect(drained.tokens).toBe(0.4);
+      const again = stepBucket(drained, 0, "PUBLIC_READ", RATE_LIMIT_PERSISTENCE_MEMORY);
+      expect(again.decision.retryAfterSeconds).toBe(denied.decision.retryAfterSeconds);
+    });
+
+    it("a persistent store serves POSTGRES_PERSISTED and its state SURVIVES across calls (round-trip)", async () => {
+      __setRateLimiterClockForTests(() => 1000); // frozen: no refill masks the round-trip
+      const store = makeFakeStore(RATE_LIMIT_PERSISTENCE_POSTGRES);
+      __setBucketStoreForTests(store);
+      const d1 = await decideRateLimit("client-pg", "PUBLIC_READ");
+      expect(d1.persistence).toBe("POSTGRES_PERSISTED");
+      expect(d1.remaining).toBe(PUBLIC_READ_LIMIT - 1);
+      const d2 = await decideRateLimit("client-pg", "PUBLIC_READ");
+      expect(d2.remaining).toBe(PUBLIC_READ_LIMIT - 2); // state persisted in the store
+      expect(store.calls).toBe(2);
+    });
+
+    it("store failure falls back to memory and HONESTLY flips disclosure to UNPERSISTED (non-fatal)", async () => {
+      __setRateLimiterClockForTests(() => 2000);
+      const throwing: BucketStore = {
+        persistence: RATE_LIMIT_PERSISTENCE_POSTGRES,
+        async step() {
+          throw new Error("db down");
+        },
+      };
+      __setBucketStoreForTests(throwing);
+      const d = await decideRateLimit("client-fb", "PUBLIC_READ");
+      expect(d.allowed).toBe(true); // request still served — never fatal
+      expect(d.persistence).toBe("PER_INSTANCE_UNPERSISTED"); // MEASURED fallback, not claimed
+      const fb = getLastRateLimitFallback();
+      expect(fb?.reason).toContain("db down");
+    });
+
+    it("enforceRateLimit surfaces the MEASURED persistence of the active store", async () => {
+      __setBucketStoreForTests(makeFakeStore(RATE_LIMIT_PERSISTENCE_POSTGRES));
+      const disc = await enforceRateLimit(ctxWith({ "x-forwarded-for": "9.9.9.9" }));
+      expect(disc.persistence).toBe("POSTGRES_PERSISTED");
+    });
+
+    it("with no persistent store configured, the disclosure is honestly UNPERSISTED", async () => {
+      delete process.env.DATABASE_URL;
+      const disc = await enforceRateLimit(ctxWith({ "x-forwarded-for": "8.8.8.8" }));
+      expect(disc.persistence).toBe("PER_INSTANCE_UNPERSISTED");
     });
   });
 });

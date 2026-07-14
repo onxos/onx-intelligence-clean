@@ -208,10 +208,19 @@ describe("smoke-live contract evaluators", () => {
     expect(checkSelfVerify(200, { ...LIVE_SELFVERIFY, fingerprint: "short" }).passed).toBe(false);
   });
 
-  it("rate disclosure passes only on PER_INSTANCE_UNPERSISTED", () => {
+  it("rate disclosure accepts EITHER honest MEASURED backing store (STE-K-19)", () => {
+    // memory-mode surface still passes…
     expect(checkRateDisclosure(200, LIVE_PROVIDERS).passed).toBe(true);
+    // …and a Postgres-backed measured surface passes too.
+    const pgSurface = { rateLimit: { persistence: "POSTGRES_PERSISTED", limit: 60, category: "PUBLIC_READ" } };
+    expect(checkRateDisclosure(200, pgSurface).passed).toBe(true);
+    // bare/unknown labels are NOT honest measured modes → fail.
     expect(checkRateDisclosure(200, { rateLimit: { persistence: "POSTGRES" } }).passed).toBe(false);
     expect(checkRateDisclosure(200, {}).passed).toBe(false);
+    // operator-asserted expected mode: a mismatch is a real breach…
+    expect(checkRateDisclosure(200, LIVE_PROVIDERS, "POSTGRES_PERSISTED").passed).toBe(false);
+    // …and a match passes.
+    expect(checkRateDisclosure(200, pgSurface, "POSTGRES_PERSISTED").passed).toBe(true);
   });
 
   it("ask refusal passes on honest INSUFFICIENT_EVIDENCE + DEMO + no citations", () => {

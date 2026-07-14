@@ -12,8 +12,8 @@ import { assertBridgeAccess, getBridgeState } from "./bridge-guard";
 import { getProviderStates, liveValidateProviders } from "./lib/provider-registry";
 
 export const providersRouter = createRouter({
-  status: publicQuery.query(({ ctx }) => {
-    const rateLimit = enforceRateLimit(ctx);
+  status: publicQuery.query(async ({ ctx }) => {
+    const rateLimit = await enforceRateLimit(ctx);
     return {
       bridge: "providers",
       rateLimit,

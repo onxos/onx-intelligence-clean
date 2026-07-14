@@ -97,7 +97,7 @@ export const corpusQueryRouter = createRouter({
       offset: z.number().min(0).max(10000).default(0),
     }))
     .query(async ({ ctx, input }) => {
-      const rateLimit = enforceRateLimit(ctx);
+      const rateLimit = await enforceRateLimit(ctx);
       return {
         bridge: "corpusQuery",
         access: "PUBLIC_READ" as const,
