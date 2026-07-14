@@ -1,5 +1,5 @@
 {
-  "_note": "STE-K-07 ratchet raise: gaps co-en-1 (per-intent operational floor) + weather×2 (BOOKING negative signals) closed; +4 anti-overfit booking cases prove genuine 'tomorrow/غدا' bookings still classify BOOKING. Floors pinned at the honestly MEASURED values of this run (49 cases).",
+  "_note": "STE-K-07 ratchet raise: gaps co-en-1 (per-intent operational floor) + weather×2 (BOOKING negative signals) closed; +4 anti-overfit booking cases prove genuine 'tomorrow/غدا' bookings still classify BOOKING. STE-K-33 deepens the set with additional DEMO-derived retrieval/refusal cases. Floors remain pinned at the honestly MEASURED values (57 cases).",
   "intentAccuracy": 1,
   "refusalHonesty": 1,
   "retrievalHitAtK": 1

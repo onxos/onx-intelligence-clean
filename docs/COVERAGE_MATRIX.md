@@ -229,7 +229,8 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 | STE-K-30 (W38) watchdog constraint truth correction | `d722cb6` | `docs/OPERATIONS_RUNBOOK.md`, `docs/COVERAGE_MATRIX.md` | — (docs) | 6 gates green | run 29312565358 (6 gates) |
 | STE-K-31 (W39) /truth truth-ledger row table | `6e995f7` | `api/lib/truth-page-model.ts` (truthHistory rows model), `src/pages/Truth.tsx` (human-readable table + honest badges), `api/__tests__/truth-page-model.test.ts`, docs | `truth-page-model` (+6 injected row-state tests) | deepening — /truth already scanned, truthHistory already in 9 contracts; total stays 9 | run 29313702273; strict gateway 9/9 @ `EXPECT_COMMIT=6e995f7` |
 
-| STE-K-32 (W40) unified docs wave K-30/K-31 + measured refresh | `(this wave commit)` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs) | 6 gates green | run recorded after push |
+| STE-K-32 (W40) unified docs wave K-30/K-31 + measured refresh | `6dd0735` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs) | 6 gates green | run 29314403487 (6 gates) |
+| STE-K-33 (W41) golden eval expansion (DEMO-derived) | `(this wave commit)` | `api/fixtures/golden-set.ts` (+8 cases), `api/fixtures/eval-floors.json`, `docs/OPERATIONS_RUNBOOK.md`, `docs/COVERAGE_MATRIX.md` | `eval:golden` (49→57 cases, ratchet kept 1.0×3) | deepening — no new contract; same eval gate + same 9 smoke contracts | run recorded after push |
 
 ## Live measured status (as of W39 / commit `6e995f7`)
 - **/health:** `ALIVE`, `env=production`, live commit `6e995f7` (measured direct + via gateway).
@@ -272,7 +273,8 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
   `onx_rate_limit_buckets` via a `SELECT … FOR UPDATE` transaction, survives redeploy;
   honest per-window fallback to `PER_INSTANCE_UNPERSISTED` (memory) if the DB is unreachable.
   Surfaced as a measured badge on /truth (STE-K-23).
-- **Golden floors:** 1.0 / 1.0 / 1.0 (intentAccuracy / refusalHonesty / retrievalHit) —
+- **Golden floors:** 1.0 / 1.0 / 1.0 (intentAccuracy / refusalHonesty / retrievalHit) over
+  **57 measured cases** (expanded from 49 in STE-K-33) —
   a ratchet, never lowered.
 - **Live watchdog (STE-K-29):** implemented, but **inert on the governed branch** because
   GitHub Actions executes both `schedule` and `workflow_dispatch` for a workflow file only
