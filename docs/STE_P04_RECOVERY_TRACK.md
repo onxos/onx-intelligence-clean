@@ -2,14 +2,40 @@
 
 **IU:** STE-P-04  
 **Tier:** 2 (cheapest capable)  
-**Task Cap:** recovery + docs with deterministic evidence (no Max)  
+**Task Cap:** recovery + docs with deterministic evidence (bounded by STE-P-04 numeric caps)  
 **Evidence Path:** `onx-intelligence-clean/docs/STE_P04_RECOVERY_TRACK.md`  
 **Branch:** `onxos-ste01-deploy-readiness`  
 **Mode:** docs-first recovery execution (no execution stop on missing resources)
 
 ---
 
-## 0) Evidence IDs Registry (this wave)
+## 0) Numeric Task Cap Contract (STE-P-04 update)
+
+| Cap | Value |
+|---|---|
+| MAX_AI_CREDITS | `8` |
+| MAX_INPUT_TOKENS | `160000` |
+| MAX_OUTPUT_TOKENS | `32000` |
+| MAX_CONTEXT_TOKENS | `180000` |
+| MAX_RUNTIME_MINUTES | `90` |
+| MAX_RETRIES | `2` |
+| MAX_CONCURRENT_JOBS | `1` |
+| ESCALATION_TIER | `3 only on proven blocker` |
+
+---
+
+## 1) Axis Status Board (required output split)
+
+| Axis | Status | Evidence ID | file:line | SHA / run |
+|---|---|---|---|---|
+| MO_038 | `RESTATED` | `EV-P04-MO038-RESTATED-001` | `docs/STE_P04_RECOVERY_TRACK.md:57-68` + `docs/STE_P04_RECOVERY_TRACK.md:71` | `3ac4d8b` / `29387959068` |
+| PROVIDER_KEYS | `IMPLEMENTED` | `EV-P04-PROVIDERS-LIVE-001`, `EV-P04-PROVIDERS-CONTRACT-001` | `api/lib/provider-registry.ts:5-12,68-90,142-161`; `api/providers-router.ts:25-33`; `docs/STE_P04_RECOVERY_TRACK.md:120-138` | `3ac4d8b` / `29387959068` |
+| CORPUS_ARCHIVE_19012 | `UNPROVEN` | `EV-P04-CORPUS-GAP-001` | `docs/CORPUS_GAP_REPORT.md:11-15,49-51`; `docs/OPERATIONS_RUNBOOK.md:194-247`; `docs/STE_P04_RECOVERY_TRACK.md:101-112` | `3ac4d8b` / `29387959068` |
+| INTELLIGENCE_DEPLOYMENT | `LIVE_PROVEN` | `EV-P04-SMOKE-STRICT-001`, `EV-P04-GATES-LOCAL-001` | `docs/STE_P04_RECOVERY_TRACK.md:153-159,165-168`; `scripts/smoke-live.ts` (strict contracts), `package.json` scripts | `3ac4d8b` / `29387959068` |
+
+---
+
+## 2) Evidence IDs Registry (this wave)
 
 | Evidence ID | Scope | Deterministic Source |
 |---|---|---|
@@ -24,7 +50,7 @@
 
 ---
 
-## 1) AC-1 (MO-038): Recovery Search + Restated Edition
+## 3) AC-1 (MO-038): Recovery Search + Restated Edition
 
 ### 1.1 Recovery search inside available scope
 
@@ -51,7 +77,7 @@
 
 ---
 
-## 2) AC-2 (Corpus): Actual ingest now vs external 19,012 + retry schedule
+## 4) AC-2 (Corpus): Actual ingest now vs external 19,012 + retry schedule
 
 ### 2.1 Measured live now (what is ingested **actually**)
 
@@ -84,7 +110,7 @@ Evidence: `EV-P04-CORPUS-GAP-001`
 
 ---
 
-## 3) AC-3 (Providers): adapter + contract status (keyless/live) with evidence IDs per provider
+## 5) AC-3 (Providers): adapter + contract status (keyless/live) with evidence IDs per provider
 
 ### 3.1 Provider adapter model (code contract)
 
@@ -119,7 +145,7 @@ Evidence: `EV-P04-PROVIDERS-LIVE-001`
 
 ---
 
-## 4) Live measurement (pre-write parity)
+## 6) Live measurement (pre-write parity)
 
 | Surface | Measured |
 |---|---|
@@ -131,7 +157,7 @@ Evidence: `EV-P04-PROVIDERS-LIVE-001`
 
 ---
 
-## 5) Deterministic validation bundle (this wave)
+## 7) Deterministic validation bundle (this wave)
 
 - `EV-P04-GATES-LOCAL-001`: local chain to remain green.
 - `EV-P04-SMOKE-STRICT-001`: strict smoke on served commit with:
@@ -141,9 +167,8 @@ Evidence: `EV-P04-PROVIDERS-LIVE-001`
 
 ---
 
-## 6) Post-commit evidence (filled after execution)
+## 8) Post-commit evidence (filled after execution)
 
-- **Commit SHA:** `TBD`
-- **Truth Gates run:** `TBD`
-- **Artifact SHA-256 (`docs/STE_P04_RECOVERY_TRACK.md`):** `TBD`
-
+- **Commit SHA:** `3ac4d8bc03c174477e7a5a091ecbbd2ba8c49fb3`
+- **Truth Gates run:** `29387959068` (success)
+- **Artifact SHA-256 (`docs/STE_P04_RECOVERY_TRACK.md`):** `b3c0d234df8450311b555042cd1c6705be839dfb3a37ca3e9c77bd30bc214d55`
