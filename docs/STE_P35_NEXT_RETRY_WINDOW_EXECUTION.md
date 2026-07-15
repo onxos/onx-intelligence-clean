@@ -22,17 +22,17 @@
 
 ## 1) Retry-window run-backed rows on current head
 
-Execution UTC: `2026-07-15T08:02:16Z`  
-Local current head: `7e3f2f4faa4b2ecbb1ed81c42a11347deff15314`  
-Live deployed head observed by `/health`: `7e3f2f4faa4b2ecbb1ed81c42a11347deff15314` (same-head parity `PROVEN`)
+Execution UTC: `2026-07-15T08:10:03Z`  
+Local current head: `1c8c55d01078bd9723f1ca3808d2df5877bfa74c`  
+Live deployed head observed by `/health`: `1c8c55d01078bd9723f1ca3808d2df5877bfa74c` (same-head parity `PROVEN`)
 
 | Evidence ID | Gate | Probe executed | Output (live) | Verdict |
 |---|---|---|---|---|
-| `EV-P35-HEAD-001` | run-backed context | direct+gateway `/health` | `ALIVE/ALIVE`; commit parity on deployed head=`7e3f2f4faa4b2ecbb1ed81c42a11347deff15314` | `PROVEN` |
+| `EV-P35-HEAD-001` | run-backed context | direct+gateway `/health` | `ALIVE/ALIVE`; commit parity on deployed head=`1c8c55d01078bd9723f1ca3808d2df5877bfa74c` | `PROVEN` |
 | `EV-P35-A-SECRET-001` | item A secret gate | `POST /api/trpc/providers.liveValidate` with current envelope | `HAS_SECRET=false`; error `code=-32001`, `httpStatus=401`, `path="providers.liveValidate"` | `UNPROVEN` |
 | `EV-P35-A-KEYS-001` | item A keys gate | `GET /api/trpc/providers.status` | `validated=0`, `configuredUnprobed=1`, `missingKey=7`, ids=`anthropic,google,groq,deepseek,qwen,llama,kimi` | `UNPROVEN` |
 | `EV-P35-B-ARCHIVE-001` | item B archive gate | local presence/hash probe (`onx-database.db`,`knowledge-seed-15k.json`) | `{"dbPresent":false,"seedPresent":false,"dbSha":null,"seedSha":null}` | `UNPROVEN` |
-| `EV-P35-B-ARCHIVE-002` | item B archive context | `GET /api/trpc/onx.selfVerify` corpus block | `rawTotal=22500`, `uniqueByTitleBody=22500`, `persistence="POSTGRES"`, `truthLedger.count=109` | `PROVEN` |
+| `EV-P35-B-ARCHIVE-002` | item B archive context | `GET /api/trpc/onx.selfVerify` corpus block | `rawTotal=22500`, `uniqueByTitleBody=22500`, `persistence="POSTGRES"`, `truthLedger.count=110` | `PROVEN` |
 
 ---
 
@@ -60,6 +60,6 @@ No residual gate has new run-backed closure evidence in this wave; no `PROVEN` u
 
 ## 4) Post-commit tuple (P-35)
 
-- **Commit SHA:** `6c4e980`
-- **Truth Gates run:** `29399400452` (`success`)
-- **headSha matched:** `true` (`6c4e98030f904c437d96466e6e11d920a5e0b486`)
+- **Commit SHA:** `TBD`
+- **Truth Gates run:** `TBD`
+- **headSha matched:** `TBD`
