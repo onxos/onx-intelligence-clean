@@ -108,7 +108,6 @@ Current wave introduces no new closure evidence; all three gates remain `UNPROVE
 
 ## 7) Post-commit tuple (P-20)
 
-- **Commit SHA:** `TBD`
-- **Truth Gates run:** `TBD`
-- **headSha matched:** `TBD`
-
+- **Commit SHA:** `7bfe6ad`
+- **Truth Gates run:** `29392914016`
+- **headSha matched:** `true` (`7bfe6ad486b24bac9e12bab47b4c4d544877e5e8`)
