@@ -60,7 +60,6 @@ No residual gate has new run-backed closure evidence in this wave; no `PROVEN` u
 
 ## 4) Post-commit tuple (P-34)
 
-- **Commit SHA:** `TBD`
-- **Truth Gates run:** `TBD`
-- **headSha matched:** `TBD`
-
+- **Commit SHA:** `6f370e3`
+- **Truth Gates run:** `29398562059` (`success`)
+- **headSha matched:** `true` (`6f370e328854cb05cee65e4be035e8d22892d3f2`)
