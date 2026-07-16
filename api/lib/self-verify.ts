@@ -104,7 +104,7 @@ export async function buildSelfVerification(): Promise<SelfVerificationReport> {
     ...bridgeState,
     failClosed: true as const,
   }));
-  const bridgeRuntime = getRuntimeBridgeDeltaEvidence();
+  const bridgeRuntime = { ...getRuntimeBridgeDeltaEvidence(), commitSha: null };
 
   const items: VerifiedItem[] = [];
 

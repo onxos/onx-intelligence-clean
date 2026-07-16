@@ -167,7 +167,7 @@ describe("truth ledger (STE-K-03)", () => {
     expect(summary.drift).toBe(false);
     expect(summary.latestFingerprint).toMatch(/^[0-9a-f]{64}$/);
     expect(summary.capturedAt).not.toBeNull();
-    expect(summary.claimsMeasured).toBe(19);
+    expect(summary.claimsMeasured).toBe(20);
   });
 
   it("summary: drift=true path — a real fact change flips the latest flag", async () => {

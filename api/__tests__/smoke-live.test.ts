@@ -261,7 +261,7 @@ const LIVE_SELFVERIFY = {
     providerCounts: { validated: 0, configuredUnprobed: 1, missingKey: 0 },
     memoryMode: "memory",
     compatibility: "BRIDGE_GUARDED",
-    commitSha: COMMIT,
+    commitSha: null,
     checksum: "b".repeat(64),
   },
   claimsMeasured: 5,
