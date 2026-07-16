@@ -745,6 +745,14 @@ export function checkBridgeFailClosed(
 // lie — the runner feeds the bridgeRuntime it already fetched (no extra
 // request) and any drift fails with a named cross-surface detail. Tolerant
 // when the caller has no selfVerify data (standalone evaluator use).
+//
+// STE-P-291 DEEPENING (same contract, total stays 10): the SAME closure
+// extended to the corpusQuery bridge. bridgeSurfaces.surfaces.corpusQuery
+// embeds manifestSha256/corpusDocs read from getCorpusContentManifest()
+// (bridge-surface-proof.ts:61-62) — the SAME source corpusQuery.manifest
+// (contract #7) serves. The runner feeds the manifest it already fetched
+// (zero extra requests); sha256 or docCount disagreement between the two
+// public surfaces fails with a named cross-surface detail.
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 const EXPECTED_BRIDGES = ["corpusQuery", "intentEngine", "titanBridge"] as const;
 
@@ -753,6 +761,11 @@ export interface BridgeRuntimeCrossSurface {
   checksum?: string;
   memoryMode?: string;
   providerCounts?: { validated?: number; configuredUnprobed?: number; missingKey?: number };
+}
+
+export interface CorpusManifestCrossSurface {
+  sha256?: string;
+  docCount?: number;
 }
 
 export function checkBridgeSurfacesRead(
@@ -771,11 +784,14 @@ export function checkBridgeSurfacesRead(
           checksum?: string;
           memoryMode?: string;
           providerCounts?: { validated?: number; configuredUnprobed?: number; missingKey?: number };
+          manifestSha256?: string;
+          corpusDocs?: number;
         }
       | undefined
     >;
   },
   selfVerifyBridgeRuntime?: BridgeRuntimeCrossSurface,
+  corpusManifestCross?: CorpusManifestCrossSurface,
 ): ContractResult {
   const name = "bridge_surfaces_read";
   if (status !== 200) return { name, passed: false, detail: `expected 200, got ${status}` };
@@ -853,6 +869,25 @@ export function checkBridgeSurfacesRead(
         detail: `cross-surface drift: titanBridge.checksum=${String(titan.checksum).slice(0, 12)} but selfVerify.bridgeRuntime.checksum=${String(rt.checksum).slice(0, 12)} — same evidence source must agree`,
       };
     crossDetail = "; cross-surface identity vs selfVerify.bridgeRuntime verified (checksum match)";
+  }
+  // STE-P-291: cross-surface identity — the corpusQuery part embeds the
+  // SAME manifest evidence corpusQuery.manifest serves on this deploy.
+  if (corpusManifestCross) {
+    const cq = surfaces.corpusQuery as { manifestSha256?: string; corpusDocs?: number };
+    const cm = corpusManifestCross;
+    if (cm.sha256 !== undefined && cq.manifestSha256 !== cm.sha256)
+      return {
+        name,
+        passed: false,
+        detail: `cross-surface drift: corpusQuery.manifestSha256=${String(cq.manifestSha256).slice(0, 12)} but corpusQuery.manifest.sha256=${String(cm.sha256).slice(0, 12)} — same manifest source must agree`,
+      };
+    if (cm.docCount !== undefined && Number(cq.corpusDocs) !== Number(cm.docCount))
+      return {
+        name,
+        passed: false,
+        detail: `cross-surface drift: corpusQuery.corpusDocs=${String(cq.corpusDocs)} but corpusQuery.manifest.docCount=${String(cm.docCount)}`,
+      };
+    crossDetail += "; cross-surface identity vs corpusQuery.manifest verified (sha256+docCount match)";
   }
   return {
     name,
@@ -1317,6 +1352,9 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
   // STE-P-290: bridgeRuntime captured from selfVerify (contract 2) and fed
   // to the bridge_surfaces_read cross-surface identity check — no extra fetch.
   let bridgeRuntimeFromSelfVerify: BridgeRuntimeCrossSurface | undefined = undefined;
+  // STE-P-291: manifest sha256/docCount captured from corpusQuery.manifest
+  // (contract 7) and fed to the same cross-surface identity check.
+  let corpusManifestFromContract: CorpusManifestCrossSurface | undefined = undefined;
 
   function mergeParity(contract: ContractResult, mismatch: string | null): ContractResult {
     if (!mismatch || !contract.passed) return contract;
@@ -1483,9 +1521,13 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
   {
     const { status, body, raw } = await getJson(fetchImpl, trpcGetUrl(base, "corpusQuery.manifest"));
     const u = unwrapTrpc(body);
+    const manifestData = (u.data ?? {}) as { sha256?: string; docCount?: number };
     contracts.push(
-      checkCorpusManifestTruth(status, (u.data ?? {}) as never, committedManifest, deployFresh),
+      checkCorpusManifestTruth(status, manifestData as never, committedManifest, deployFresh),
     );
+    // STE-P-291: keep the served manifest identity for the cross-surface
+    // check in contract #9 (zero extra requests).
+    corpusManifestFromContract = { sha256: manifestData?.sha256, docCount: manifestData?.docCount };
     const leak = assertNoKeyLeak(raw);
     if (leak) leaks.push(`corpusQuery.manifest:${leak}`);
   }
@@ -1549,11 +1591,18 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
   // per-bridge parts via the shared canonical helper — never trusted.
   // STE-P-290 deepening: the titanBridge part is checked for CROSS-SURFACE
   // IDENTITY against selfVerify.bridgeRuntime captured in contract 2.
+  // STE-P-291 deepening: the corpusQuery part is checked for CROSS-SURFACE
+  // IDENTITY against corpusQuery.manifest captured in contract 7.
   {
     const { status, body, raw } = await getJson(fetchImpl, trpcGetUrl(base, "onx.bridgeSurfaces"));
     const u = unwrapTrpc(body);
     const bridgeData = (u.data ?? {}) as Parameters<typeof checkBridgeSurfacesRead>[1];
-    let contract = checkBridgeSurfacesRead(status, bridgeData, bridgeRuntimeFromSelfVerify);
+    let contract = checkBridgeSurfacesRead(
+      status,
+      bridgeData,
+      bridgeRuntimeFromSelfVerify,
+      corpusManifestFromContract,
+    );
     if (parityBase) {
       let mismatch: string | null = null;
       try {

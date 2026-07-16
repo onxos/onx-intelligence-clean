@@ -292,7 +292,14 @@ const LIVE_BRIDGE_SURFACES = {
   guarded: 2,
   checksum: computeBridgeSurfacesChecksum(BRIDGE_SURFACE_PARTS, 1, 2),
   surfaces: {
-    corpusQuery: { ...BRIDGE_SURFACE_PARTS[0], access: "PUBLIC_READ" },
+    // STE-P-291: corpusQuery mirrors LIVE_MANIFEST (same manifest source
+    // live) — cross-surface identity holds by default; drift tests mutate.
+    corpusQuery: {
+      ...BRIDGE_SURFACE_PARTS[0],
+      access: "PUBLIC_READ",
+      manifestSha256: MANIFEST_SHA,
+      corpusDocs: 22500,
+    },
     intentEngine: { ...BRIDGE_SURFACE_PARTS[1], access: "PUBLIC_READ" },
     // STE-P-290: titanBridge mirrors LIVE_SELFVERIFY.bridgeRuntime exactly
     // (same evidence source live) — cross-surface identity holds by default.
@@ -766,6 +773,8 @@ describe("runSmoke orchestration (mocked fetch)", () => {
     expect(c?.detail).toMatch(/ready=1, guarded=2/);
     // STE-P-290: the runner feeds selfVerify.bridgeRuntime — identity verified
     expect(c?.detail).toMatch(/cross-surface identity vs selfVerify\.bridgeRuntime verified/);
+    // STE-P-291: the runner feeds corpusQuery.manifest — identity verified
+    expect(c?.detail).toMatch(/cross-surface identity vs corpusQuery\.manifest verified/);
   });
 
   // ---- STE-P-290: cross-surface identity (deepening, total stays 10) ----
@@ -822,6 +831,34 @@ describe("runSmoke orchestration (mocked fetch)", () => {
     const c = report.contracts.find((x) => x.name === "bridge_surfaces_read");
     expect(c?.passed).toBe(false);
     expect(c?.detail).toMatch(/cross-surface drift: titanBridge\.memoryMode/);
+  });
+
+  // ---- STE-P-291: corpusQuery cross-surface identity vs corpusQuery.manifest ----
+  it("bridge_surfaces_read fails when corpusQuery.manifestSha256 drifts from the served manifest", async () => {
+    const drifted = JSON.parse(JSON.stringify(LIVE_BRIDGE_SURFACES));
+    drifted.surfaces.corpusQuery.manifestSha256 = "d".repeat(64);
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({ bridgeSurfaces: trpcOk(drifted) }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    const c = report.contracts.find((x) => x.name === "bridge_surfaces_read");
+    expect(c?.passed).toBe(false);
+    expect(c?.detail).toMatch(/cross-surface drift: corpusQuery\.manifestSha256/);
+    expect(c?.detail).toMatch(/same manifest source must agree/);
+  });
+
+  it("bridge_surfaces_read fails when corpusQuery.corpusDocs disagrees with manifest.docCount", async () => {
+    const drifted = JSON.parse(JSON.stringify(LIVE_BRIDGE_SURFACES));
+    drifted.surfaces.corpusQuery.corpusDocs = 1;
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({ bridgeSurfaces: trpcOk(drifted) }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    const c = report.contracts.find((x) => x.name === "bridge_surfaces_read");
+    expect(c?.passed).toBe(false);
+    expect(c?.detail).toMatch(/cross-surface drift: corpusQuery\.corpusDocs=1 but corpusQuery\.manifest\.docCount=22500/);
   });
 
   it("bridge_surfaces_read fails when the served aggregate checksum is forged", async () => {
@@ -908,6 +945,20 @@ describe("checkBridgeSurfacesRead (STE-P-289)", () => {
     const drift = checkBridgeSurfacesRead(200, LIVE_BRIDGE_SURFACES, { ...rt, checksum: "b".repeat(64) });
     expect(drift.passed).toBe(false);
     expect(drift.detail).toMatch(/cross-surface drift: titanBridge\.checksum/);
+  });
+
+  // STE-P-291: direct evaluator with the manifest cross-surface argument
+  it("verifies corpusQuery/manifest identity directly when the manifest is supplied", () => {
+    const cm = { sha256: MANIFEST_SHA, docCount: 22500 };
+    const ok = checkBridgeSurfacesRead(200, LIVE_BRIDGE_SURFACES, undefined, cm);
+    expect(ok.passed).toBe(true);
+    expect(ok.detail).toMatch(/cross-surface identity vs corpusQuery\.manifest verified \(sha256\+docCount match\)/);
+    const shaDrift = checkBridgeSurfacesRead(200, LIVE_BRIDGE_SURFACES, undefined, { ...cm, sha256: "e".repeat(64) });
+    expect(shaDrift.passed).toBe(false);
+    expect(shaDrift.detail).toMatch(/cross-surface drift: corpusQuery\.manifestSha256/);
+    const docDrift = checkBridgeSurfacesRead(200, LIVE_BRIDGE_SURFACES, undefined, { ...cm, docCount: 9 });
+    expect(docDrift.passed).toBe(false);
+    expect(docDrift.detail).toMatch(/cross-surface drift: corpusQuery\.corpusDocs/);
   });
 });
 
