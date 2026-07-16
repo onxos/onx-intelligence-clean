@@ -13,6 +13,7 @@ import {
   checkRateDisclosure,
   checkAskRefusal,
   checkAskCited,
+  extractCorpusCountFromDisclosure,
   checkBridgeFailClosed,
   checkBridgeSurfacesRead,
   checkCorpusManifestTruth,
@@ -83,7 +84,7 @@ const LIVE_PROVIDERS = {
 };
 const LIVE_ASK_REFUSAL = {
   access: "PUBLIC_READ",
-  rateLimit: { persistence: "PER_INSTANCE_UNPERSISTED", limit: 60 },
+  rateLimit: { limit: 60, remaining: 58, category: "PUBLIC_READ", persistence: "PER_INSTANCE_UNPERSISTED" },
   deterministic: true,
   intent: "INFO",
   confidence: 0.1,
@@ -95,7 +96,7 @@ const LIVE_ASK_REFUSAL = {
 };
 const LIVE_ASK_CITED = {
   access: "PUBLIC_READ",
-  rateLimit: { persistence: "PER_INSTANCE_UNPERSISTED", limit: 60 },
+  rateLimit: { limit: 60, remaining: 57, category: "PUBLIC_READ", persistence: "PER_INSTANCE_UNPERSISTED" },
   deterministic: true,
   intent: "INFO",
   confidence: 0.4,
@@ -567,6 +568,88 @@ describe("smoke-live contract evaluators", () => {
     expect(checkAskCited(200, { ...LIVE_ASK_CITED, citations: [] }).passed).toBe(false);
   });
 
+  // ---- STE-P-294: ask.onx cross-surface disclosure identity ----
+  describe("STE-P-294 ask cross-surface identity (direct evaluators)", () => {
+    const CROSS = {
+      rateLimit: LIVE_PROVIDERS.rateLimit,
+      committedDocCount: 22500,
+    };
+
+    it("extractCorpusCountFromDisclosure reads the leading unit count from both honest formats", () => {
+      expect(extractCorpusCountFromDisclosure("DEMO: corpus of 22500 synthetic units")).toBe(22500);
+      expect(
+        extractCorpusCountFromDisclosure("AUTHENTIC: الذخيرة مصدر مُودَع أصيل (19012 وحدة، provenance=AUTHENTIC_INGEST)"),
+      ).toBe(19012);
+      expect(extractCorpusCountFromDisclosure("no numbers here")).toBeNull();
+    });
+
+    it("stays tolerant when no cross-surface context is provided (standalone use)", () => {
+      const bare = { ...LIVE_ASK_REFUSAL, rateLimit: undefined } as never;
+      expect(checkAskRefusal(200, bare).passed).toBe(true);
+    });
+
+    it("passes when rateLimit matches providers.status and count matches committed docCount", () => {
+      const r = checkAskRefusal(200, LIVE_ASK_REFUSAL, CROSS);
+      expect(r.passed).toBe(true);
+      expect(r.detail).toMatch(/rateLimit identical to providers\.status/);
+      expect(r.detail).toMatch(/corpus count == committed docCount \(22500\)/);
+      const c = checkAskCited(200, LIVE_ASK_CITED, {
+        ...CROSS,
+        peerTruthDisclosure: LIVE_ASK_REFUSAL.truthDisclosure,
+      });
+      expect(c.passed).toBe(true);
+      expect(c.detail).toMatch(/disclosure byte-identical across ask surfaces/);
+    });
+
+    it("fails with a named drift when ask rateLimit diverges from providers.status", () => {
+      const drifted = {
+        ...LIVE_ASK_REFUSAL,
+        rateLimit: { ...LIVE_ASK_REFUSAL.rateLimit, persistence: "POSTGRES_PERSISTED" },
+      };
+      const r = checkAskRefusal(200, drifted, CROSS);
+      expect(r.passed).toBe(false);
+      expect(r.detail).toMatch(/cross-surface rateLimit drift vs providers\.status: persistence/);
+      const limitDrift = checkAskCited(
+        200,
+        { ...LIVE_ASK_CITED, rateLimit: { ...LIVE_ASK_CITED.rateLimit, limit: 120 } },
+        CROSS,
+      );
+      expect(limitDrift.passed).toBe(false);
+      expect(limitDrift.detail).toMatch(/limit ask=120 providers=60/);
+      const catDrift = checkAskRefusal(
+        200,
+        { ...LIVE_ASK_REFUSAL, rateLimit: { ...LIVE_ASK_REFUSAL.rateLimit, category: "BRIDGE_WRITE" } },
+        CROSS,
+      );
+      expect(catDrift.passed).toBe(false);
+      expect(catDrift.detail).toMatch(/category ask=BRIDGE_WRITE providers=PUBLIC_READ/);
+    });
+
+    it("fails when the ask surface omits rateLimit while providers.status serves one", () => {
+      const r = checkAskRefusal(200, { ...LIVE_ASK_REFUSAL, rateLimit: undefined } as never, CROSS);
+      expect(r.passed).toBe(false);
+      expect(r.detail).toMatch(/missing rateLimit disclosure/);
+    });
+
+    it("fails when truthDisclosure claims a corpus size diverging from the committed docCount", () => {
+      const lied = { ...LIVE_ASK_CITED, truthDisclosure: "DEMO: corpus of 90000 synthetic units" };
+      const r = checkAskCited(200, lied, CROSS);
+      expect(r.passed).toBe(false);
+      expect(r.detail).toMatch(/claims 90000 units but committed manifest docCount=22500/);
+      const countless = { ...LIVE_ASK_CITED, truthDisclosure: "DEMO corpus without a count" };
+      expect(checkAskCited(200, countless, CROSS).detail).toMatch(/no measurable corpus count/);
+    });
+
+    it("fails when the disclosure prose diverges between the two ask surfaces", () => {
+      const r = checkAskCited(200, LIVE_ASK_CITED, {
+        ...CROSS,
+        peerTruthDisclosure: "DEMO: corpus of 22500 synthetic units (edited)",
+      });
+      expect(r.passed).toBe(false);
+      expect(r.detail).toMatch(/diverges between ask surfaces/);
+    });
+  });
+
   it("bridge fail-closed passes on hardened 401/403 BRIDGE_ errors", () => {
     const u401 = unwrapTrpc({ error: { json: { message: "BRIDGE_UNAUTHORIZED: x", data: { httpStatus: 401 } } } });
     const r401 = checkBridgeFailClosed(401, u401);
@@ -806,6 +889,73 @@ describe("runSmoke orchestration (mocked fetch)", () => {
     });
     expect(report.passed).toBe(false);
     expect(report.contracts.find((c) => c.name === "ask_onx_honest_refusal")?.passed).toBe(false);
+  });
+
+  // ---- STE-P-294: runner feeds cross-surface context to the ask contracts ----
+  it("runner verifies ask cross-surface identity end-to-end (rateLimit + docCount + byte-identity)", async () => {
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch(),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    const refusal = report.contracts.find((c) => c.name === "ask_onx_honest_refusal");
+    const cited = report.contracts.find((c) => c.name === "ask_onx_cited_answer");
+    expect(refusal?.passed).toBe(true);
+    expect(refusal?.detail).toMatch(/rateLimit identical to providers\.status/);
+    expect(refusal?.detail).toMatch(/corpus count == committed docCount \(22500\)/);
+    expect(cited?.passed).toBe(true);
+    expect(cited?.detail).toMatch(/disclosure byte-identical across ask surfaces/);
+  });
+
+  it("runner fails ask contracts on cross-surface rateLimit drift vs providers.status", async () => {
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({
+        askCited: trpcOk({
+          ...LIVE_ASK_CITED,
+          rateLimit: { ...LIVE_ASK_CITED.rateLimit, persistence: "POSTGRES_PERSISTED" },
+        }),
+      }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    expect(report.passed).toBe(false);
+    const cited = report.contracts.find((c) => c.name === "ask_onx_cited_answer");
+    expect(cited?.passed).toBe(false);
+    expect(cited?.detail).toMatch(/cross-surface rateLimit drift vs providers\.status: persistence/);
+  });
+
+  it("runner fails ask contracts when truthDisclosure lies about the corpus size", async () => {
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({
+        askRefusal: trpcOk({
+          ...LIVE_ASK_REFUSAL,
+          truthDisclosure: "DEMO: corpus of 90000 synthetic units",
+        }),
+      }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    expect(report.passed).toBe(false);
+    const refusal = report.contracts.find((c) => c.name === "ask_onx_honest_refusal");
+    expect(refusal?.passed).toBe(false);
+    expect(refusal?.detail).toMatch(/claims 90000 units but committed manifest docCount=22500/);
+  });
+
+  it("runner fails the cited contract when disclosure prose diverges between ask surfaces", async () => {
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({
+        askCited: trpcOk({
+          ...LIVE_ASK_CITED,
+          truthDisclosure: "DEMO: corpus of 22500 synthetic units (reworded)",
+        }),
+      }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    expect(report.passed).toBe(false);
+    const cited = report.contracts.find((c) => c.name === "ask_onx_cited_answer");
+    expect(cited?.passed).toBe(false);
+    expect(cited?.detail).toMatch(/diverges between ask surfaces/);
   });
 
   it("truth_ledger_read passes on an honest EMPTY live ledger (named empty state)", async () => {

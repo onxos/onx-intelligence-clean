@@ -740,6 +740,79 @@ export function checkRateDisclosure(
   };
 }
 
+// STE-P-294: cross-surface identity for the ask.onx disclosures. Both
+// ask surfaces embed a rateLimit disclosure served by the SAME limiter
+// that backs providers.status (rate-limiter.ts), and a truthDisclosure
+// whose corpus count is derived from the same manifest measurement that
+// the committed corpus-manifest.json pins. Until P294 neither claim was
+// verified: a forged persistence/limit/category on ask, or a fabricated
+// corpus size inside the prose disclosure, would pass unnoticed. The
+// runner captures the providers.status rateLimit (contract 3) and the
+// committed docCount and feeds them here — zero extra requests. The
+// `remaining` counter is deliberately excluded: it is per-window mutable
+// state and legitimately differs between calls. All params are optional
+// so standalone evaluator use stays tolerant (P290 pattern).
+export interface AskCrossSurface {
+  rateLimit?: { persistence?: string; limit?: number; category?: string };
+  committedDocCount?: number;
+  // Byte-identity across the two ask surfaces: both compose the
+  // disclosure via the same buildTruthDisclosure(), so any divergence
+  // within one smoke run is a measured lie.
+  peerTruthDisclosure?: string;
+}
+
+// First integer in the disclosure prose is the corpus unit count in
+// both honest formats (DEMO leads with rawTotal, AUTHENTIC leads with
+// docCount) — measured from answer-composer.ts:95-105.
+export function extractCorpusCountFromDisclosure(disclosure: string): number | null {
+  const m = /\d+/.exec(disclosure);
+  return m ? Number(m[0]) : null;
+}
+
+function askCrossSurfaceFailure(
+  data: {
+    rateLimit?: { persistence?: string; limit?: number; category?: string };
+    truthDisclosure?: string;
+  },
+  cross: AskCrossSurface,
+): string | null {
+  const peer = cross.rateLimit;
+  if (peer) {
+    const rl = data?.rateLimit;
+    if (!rl)
+      return "ask surface missing rateLimit disclosure (providers.status serves it from the same limiter)";
+    if (String(rl.persistence) !== String(peer.persistence))
+      return `cross-surface rateLimit drift vs providers.status: persistence ask=${rl.persistence} providers=${peer.persistence}`;
+    if (Number(rl.limit) !== Number(peer.limit))
+      return `cross-surface rateLimit drift vs providers.status: limit ask=${rl.limit} providers=${peer.limit}`;
+    if (String(rl.category) !== String(peer.category))
+      return `cross-surface rateLimit drift vs providers.status: category ask=${rl.category} providers=${peer.category}`;
+  }
+  if (typeof cross.committedDocCount === "number") {
+    const claimed = extractCorpusCountFromDisclosure(String(data?.truthDisclosure ?? ""));
+    if (claimed === null)
+      return "truthDisclosure carries no measurable corpus count";
+    if (claimed !== cross.committedDocCount)
+      return `truthDisclosure claims ${claimed} units but committed manifest docCount=${cross.committedDocCount}`;
+  }
+  if (typeof cross.peerTruthDisclosure === "string") {
+    if (String(data?.truthDisclosure) !== cross.peerTruthDisclosure)
+      return "truthDisclosure diverges between ask surfaces (same composer must serve byte-identical prose)";
+  }
+  return null;
+}
+
+function askCrossSurfaceDetail(cross: AskCrossSurface | undefined): string {
+  if (!cross) return "";
+  const parts: string[] = [];
+  if (cross.rateLimit) parts.push("rateLimit identical to providers.status (persistence+limit+category)");
+  if (typeof cross.committedDocCount === "number")
+    parts.push(`corpus count == committed docCount (${cross.committedDocCount})`);
+  if (typeof cross.peerTruthDisclosure === "string")
+    parts.push("disclosure byte-identical across ask surfaces");
+  return parts.length > 0 ? `; cross-surface: ${parts.join(", ")}` : "";
+}
+
 export function checkAskRefusal(
   status: number,
   data: {
@@ -747,7 +820,9 @@ export function checkAskRefusal(
     answer?: unknown;
     citations?: unknown[];
     truthDisclosure?: string;
+    rateLimit?: { persistence?: string; limit?: number; category?: string };
   },
+  cross?: AskCrossSurface,
 ): ContractResult {
   const name = "ask_onx_honest_refusal";
   if (status !== 200) return { name, passed: false, detail: `expected 200, got ${status}` };
@@ -759,7 +834,15 @@ export function checkAskRefusal(
     return { name, passed: false, detail: "refusal must have zero citations (no fabrication)" };
   if (!String(data?.truthDisclosure).includes("DEMO"))
     return { name, passed: false, detail: "truthDisclosure missing DEMO" };
-  return { name, passed: true, detail: "out-of-corpus → honest refusal + DEMO disclosure" };
+  if (cross) {
+    const failure = askCrossSurfaceFailure(data, cross);
+    if (failure) return { name, passed: false, detail: failure };
+  }
+  return {
+    name,
+    passed: true,
+    detail: `out-of-corpus → honest refusal + DEMO disclosure${askCrossSurfaceDetail(cross)}`,
+  };
 }
 
 export function checkAskCited(
@@ -769,7 +852,9 @@ export function checkAskCited(
     citations?: Array<{ domain?: string; title?: string; score?: number }>;
     truthDisclosure?: string;
     deterministic?: boolean;
+    rateLimit?: { persistence?: string; limit?: number; category?: string };
   },
+  cross?: AskCrossSurface,
 ): ContractResult {
   const name = "ask_onx_cited_answer";
   if (status !== 200) return { name, passed: false, detail: `expected 200, got ${status}` };
@@ -780,10 +865,14 @@ export function checkAskCited(
     return { name, passed: false, detail: "answered response must carry citations" };
   if (!String(data?.truthDisclosure).includes("DEMO"))
     return { name, passed: false, detail: "answered response must still disclose DEMO" };
+  if (cross) {
+    const failure = askCrossSurfaceFailure(data, cross);
+    if (failure) return { name, passed: false, detail: failure };
+  }
   return {
     name,
     passed: true,
-    detail: `answered with ${cites.length} citations into the corpus + DEMO disclosure`,
+    detail: `answered with ${cites.length} citations into the corpus + DEMO disclosure${askCrossSurfaceDetail(cross)}`,
   };
 }
 
@@ -1677,30 +1766,56 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
   }
 
   // 3) providers.status — public read carries the rate-limit disclosure
+  // STE-P-294: the served rateLimit is captured here and fed to the two
+  // ask.onx contracts for cross-surface identity (same limiter source).
+  let rateLimitFromProviders: AskCrossSurface["rateLimit"] = undefined;
   {
     const { status, body, raw } = await getJson(fetchImpl, trpcGetUrl(base, "providers.status"));
     const u = unwrapTrpc(body);
     contracts.push(checkRateDisclosure(status, (u.data ?? {}) as never, expectedRatePersistence ?? undefined));
+    const served = (u.data ?? {}) as {
+      rateLimit?: { persistence?: string; limit?: number; category?: string };
+    };
+    if (served.rateLimit) rateLimitFromProviders = served.rateLimit;
     const leak = assertNoKeyLeak(raw);
     if (leak) leaks.push(`providers.status:${leak}`);
   }
 
   // 4) ask.onx — honest refusal for an out-of-corpus question
+  // STE-P-294: cross-surface identity — rateLimit vs providers.status,
+  // truthDisclosure corpus count vs the committed manifest docCount.
+  let refusalTruthDisclosure: string | undefined = undefined;
   {
     const url = trpcGetUrl(base, "ask.onx", { question: OUT_OF_CORPUS_QUESTION, topK: 5 });
     const { status, body, raw } = await getJson(fetchImpl, url);
     const u = unwrapTrpc(body);
-    contracts.push(checkAskRefusal(status, (u.data ?? {}) as never));
+    const askData = (u.data ?? {}) as { truthDisclosure?: string };
+    contracts.push(
+      checkAskRefusal(status, askData as never, {
+        rateLimit: rateLimitFromProviders,
+        committedDocCount: committedManifest?.docCount,
+      }),
+    );
+    if (typeof askData.truthDisclosure === "string")
+      refusalTruthDisclosure = askData.truthDisclosure;
     const leak = assertNoKeyLeak(raw);
     if (leak) leaks.push(`ask.refusal:${leak}`);
   }
 
   // 5) ask.onx — cited answer for an in-corpus question
+  // STE-P-294: adds byte-identity of the truthDisclosure prose against
+  // the refusal surface (same composer → identical disclosure).
   {
     const url = trpcGetUrl(base, "ask.onx", { question: IN_CORPUS_QUESTION, topK: 5 });
     const { status, body, raw } = await getJson(fetchImpl, url);
     const u = unwrapTrpc(body);
-    contracts.push(checkAskCited(status, (u.data ?? {}) as never));
+    contracts.push(
+      checkAskCited(status, (u.data ?? {}) as never, {
+        rateLimit: rateLimitFromProviders,
+        committedDocCount: committedManifest?.docCount,
+        peerTruthDisclosure: refusalTruthDisclosure,
+      }),
+    );
     const leak = assertNoKeyLeak(raw);
     if (leak) leaks.push(`ask.cited:${leak}`);
   }
