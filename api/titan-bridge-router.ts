@@ -4,6 +4,7 @@
 // Each with specialized system prompts + direct GPT-4o calls
 // ============================================================
 import { z } from "zod";
+import { createHash } from "node:crypto";
 import OpenAI from "openai";
 import { createRouter, publicQuery } from "./middleware";
 import { env } from "./lib/env";
@@ -30,6 +31,8 @@ import {
 } from "./lib/marketing-contracts";
 import { listInsightsFromGraph } from "./lib/insights-port";
 import { recordInsightAck } from "./lib/insight-ack";
+import { getProviderStates } from "./lib/provider-registry";
+import { PgVectorMemoryStore } from "./lib/persistent-memory";
 
 // --- Lazy OpenAI client (server starts even without key) ---
 let openai: OpenAI | null = null;
@@ -350,6 +353,32 @@ export async function ingestThroughBridgeContract(
   return { accepted: true, duplicate: result.duplicate, id: result.id };
 }
 
+function getRuntimeBridgeDeltaEvidence() {
+  const bridge = getBridgeState();
+  const providers = getProviderStates();
+  const providerCounts = {
+    validated: providers.filter((p) => p.status === "VALIDATED").length,
+    configuredUnprobed: providers.filter((p) => p.status === "CONFIGURED_UNPROBED").length,
+    missingKey: providers.filter((p) => p.status === "MISSING_KEY").length,
+  };
+  const memory = new PgVectorMemoryStore({ connectionString: process.env.DATABASE_URL }).getStatus();
+  const payload = {
+    bridgeEnabled: bridge.enabled,
+    hasSharedSecret: bridge.hasSharedSecret,
+    providerCounts,
+    memoryMode: memory.mode,
+  };
+  const checksum = createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+  return {
+    bridge: "titanBridge",
+    ...payload,
+    compatibility: bridge.enabled && bridge.hasSharedSecret ? "BRIDGE_READY" : "BRIDGE_GUARDED",
+    commitSha: process.env.RENDER_GIT_COMMIT ?? process.env.GITHUB_SHA ?? null,
+    checksum,
+    timestamp: new Date().toISOString(),
+  };
+}
+
 // ============================================================
 // Titan Bridge Router
 // ============================================================
@@ -363,6 +392,9 @@ export const titanBridgeRouter = createRouter({
       ? "Bridge is enabled for cross-repo integration traffic"
       : "Bridge is disabled by default. Set BRIDGE_ENABLED=true after V6 gate approval.",
   })),
+
+  // --- Runtime bridge/material compatibility proof ---
+  runtimeBridgeDelta: publicQuery.query(() => getRuntimeBridgeDeltaEvidence()),
 
   // --- List all Titans ---
   listTitans: publicQuery.query(() => ({

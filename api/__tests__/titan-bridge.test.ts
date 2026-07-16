@@ -39,6 +39,20 @@ describe("Titan Bridge Router", () => {
     });
   });
 
+  describe("runtimeBridgeDelta", () => {
+    it("should expose runtime compatibility proof with checksum", async () => {
+      const result = await caller.titan.runtimeBridgeDelta();
+      expect(result.bridge).toBe("titanBridge");
+      expect(["BRIDGE_READY", "BRIDGE_GUARDED"]).toContain(result.compatibility);
+      expect(["pg", "memory"]).toContain(result.memoryMode);
+      expect(typeof result.providerCounts.validated).toBe("number");
+      expect(typeof result.providerCounts.configuredUnprobed).toBe("number");
+      expect(typeof result.providerCounts.missingKey).toBe("number");
+      expect(result.checksum).toMatch(/^[a-f0-9]{64}$/);
+      expect(typeof result.timestamp).toBe("string");
+    });
+  });
+
   describe("listTitans", () => {
     it("should return all 5 Titans", async () => {
       const result = await caller.titan.listTitans();
