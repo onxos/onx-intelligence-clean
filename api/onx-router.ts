@@ -6,11 +6,14 @@
 // truth.snapshot: behind the fail-closed bridge guard.
 // ============================================================
 import { z } from "zod";
+import { createHash } from "node:crypto";
 import { createRouter, publicQuery } from "./middleware";
 import { enforceRateLimit } from "./lib/rate-limiter";
 import { buildSelfVerification } from "./lib/self-verify";
 import { assertBridgeAccess } from "./bridge-guard";
 import { getTruthHistory, recordTruthSnapshot, summarizeTruthLedger } from "./lib/truth-ledger";
+import { getCorpusBridgeSurfaceProof, getIntentBridgeSurfaceProof } from "./lib/bridge-surface-proof";
+import { getTitanBridgeStatusProof } from "./lib/bridge-runtime-proof";
 
 export const onxRouter = createRouter({
   // STE-K-15: the honest self-audit now also surfaces a MEASURED
@@ -20,6 +23,40 @@ export const onxRouter = createRouter({
     const report = await buildSelfVerification();
     const truthLedgerSummary = await summarizeTruthLedger();
     return { ...report, truthLedgerSummary };
+  }),
+
+  bridgeSurfaces: publicQuery.query(async () => {
+    const [corpusQuery, titanBridge] = await Promise.all([
+      getCorpusBridgeSurfaceProof(),
+      Promise.resolve(getTitanBridgeStatusProof()),
+    ]);
+    const intentEngine = getIntentBridgeSurfaceProof();
+    const surfaces = [corpusQuery, intentEngine, titanBridge];
+    const ready = surfaces.filter((s) => s.compatibility === "BRIDGE_READY").length;
+    const guarded = surfaces.length - ready;
+    const checksum = createHash("sha256")
+      .update(JSON.stringify({
+        bridges: surfaces.map((surface) => ({
+          bridge: surface.bridge,
+          compatibility: surface.compatibility,
+          checksum: surface.checksum,
+        })),
+        ready,
+        guarded,
+      }))
+      .digest("hex");
+    return {
+      access: "PUBLIC_READ" as const,
+      total: surfaces.length,
+      ready,
+      guarded,
+      checksum,
+      surfaces: {
+        corpusQuery,
+        intentEngine,
+        titanBridge,
+      },
+    };
   }),
 
   // STE-K-03: append the CURRENT self-verification to the ledger.

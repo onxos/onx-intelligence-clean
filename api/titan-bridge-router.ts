@@ -30,7 +30,7 @@ import {
 } from "./lib/marketing-contracts";
 import { listInsightsFromGraph } from "./lib/insights-port";
 import { recordInsightAck } from "./lib/insight-ack";
-import { getRuntimeBridgeDeltaEvidence } from "./lib/bridge-runtime-proof";
+import { getRuntimeBridgeDeltaEvidence, getTitanBridgeStatusProof } from "./lib/bridge-runtime-proof";
 
 // --- Lazy OpenAI client (server starts even without key) ---
 let openai: OpenAI | null = null;
@@ -356,24 +356,7 @@ export async function ingestThroughBridgeContract(
 // ============================================================
 export const titanBridgeRouter = createRouter({
   // --- Bridge status for integration gates ---
-  bridgeStatus: publicQuery.query(() => {
-    const proof = getRuntimeBridgeDeltaEvidence();
-    return {
-    access: "PUBLIC_READ" as const,
-    bridge: "titanBridge",
-    enabled: proof.bridgeEnabled,
-    hasSharedSecret: proof.hasSharedSecret,
-    compatibility: proof.compatibility,
-    providerCounts: proof.providerCounts,
-    memoryMode: proof.memoryMode,
-    checksum: proof.checksum,
-    timestamp: proof.timestamp,
-    mode: env.bridgeEnabled ? "ACTIVE" : "SAFE_DISABLED",
-    message: env.bridgeEnabled
-      ? "Bridge is enabled for cross-repo integration traffic"
-      : "Bridge is disabled by default. Set BRIDGE_ENABLED=true after V6 gate approval.",
-    };
-  }),
+  bridgeStatus: publicQuery.query(() => getTitanBridgeStatusProof()),
 
   // --- Runtime bridge/material compatibility proof ---
   runtimeBridgeDelta: publicQuery.query(() => getRuntimeBridgeDeltaEvidence()),

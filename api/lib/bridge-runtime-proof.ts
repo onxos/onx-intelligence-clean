@@ -19,6 +19,20 @@ export interface BridgeRuntimeProof {
   timestamp: string;
 }
 
+export interface TitanBridgeStatusProof {
+  access: "PUBLIC_READ";
+  bridge: "titanBridge";
+  enabled: boolean;
+  hasSharedSecret: boolean;
+  compatibility: "BRIDGE_READY" | "BRIDGE_GUARDED";
+  providerCounts: BridgeRuntimeProof["providerCounts"];
+  memoryMode: BridgeRuntimeProof["memoryMode"];
+  checksum: string;
+  timestamp: string;
+  mode: "ACTIVE" | "SAFE_DISABLED";
+  message: string;
+}
+
 export function getRuntimeBridgeDeltaEvidence(): BridgeRuntimeProof {
   const bridge = getBridgeState();
   const providers = getProviderStates();
@@ -42,5 +56,24 @@ export function getRuntimeBridgeDeltaEvidence(): BridgeRuntimeProof {
     commitSha: process.env.RENDER_GIT_COMMIT ?? process.env.GITHUB_SHA ?? null,
     checksum,
     timestamp: new Date().toISOString(),
+  };
+}
+
+export function getTitanBridgeStatusProof(): TitanBridgeStatusProof {
+  const proof = getRuntimeBridgeDeltaEvidence();
+  return {
+    access: "PUBLIC_READ",
+    bridge: "titanBridge",
+    enabled: proof.bridgeEnabled,
+    hasSharedSecret: proof.hasSharedSecret,
+    compatibility: proof.compatibility,
+    providerCounts: proof.providerCounts,
+    memoryMode: proof.memoryMode,
+    checksum: proof.checksum,
+    timestamp: proof.timestamp,
+    mode: proof.bridgeEnabled ? "ACTIVE" : "SAFE_DISABLED",
+    message: proof.bridgeEnabled
+      ? "Bridge is enabled for cross-repo integration traffic"
+      : "Bridge is disabled by default. Set BRIDGE_ENABLED=true after V6 gate approval.",
   };
 }

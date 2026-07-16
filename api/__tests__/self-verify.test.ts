@@ -109,6 +109,22 @@ describe("OSVA self-verification (STE-V-01)", () => {
     }
   });
 
+  it("onx.bridgeSurfaces is public, aggregates the three bridge proofs, and keeps a stable checksum", async () => {
+    const first = await caller.onx.bridgeSurfaces();
+    const second = await caller.onx.bridgeSurfaces();
+    expect(first.access).toBe("PUBLIC_READ");
+    expect(first.total).toBe(3);
+    expect(first.ready + first.guarded).toBe(3);
+    expect(first.surfaces.corpusQuery.bridge).toBe("corpusQuery");
+    expect(first.surfaces.intentEngine.bridge).toBe("intentEngine");
+    expect(first.surfaces.titanBridge.bridge).toBe("titanBridge");
+    expect(first.surfaces.corpusQuery.checksum).toMatch(/^[0-9a-f]{64}$/);
+    expect(first.surfaces.intentEngine.checksum).toMatch(/^[0-9a-f]{64}$/);
+    expect(first.surfaces.titanBridge.checksum).toMatch(/^[0-9a-f]{64}$/);
+    expect(first.checksum).toMatch(/^[0-9a-f]{64}$/);
+    expect(second.checksum).toBe(first.checksum);
+  });
+
   it("exit-code contract: claimsAsserted > 0 must map to exit 1", async () => {
     const report = await buildSelfVerification();
     const exitCode = report.claimsAsserted > 0 ? 1 : 0;
