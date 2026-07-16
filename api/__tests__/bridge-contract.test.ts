@@ -55,6 +55,28 @@ describe("Bridge contract security", () => {
     expect(intent.bridge).toBe("intentEngine");
     expect(typeof corpus.enabled).toBe("boolean");
     expect(typeof intent.hasSharedSecret).toBe("boolean");
+    expect(corpus.access).toBe("PUBLIC_READ");
+    expect(intent.access).toBe("PUBLIC_READ");
+    expect(["BRIDGE_READY", "BRIDGE_GUARDED"]).toContain(corpus.compatibility);
+    expect(["BRIDGE_READY", "BRIDGE_GUARDED"]).toContain(intent.compatibility);
+    expect(corpus.manifestSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(corpus.corpusDocs).toBe(22500);
+    expect(corpus.publicSearch.probeQuery).toBe("entropy principles");
+    expect(corpus.publicSearch.indexedDocs).toBeGreaterThanOrEqual(22500);
+    expect(intent.classify.engine).toBe("RULE_BASED_SAFE");
+    expect(intent.classify.mode).toBe("DETERMINISTIC_NO_KEY");
+    expect(intent.classify.topIntent).toBe("PRICING");
+    expect(intent.checksum).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("status proofs should keep stable checksums across identical facts", async () => {
+    const corpusA = await caller.corpusQuery.status();
+    const corpusB = await caller.corpusQuery.status();
+    const intentA = await caller.intentEngine.status();
+    const intentB = await caller.intentEngine.status();
+
+    expect(corpusA.checksum).toBe(corpusB.checksum);
+    expect(intentA.checksum).toBe(intentB.checksum);
   });
 
   it("should block corpusQuery search when bridge is disabled", async () => {

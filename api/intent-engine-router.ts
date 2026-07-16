@@ -2,14 +2,12 @@ import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 import { enforceRateLimit } from "./lib/rate-limiter";
 import { intelligenceRouter } from "./intelligence-router";
-import { assertBridgeAccess, getBridgeState } from "./bridge-guard";
+import { assertBridgeAccess } from "./bridge-guard";
 import { classifyIntent } from "./lib/intent-engine";
+import { getIntentBridgeSurfaceProof } from "./lib/bridge-surface-proof";
 
 export const intentEngineRouter = createRouter({
-  status: publicQuery.query(() => ({
-    bridge: "intentEngine",
-    ...getBridgeState(),
-  })),
+  status: publicQuery.query(() => getIntentBridgeSurfaceProof()),
 
   // STE-K-02: SAFE deterministic classification — PUBLIC read
   // (rankedSearch pattern: no secrets, no keys needed, zero LLM).

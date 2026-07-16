@@ -2,7 +2,7 @@ import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 import { enforceRateLimit } from "./lib/rate-limiter";
 import { fingerprintKnowledge, knowledgeRouter } from "./knowledge-router";
-import { assertBridgeAccess, getBridgeState } from "./bridge-guard";
+import { assertBridgeAccess } from "./bridge-guard";
 import {
   insertCorpusUnits,
   isCorpusPersistenceConfigured,
@@ -15,6 +15,7 @@ import {
   searchCorpus,
 } from "./lib/corpus-search";
 import { getCorpusContentManifest } from "./lib/corpus-manifest";
+import { getCorpusBridgeSurfaceProof } from "./lib/bridge-surface-proof";
 
 // In-memory dedup fallback when no postgres DATABASE_URL is
 // configured — honest UNPERSISTED declaration, lost on restart.
@@ -42,10 +43,7 @@ registerCorpusSource("corpusPg", async () =>
 );
 
 export const corpusQueryRouter = createRouter({
-  status: publicQuery.query(() => ({
-    bridge: "corpusQuery",
-    ...getBridgeState(),
-  })),
+  status: publicQuery.query(async () => getCorpusBridgeSurfaceProof()),
 
   // STE-K-10: measured corpus content manifest — public read (no
   // secrets, pattern of `status`). Exposes the honest DEMO/REAL
