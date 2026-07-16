@@ -13,13 +13,13 @@
 // fingerprinted (sha256 of normalized JSON without timestamps).
 // NO env values are ever included — keyPrefix (4 chars) at most.
 // ============================================================
-import { createHash } from "node:crypto";
 import { collectComponents, type ComponentHealth } from "../health-router";
 import { buildCorpusManifest, type CorpusManifest } from "../knowledge-router";
 import { getProviderStates, type ProviderState } from "./provider-registry";
 import { getBridgeState } from "../bridge-guard";
 import { getCorpusContentManifest } from "./corpus-manifest";
 import { getRuntimeBridgeDeltaEvidence, type BridgeRuntimeProof } from "./bridge-runtime-proof";
+import { computeSelfVerifyFingerprint } from "./self-verify-fingerprint";
 
 export type TruthVerdict =
   | "IMPLEMENTED_PROVEN"
@@ -65,32 +65,21 @@ function healthVerdict(component: ComponentHealth): TruthVerdict {
 
 // Normalized fingerprint: stable across calls with identical facts —
 // volatile fields (timestamps, latencies, uptime, memory) excluded.
+// STE-P-293: computation delegated to the SHARED canonical helper
+// (self-verify-fingerprint.ts) — the same function the live smoke
+// contract uses to RECOMPUTE the fingerprint from served sections,
+// so a forged fingerprint can never pass. Values unchanged.
 export function fingerprintReport(report: Omit<SelfVerificationReport, "fingerprint">): string {
-  const stable = {
-    items: report.items.map((i) => ({ area: i.area, name: i.name, verdict: i.verdict, measured: i.measured })),
-    health: report.health.map((h) => ({ name: h.name, status: h.status })),
-    corpus: {
-      rawTotal: report.corpus.rawTotal,
-      uniqueByTitleBody: report.corpus.uniqueByTitleBody,
-      duplicates: report.corpus.duplicates,
-      persistence: report.corpus.persistence,
-    },
-    providers: report.providers.map((p) => ({ id: p.id, status: p.status })),
+  return computeSelfVerifyFingerprint({
+    items: report.items,
+    health: report.health,
+    corpus: report.corpus,
+    providers: report.providers,
     bridges: report.bridges,
-    bridgeRuntime: {
-      bridge: report.bridgeRuntime.bridge,
-      bridgeEnabled: report.bridgeRuntime.bridgeEnabled,
-      hasSharedSecret: report.bridgeRuntime.hasSharedSecret,
-      providerCounts: report.bridgeRuntime.providerCounts,
-      memoryMode: report.bridgeRuntime.memoryMode,
-      compatibility: report.bridgeRuntime.compatibility,
-      commitSha: report.bridgeRuntime.commitSha,
-      checksum: report.bridgeRuntime.checksum,
-    },
+    bridgeRuntime: report.bridgeRuntime,
     claimsMeasured: report.claimsMeasured,
     claimsAsserted: report.claimsAsserted,
-  };
-  return createHash("sha256").update(JSON.stringify(stable)).digest("hex");
+  });
 }
 
 export async function buildSelfVerification(): Promise<SelfVerificationReport> {

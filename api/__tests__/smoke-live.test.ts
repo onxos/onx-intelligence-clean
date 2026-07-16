@@ -37,6 +37,7 @@ import {
   computeIntentBridgeChecksum,
   computeTitanBridgeChecksum,
 } from "../lib/bridge-part-checksums";
+import { computeSelfVerifyFingerprint } from "../lib/self-verify-fingerprint";
 
 // ---- helpers to build a live-shaped tRPC fetch double ----
 
@@ -290,30 +291,62 @@ const CORPUS_FIXTURE_CHECKSUM = computeCorpusBridgeChecksum(CORPUS_SURFACE_FIELD
 const INTENT_FIXTURE_CHECKSUM = computeIntentBridgeChecksum(INTENT_SURFACE_FIELDS);
 const TITAN_FIXTURE_CHECKSUM = computeTitanBridgeChecksum(TITAN_SURFACE_FIELDS);
 
+const LIVE_SELFVERIFY_ITEMS = [
+  { area: "health", name: "Database", verdict: "IMPLEMENTED_PROVEN", measured: true },
+  { area: "health", name: "Scheduler", verdict: "IMPLEMENTED_PROVEN", measured: true, detail: "2/5 rhythms active, 0 failing; IUC cron active, last tick 2026-01-01T00:00:00.000Z" },
+  { area: "corpus", name: "Corpus", verdict: "DEMO", measured: true },
+  { area: "providers", name: "openai", verdict: "DOCUMENTED_ONLY", measured: true },
+  { area: "runtime", name: "Titan Bridge Proof Surface", verdict: "IMPLEMENTED_PROVEN", measured: true },
+];
+// STE-P-293: the fingerprint sections served alongside items in the
+// same onx.selfVerify body — the contract RECOMPUTES the fingerprint
+// from them, so the fixture computes it with the SAME shared helper
+// the server uses (honest by construction; forgery tests mutate).
+const LIVE_SELFVERIFY_HEALTH = [
+  { name: "Database", status: "HEALTHY" },
+  { name: "Scheduler", status: "HEALTHY" },
+];
+const LIVE_SELFVERIFY_CORPUS = { rawTotal: 22500, uniqueByTitleBody: 22500, duplicates: 0, persistence: "UNPERSISTED" };
+const LIVE_SELFVERIFY_PROVIDERS = [{ id: "openai", status: "CONFIGURED_UNPROBED" }];
+const LIVE_SELFVERIFY_BRIDGES = ["corpusQuery", "intentEngine", "titanBridge"].map((id) => ({
+  id,
+  enabled: false,
+  hasSharedSecret: false,
+  failClosed: true,
+}));
+const LIVE_SELFVERIFY_BRIDGE_RUNTIME = {
+  bridge: "titanBridge",
+  bridgeEnabled: false,
+  hasSharedSecret: false,
+  providerCounts: { validated: 0, configuredUnprobed: 1, missingKey: 0 },
+  memoryMode: "memory",
+  compatibility: "BRIDGE_GUARDED",
+  commitSha: null,
+  // STE-P-290: cross-surface identity — MUST equal
+  // LIVE_BRIDGE_SURFACES.surfaces.titanBridge.checksum (same evidence
+  // source, bridge-runtime-proof.ts). Drift tests mutate it explicitly.
+  checksum: TITAN_FIXTURE_CHECKSUM,
+};
+
 const LIVE_SELFVERIFY = {
-  items: [
-    { area: "health", name: "Database", verdict: "IMPLEMENTED_PROVEN", measured: true },
-    { area: "health", name: "Scheduler", verdict: "IMPLEMENTED_PROVEN", measured: true, detail: "2/5 rhythms active, 0 failing; IUC cron active, last tick 2026-01-01T00:00:00.000Z" },
-    { area: "corpus", name: "Corpus", verdict: "DEMO", measured: true },
-    { area: "providers", name: "openai", verdict: "DOCUMENTED_ONLY", measured: true },
-    { area: "runtime", name: "Titan Bridge Proof Surface", verdict: "IMPLEMENTED_PROVEN", measured: true },
-  ],
-  bridgeRuntime: {
-    bridge: "titanBridge",
-    bridgeEnabled: false,
-    hasSharedSecret: false,
-    providerCounts: { validated: 0, configuredUnprobed: 1, missingKey: 0 },
-    memoryMode: "memory",
-    compatibility: "BRIDGE_GUARDED",
-    commitSha: null,
-    // STE-P-290: cross-surface identity — MUST equal
-    // LIVE_BRIDGE_SURFACES.surfaces.titanBridge.checksum (same evidence
-    // source, bridge-runtime-proof.ts). Drift tests mutate it explicitly.
-    checksum: TITAN_FIXTURE_CHECKSUM,
-  },
+  items: LIVE_SELFVERIFY_ITEMS,
+  health: LIVE_SELFVERIFY_HEALTH,
+  corpus: LIVE_SELFVERIFY_CORPUS,
+  providers: LIVE_SELFVERIFY_PROVIDERS,
+  bridges: LIVE_SELFVERIFY_BRIDGES,
+  bridgeRuntime: LIVE_SELFVERIFY_BRIDGE_RUNTIME,
   claimsMeasured: 5,
   claimsAsserted: 0,
-  fingerprint: "a".repeat(64),
+  fingerprint: computeSelfVerifyFingerprint({
+    items: LIVE_SELFVERIFY_ITEMS,
+    health: LIVE_SELFVERIFY_HEALTH,
+    corpus: LIVE_SELFVERIFY_CORPUS,
+    providers: LIVE_SELFVERIFY_PROVIDERS,
+    bridges: LIVE_SELFVERIFY_BRIDGES,
+    bridgeRuntime: LIVE_SELFVERIFY_BRIDGE_RUNTIME,
+    claimsMeasured: 5,
+    claimsAsserted: 0,
+  }),
   truthLedgerSummary: LIVE_SUMMARY_EMPTY,
 };
 
@@ -824,14 +857,37 @@ describe("runSmoke orchestration (mocked fetch)", () => {
   });
 
   // ---- STE-P-290: cross-surface identity (deepening, total stays 10) ----
-  it("bridge_surfaces_read fails when titanBridge.checksum drifts from selfVerify.bridgeRuntime", async () => {
+  // STE-P-293 note: bridgeRuntime is INSIDE the selfVerify fingerprint, so a
+  // drifted fixture must recompute its fingerprint (internally honest) —
+  // otherwise honest_status_selfverify catches the mutation first and the
+  // cross-surface check is never the named failure.
+  function internallyHonestSelfVerifyDrift(mutate: (sv: Record<string, any>) => void) {
     const drifted = JSON.parse(JSON.stringify(LIVE_SELFVERIFY));
-    drifted.bridgeRuntime.checksum = "b".repeat(64);
+    mutate(drifted);
+    drifted.fingerprint = computeSelfVerifyFingerprint({
+      items: drifted.items,
+      health: drifted.health,
+      corpus: drifted.corpus,
+      providers: drifted.providers,
+      bridges: drifted.bridges,
+      bridgeRuntime: drifted.bridgeRuntime,
+      claimsMeasured: drifted.claimsMeasured,
+      claimsAsserted: drifted.claimsAsserted,
+    });
+    return drifted;
+  }
+
+  it("bridge_surfaces_read fails when titanBridge.checksum drifts from selfVerify.bridgeRuntime", async () => {
+    const drifted = internallyHonestSelfVerifyDrift((sv) => {
+      sv.bridgeRuntime.checksum = "b".repeat(64);
+    });
     const report = await runSmoke("https://x.dev", {
       fetchImpl: liveFetch({ selfVerify: trpcOk(drifted) }),
       expectedSha: null,
       committedManifest: COMMITTED_MANIFEST,
     });
+    // The mutation is internally honest — ONLY the cross-surface check fires.
+    expect(report.contracts.find((x) => x.name === "honest_status_selfverify")?.passed).toBe(true);
     const c = report.contracts.find((x) => x.name === "bridge_surfaces_read");
     expect(c?.passed).toBe(false);
     expect(c?.detail).toMatch(/cross-surface drift: titanBridge\.checksum/);
@@ -839,10 +895,11 @@ describe("runSmoke orchestration (mocked fetch)", () => {
   });
 
   it("bridge_surfaces_read fails when compatibility disagrees across surfaces", async () => {
-    const drifted = JSON.parse(JSON.stringify(LIVE_SELFVERIFY));
-    drifted.bridgeRuntime.compatibility = "BRIDGE_READY";
-    drifted.bridgeRuntime.bridgeEnabled = true;
-    drifted.bridgeRuntime.hasSharedSecret = true;
+    const drifted = internallyHonestSelfVerifyDrift((sv) => {
+      sv.bridgeRuntime.compatibility = "BRIDGE_READY";
+      sv.bridgeRuntime.bridgeEnabled = true;
+      sv.bridgeRuntime.hasSharedSecret = true;
+    });
     const report = await runSmoke("https://x.dev", {
       fetchImpl: liveFetch({ selfVerify: trpcOk(drifted) }),
       expectedSha: null,
@@ -854,8 +911,9 @@ describe("runSmoke orchestration (mocked fetch)", () => {
   });
 
   it("bridge_surfaces_read fails when providerCounts disagree across surfaces", async () => {
-    const drifted = JSON.parse(JSON.stringify(LIVE_SELFVERIFY));
-    drifted.bridgeRuntime.providerCounts = { validated: 1, configuredUnprobed: 0, missingKey: 0 };
+    const drifted = internallyHonestSelfVerifyDrift((sv) => {
+      sv.bridgeRuntime.providerCounts = { validated: 1, configuredUnprobed: 0, missingKey: 0 };
+    });
     const report = await runSmoke("https://x.dev", {
       fetchImpl: liveFetch({ selfVerify: trpcOk(drifted) }),
       expectedSha: null,
@@ -867,8 +925,9 @@ describe("runSmoke orchestration (mocked fetch)", () => {
   });
 
   it("bridge_surfaces_read fails when memoryMode disagrees across surfaces", async () => {
-    const drifted = JSON.parse(JSON.stringify(LIVE_SELFVERIFY));
-    drifted.bridgeRuntime.memoryMode = "pg";
+    const drifted = internallyHonestSelfVerifyDrift((sv) => {
+      sv.bridgeRuntime.memoryMode = "pg";
+    });
     const report = await runSmoke("https://x.dev", {
       fetchImpl: liveFetch({ selfVerify: trpcOk(drifted) }),
       expectedSha: null,
@@ -877,6 +936,70 @@ describe("runSmoke orchestration (mocked fetch)", () => {
     const c = report.contracts.find((x) => x.name === "bridge_surfaces_read");
     expect(c?.passed).toBe(false);
     expect(c?.detail).toMatch(/cross-surface drift: titanBridge\.memoryMode/);
+  });
+
+  // ---- STE-P-293: selfVerify fingerprint recomputation (anti-forgery) ----
+  it("honest_status_selfverify RECOMPUTES the fingerprint and passes on the honest fixture", () => {
+    const r = checkSelfVerify(200, LIVE_SELFVERIFY);
+    expect(r.passed).toBe(true);
+    expect(r.detail).toMatch(/fingerprint RECOMPUTED from served sections and verified/);
+  });
+
+  it("honest_status_selfverify fails on a forged-but-well-formed fingerprint", () => {
+    const r = checkSelfVerify(200, { ...LIVE_SELFVERIFY, fingerprint: "a".repeat(64) });
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/fingerprint forged\/stale: served=a{12}/);
+    expect(r.detail).toMatch(/recomputed=[0-9a-f]{64}/);
+  });
+
+  it("honest_status_selfverify fails when a section mutates but the fingerprint stays stale (drift caught)", () => {
+    for (const mutate of [
+      (sv: Record<string, any>) => { sv.corpus = { ...sv.corpus, rawTotal: 99999 }; },
+      (sv: Record<string, any>) => { sv.health = [{ name: "Database", status: "UNAVAILABLE" }, sv.health[1]]; },
+      (sv: Record<string, any>) => { sv.providers = [{ id: "openai", status: "VALIDATED" }]; },
+      (sv: Record<string, any>) => { sv.bridges = sv.bridges.map((b: Record<string, unknown>) => ({ ...b, enabled: true })); },
+    ] as Array<(sv: Record<string, any>) => void>) {
+      const stale = JSON.parse(JSON.stringify(LIVE_SELFVERIFY));
+      mutate(stale);
+      const r = checkSelfVerify(200, stale);
+      expect(r.passed).toBe(false);
+      expect(r.detail).toMatch(/fingerprint forged\/stale/);
+    }
+  });
+
+  it("honest_status_selfverify fails with a NAMED error when fingerprint sections are stripped", () => {
+    const stripped = JSON.parse(JSON.stringify(LIVE_SELFVERIFY));
+    delete stripped.health;
+    delete stripped.corpus;
+    const r = checkSelfVerify(200, stripped);
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/fingerprint sections missing from served report: health, corpus/);
+    const noBridges = JSON.parse(JSON.stringify(LIVE_SELFVERIFY));
+    noBridges.bridges = [];
+    expect(checkSelfVerify(200, noBridges).detail).toMatch(/fingerprint sections missing from served report: bridges/);
+  });
+
+  it("honest_status_selfverify fails on malformed bridges/corpus sections (named)", () => {
+    const badBridge = JSON.parse(JSON.stringify(LIVE_SELFVERIFY));
+    badBridge.bridges[1] = { id: "intentEngine", enabled: "yes", hasSharedSecret: false, failClosed: true };
+    expect(checkSelfVerify(200, badBridge).detail).toMatch(/bridges entry malformed \(intentEngine\)/);
+    const badCorpus = JSON.parse(JSON.stringify(LIVE_SELFVERIFY));
+    badCorpus.corpus = { rawTotal: "many", uniqueByTitleBody: 1, duplicates: 0, persistence: "UNPERSISTED" };
+    expect(checkSelfVerify(200, badCorpus).detail).toMatch(/corpus section malformed/);
+  });
+
+  it("runner surfaces the fingerprint recomputation live-shaped end-to-end", async () => {
+    const forged = JSON.parse(JSON.stringify(LIVE_SELFVERIFY));
+    forged.fingerprint = "e".repeat(64);
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({ selfVerify: trpcOk(forged) }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    const c = report.contracts.find((x) => x.name === "honest_status_selfverify");
+    expect(c?.passed).toBe(false);
+    expect(c?.detail).toMatch(/fingerprint forged\/stale/);
+    expect(report.passed).toBe(false);
   });
 
   // ---- STE-P-291: corpusQuery cross-surface identity vs corpusQuery.manifest ----

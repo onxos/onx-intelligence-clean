@@ -11,6 +11,7 @@ import {
   fingerprintReport,
   type SelfVerificationReport,
 } from "../lib/self-verify";
+import { computeSelfVerifyFingerprint } from "../lib/self-verify-fingerprint";
 
 const caller = appRouter.createCaller({} as never);
 
@@ -86,6 +87,24 @@ describe("OSVA self-verification (STE-V-01)", () => {
     const tampered = { ...stable, claimsMeasured: stable.claimsMeasured + 1 };
     const tamperedHash = createHash("sha256").update(JSON.stringify(tampered)).digest("hex");
     expect(tamperedHash).not.toBe(report.fingerprint);
+  });
+
+  it("STE-P-293: the SHARED canonical helper reproduces the server fingerprint byte-identically", async () => {
+    const report = await buildSelfVerification();
+    // Same helper the live smoke contract uses to RECOMPUTE the served
+    // fingerprint — single source, so server and contract can never drift.
+    expect(
+      computeSelfVerifyFingerprint({
+        items: report.items,
+        health: report.health,
+        corpus: report.corpus,
+        providers: report.providers,
+        bridges: report.bridges,
+        bridgeRuntime: report.bridgeRuntime,
+        claimsMeasured: report.claimsMeasured,
+        claimsAsserted: report.claimsAsserted,
+      }),
+    ).toBe(report.fingerprint);
   });
 
   it("onx.selfVerify is public and leaks no env values", async () => {

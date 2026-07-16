@@ -22,6 +22,7 @@ import {
   computeIntentBridgeChecksum,
   computeTitanBridgeChecksum,
 } from "./bridge-part-checksums";
+import { computeSelfVerifyFingerprint } from "./self-verify-fingerprint";
 
 // Minimal response shape we depend on (Node/undici fetch compatible).
 export interface SmokeResponse {
@@ -272,6 +273,13 @@ export function checkSelfVerify(
     claimsMeasured?: number;
     claimsAsserted?: number;
     fingerprint?: string;
+    // STE-P-293: the fingerprint sections are served in the SAME body
+    // (onx.selfVerify returns the full report) — captured here so the
+    // contract can RECOMPUTE the fingerprint instead of trusting it.
+    health?: Array<{ name?: string; status?: string }>;
+    corpus?: { rawTotal?: number; uniqueByTitleBody?: number; duplicates?: number; persistence?: string };
+    providers?: Array<{ id?: string; status?: string }>;
+    bridges?: Array<{ id?: string; enabled?: boolean; hasSharedSecret?: boolean; failClosed?: boolean }>;
     bridgeRuntime?: {
       bridge?: string;
       bridgeEnabled?: boolean;
@@ -403,6 +411,83 @@ export function checkSelfVerify(
     return { name, passed: false, detail: `bridgeRuntime.commitSha invalid (${String(bridgeRuntime.commitSha)})` };
   if (!/^[0-9a-f]{64}$/.test(String(bridgeRuntime.checksum)))
     return { name, passed: false, detail: "bridgeRuntime.checksum is not sha256 hex" };
+  // ---- STE-P-293: fingerprint RECOMPUTATION (anti-forgery) ----
+  // The fingerprint anchors every truth-ledger snapshot and all drift
+  // detection. A forged-but-well-formed value would poison the whole
+  // truth chain, so we rebuild it from the SERVED sections via the
+  // same shared canonical helper the server uses — trust nothing.
+  const missingSections: string[] = [];
+  if (!Array.isArray(data?.health) || data.health.length === 0) missingSections.push("health");
+  if (!data?.corpus) missingSections.push("corpus");
+  if (!Array.isArray(data?.providers) || data.providers.length === 0) missingSections.push("providers");
+  if (!Array.isArray(data?.bridges) || data.bridges.length === 0) missingSections.push("bridges");
+  if (missingSections.length > 0)
+    return {
+      name,
+      passed: false,
+      detail: `fingerprint sections missing from served report: ${missingSections.join(", ")}`,
+    };
+  const badBridge = (data.bridges ?? []).find(
+    (b) =>
+      typeof b?.id !== "string" ||
+      typeof b?.enabled !== "boolean" ||
+      typeof b?.hasSharedSecret !== "boolean" ||
+      typeof b?.failClosed !== "boolean",
+  );
+  if (badBridge)
+    return { name, passed: false, detail: `bridges entry malformed (${String(badBridge?.id ?? "?")})` };
+  const corpusSection = data.corpus ?? {};
+  if (
+    !Number.isInteger(corpusSection.rawTotal) ||
+    !Number.isInteger(corpusSection.uniqueByTitleBody) ||
+    !Number.isInteger(corpusSection.duplicates) ||
+    typeof corpusSection.persistence !== "string"
+  )
+    return { name, passed: false, detail: "corpus section malformed (rawTotal/uniqueByTitleBody/duplicates/persistence)" };
+  const recomputedFingerprint = computeSelfVerifyFingerprint({
+    items: items.map((i) => ({
+      area: String(i.area),
+      name: String(i.name),
+      verdict: String(i.verdict),
+      measured: i.measured === true,
+    })),
+    health: (data.health ?? []).map((h) => ({ name: String(h.name), status: String(h.status) })),
+    corpus: {
+      rawTotal: Number(corpusSection.rawTotal),
+      uniqueByTitleBody: Number(corpusSection.uniqueByTitleBody),
+      duplicates: Number(corpusSection.duplicates),
+      persistence: String(corpusSection.persistence),
+    },
+    providers: (data.providers ?? []).map((p) => ({ id: String(p.id), status: String(p.status) })),
+    bridges: (data.bridges ?? []).map((b) => ({
+      id: String(b.id),
+      enabled: b.enabled === true,
+      hasSharedSecret: b.hasSharedSecret === true,
+      failClosed: b.failClosed === true,
+    })),
+    bridgeRuntime: {
+      bridge: String(bridgeRuntime.bridge),
+      bridgeEnabled: bridgeRuntime.bridgeEnabled === true,
+      hasSharedSecret: bridgeRuntime.hasSharedSecret === true,
+      providerCounts: {
+        validated: Number(bridgeRuntime.providerCounts?.validated),
+        configuredUnprobed: Number(bridgeRuntime.providerCounts?.configuredUnprobed),
+        missingKey: Number(bridgeRuntime.providerCounts?.missingKey),
+      },
+      memoryMode: String(bridgeRuntime.memoryMode),
+      compatibility: String(bridgeRuntime.compatibility),
+      commitSha: bridgeRuntime.commitSha ?? null,
+      checksum: String(bridgeRuntime.checksum),
+    },
+    claimsMeasured: Number(data.claimsMeasured),
+    claimsAsserted: Number(data.claimsAsserted),
+  });
+  if (recomputedFingerprint !== data.fingerprint)
+    return {
+      name,
+      passed: false,
+      detail: `fingerprint forged/stale: served=${String(data.fingerprint)} recomputed=${recomputedFingerprint}`,
+    };
   const summary = data?.truthLedgerSummary;
   const total = summary?.count;
   if (!Number.isInteger(total) || Number(total) < 0)
@@ -622,7 +707,7 @@ export function checkSelfVerify(
   return {
     name,
     passed: true,
-    detail: `${items.length} items, measured=${measuredCount} asserted=${assertedCount}, truthLedgerSummary.count=${total}`,
+    detail: `${items.length} items, measured=${measuredCount} asserted=${assertedCount}, truthLedgerSummary.count=${total}; fingerprint RECOMPUTED from served sections and verified`,
   };
 }
 
