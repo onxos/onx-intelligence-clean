@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ONX STE Incident Manager Runtime Schema",
+  "type": "object",
+  "required": [
+    "WINDOW_START",
+    "WINDOW_END",
+    "ACCEPTED_IUS",
+    "PASSED_ACS",
+    "FAILED_ACS",
+    "ACTIVE_WORKERS",
+    "CURRENT_WAVES",
+    "COMMITS_AND_SHAS",
+    "TEST_RESULTS",
+    "DEPLOYS_AND_UNIQUE_SHAS",
+    "PRODUCTION_EVIDENCE",
+    "MODEL_AND_TIER_PER_WORKER",
+    "ACTUAL_AI_CREDITS",
+    "EVIDENCE_IDS"
+  ],
+  "properties": {
+    "WINDOW_START": { "type": "string" },
+    "WINDOW_END": { "type": "string" },
+    "ACCEPTED_IUS": { "type": "string" },
+    "PASSED_ACS": { "type": "string" },
+    "FAILED_ACS": { "type": "string" },
+    "ACTIVE_WORKERS": { "type": "string" },
+    "CURRENT_WAVES": { "type": "string" },
+    "COMMITS_AND_SHAS": { "type": "string" },
+    "TEST_RESULTS": { "type": "string" },
+    "DEPLOYS_AND_UNIQUE_SHAS": { "type": "string" },
+    "PRODUCTION_EVIDENCE": { "type": "string" },
+    "MODEL_AND_TIER_PER_WORKER": { "type": "string" },
+    "ACTUAL_AI_CREDITS": { "type": "string" },
+    "EVIDENCE_IDS": { "type": "string" }
+  },
+  "additionalProperties": true
+}

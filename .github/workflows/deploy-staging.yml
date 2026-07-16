@@ -9,6 +9,8 @@ on:
   push:
     branches-ignore:
       - main
+    paths-ignore:
+      - "docs/ste_runtime_truth/reports/**"
   workflow_dispatch:
     inputs:
       force_create:

@@ -1,11 +1,19 @@
 name: Live Truth Watchdog
 
 on:
-  # STE-K-29: periodic live production watchdog.
-  # GitHub schedules are best-effort (not hard real-time); every 6 hours
-  # is the minimum-noise cadence that still catches between-wave drift.
+  # STE-RCV-V2-CADENCE-LOOP-CORRECTION:
+  # event-driven on incident manager/relevant test/config changes,
+  # with daily maximum fallback cadence.
+  push:
+    paths:
+      - "api/lib/truth-snapshot-cron.ts"
+      - "api/__tests__/truth-snapshot-cron.test.ts"
+      - "api/lib/reporting-replay-guard.ts"
+      - "api/__tests__/reporting-replay-guard.test.ts"
+      - "docs/ste_runtime_truth/config/reporting_cadence_v2.json"
+      - "docs/ste_runtime_truth/schemas/incident_manager_schema.json"
   schedule:
-    - cron: "17 */6 * * *"
+    - cron: "17 3 * * *"
   workflow_dispatch:
 
 jobs:
@@ -24,7 +32,41 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Compute replay fingerprint
+        id: replay_fingerprint
+        run: |
+          SRC_SHA=$(sha256sum api/lib/truth-snapshot-cron.ts api/lib/reporting-replay-guard.ts | sha256sum | cut -d' ' -f1)
+          TEST_SHA=$(sha256sum api/__tests__/truth-snapshot-cron.test.ts api/__tests__/reporting-replay-guard.test.ts | sha256sum | cut -d' ' -f1)
+          CFG_SHA=$(sha256sum docs/ste_runtime_truth/config/reporting_cadence_v2.json | cut -d' ' -f1)
+          SCHEMA_SHA=$(sha256sum docs/ste_runtime_truth/schemas/incident_manager_schema.json | cut -d' ' -f1)
+          FINGERPRINT=$(printf "%s|%s|%s|%s" "$SRC_SHA" "$TEST_SHA" "$CFG_SHA" "$SCHEMA_SHA" | sha256sum | cut -d' ' -f1)
+          echo "source_sha=$SRC_SHA" >> "$GITHUB_OUTPUT"
+          echo "test_sha=$TEST_SHA" >> "$GITHUB_OUTPUT"
+          echo "config_sha=$CFG_SHA" >> "$GITHUB_OUTPUT"
+          echo "schema_sha=$SCHEMA_SHA" >> "$GITHUB_OUTPUT"
+          echo "fingerprint=$FINGERPRINT" >> "$GITHUB_OUTPUT"
+
+      - name: Restore replay guard cache
+        id: replay_cache
+        uses: actions/cache@v4
+        with:
+          path: .github/.reporting-cache
+          key: reporting-cadence-v2-${{ steps.replay_fingerprint.outputs.fingerprint }}
+
+      - name: Apply replay guard decision
+        id: replay_guard
+        run: |
+          if [ "${{ steps.replay_cache.outputs.cache-hit }}" = "true" ]; then
+            echo "duplicate=true" >> "$GITHUB_OUTPUT"
+            echo "Replay guard: unchanged input fingerprint; duplicate evidence blocked."
+          else
+            mkdir -p .github/.reporting-cache
+            echo "${{ steps.replay_fingerprint.outputs.fingerprint }}" > .github/.reporting-cache/fingerprint.txt
+            echo "duplicate=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run live truth watchdog (gateway origin, no EXPECT_COMMIT)
+        if: steps.replay_guard.outputs.duplicate != 'true'
         env:
           GATEWAY_ORIGIN: https://onx-gateway.onrender.com
         run: npm run smoke:live
