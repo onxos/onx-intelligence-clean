@@ -1002,6 +1002,24 @@ describe("checkTruthLedgerRead (STE-K-13)", () => {
     expect(r.detail).toMatch(/retention\.oldestRetainedId/);
   });
 
+  it("accepts monotonic retention advance between selfVerify and truthHistory reads", () => {
+    const r = checkTruthLedgerRead(
+      200,
+      {
+        ...LIVE_TRUTH_HISTORY_POPULATED,
+        retention: { keep: 168, oldestRetainedId: 10, oldestRetainedIsGenesis: false },
+      },
+      2,
+      LEDGER_NOW_MS,
+      undefined,
+      {
+        ...LIVE_SUMMARY_POPULATED,
+        retention: { keep: 168, oldestRetainedId: 9, oldestRetainedIsGenesis: false },
+      },
+    );
+    expect(r.passed).toBe(true);
+  });
+
   it("fails when the returned page exceeds the retention window", () => {
     const snaps = Array.from({ length: 3 }, (_, k) => ({
       id: 3 - k,

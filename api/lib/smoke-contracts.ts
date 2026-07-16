@@ -881,18 +881,29 @@ export function checkTruthLedgerRead(
           passed: false,
           detail: `truthLedgerSummary.retention.keep (${String(truthLedgerSummary.retention.keep)}) != truthHistory.retention.keep (${String(retention.keep)})`,
         };
-      if (truthLedgerSummary.retention.oldestRetainedId !== retention.oldestRetainedId)
-        return {
-          name,
-          passed: false,
-          detail: `truthLedgerSummary.retention.oldestRetainedId (${String(truthLedgerSummary.retention.oldestRetainedId)}) != truthHistory.retention.oldestRetainedId (${String(retention.oldestRetainedId)})`,
-        };
-      if (truthLedgerSummary.retention.oldestRetainedIsGenesis !== retention.oldestRetainedIsGenesis)
-        return {
-          name,
-          passed: false,
-          detail: `truthLedgerSummary.retention.oldestRetainedIsGenesis (${String(truthLedgerSummary.retention.oldestRetainedIsGenesis)}) != truthHistory.retention.oldestRetainedIsGenesis (${String(retention.oldestRetainedIsGenesis)})`,
-        };
+      const summaryOldest = truthLedgerSummary.retention.oldestRetainedId;
+      const historyOldest = retention.oldestRetainedId;
+      const monotonicRetentionAdvance = (
+        typeof summaryOldest === "number" &&
+        typeof historyOldest === "number" &&
+        historyOldest >= summaryOldest
+      );
+      if (
+        summaryOldest !== historyOldest &&
+        !monotonicRetentionAdvance
+      ) return {
+        name,
+        passed: false,
+        detail: `truthLedgerSummary.retention.oldestRetainedId (${String(summaryOldest)}) != truthHistory.retention.oldestRetainedId (${String(historyOldest)})`,
+      };
+      if (
+        truthLedgerSummary.retention.oldestRetainedIsGenesis !== retention.oldestRetainedIsGenesis &&
+        summaryOldest === historyOldest
+      ) return {
+        name,
+        passed: false,
+        detail: `truthLedgerSummary.retention.oldestRetainedIsGenesis (${String(truthLedgerSummary.retention.oldestRetainedIsGenesis)}) != truthHistory.retention.oldestRetainedIsGenesis (${String(retention.oldestRetainedIsGenesis)})`,
+      };
     }
   }
   // Empty ledger = honest "no live scheduled capture" state, not a breach.
