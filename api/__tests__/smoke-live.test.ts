@@ -264,7 +264,10 @@ const LIVE_SELFVERIFY = {
     memoryMode: "memory",
     compatibility: "BRIDGE_GUARDED",
     commitSha: null,
-    checksum: "b".repeat(64),
+    // STE-P-290: cross-surface identity — MUST equal
+    // LIVE_BRIDGE_SURFACES.surfaces.titanBridge.checksum (same evidence
+    // source, bridge-runtime-proof.ts). Drift tests mutate it explicitly.
+    checksum: "3".repeat(64),
   },
   claimsMeasured: 5,
   claimsAsserted: 0,
@@ -291,7 +294,14 @@ const LIVE_BRIDGE_SURFACES = {
   surfaces: {
     corpusQuery: { ...BRIDGE_SURFACE_PARTS[0], access: "PUBLIC_READ" },
     intentEngine: { ...BRIDGE_SURFACE_PARTS[1], access: "PUBLIC_READ" },
-    titanBridge: { ...BRIDGE_SURFACE_PARTS[2], access: "PUBLIC_READ" },
+    // STE-P-290: titanBridge mirrors LIVE_SELFVERIFY.bridgeRuntime exactly
+    // (same evidence source live) — cross-surface identity holds by default.
+    titanBridge: {
+      ...BRIDGE_SURFACE_PARTS[2],
+      access: "PUBLIC_READ",
+      memoryMode: "memory",
+      providerCounts: { validated: 0, configuredUnprobed: 1, missingKey: 0 },
+    },
   },
 };
 
@@ -754,6 +764,64 @@ describe("runSmoke orchestration (mocked fetch)", () => {
     expect(c?.passed).toBe(true);
     expect(c?.detail).toMatch(/RECOMPUTED from served parts/);
     expect(c?.detail).toMatch(/ready=1, guarded=2/);
+    // STE-P-290: the runner feeds selfVerify.bridgeRuntime — identity verified
+    expect(c?.detail).toMatch(/cross-surface identity vs selfVerify\.bridgeRuntime verified/);
+  });
+
+  // ---- STE-P-290: cross-surface identity (deepening, total stays 10) ----
+  it("bridge_surfaces_read fails when titanBridge.checksum drifts from selfVerify.bridgeRuntime", async () => {
+    const drifted = JSON.parse(JSON.stringify(LIVE_SELFVERIFY));
+    drifted.bridgeRuntime.checksum = "b".repeat(64);
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({ selfVerify: trpcOk(drifted) }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    const c = report.contracts.find((x) => x.name === "bridge_surfaces_read");
+    expect(c?.passed).toBe(false);
+    expect(c?.detail).toMatch(/cross-surface drift: titanBridge\.checksum/);
+    expect(c?.detail).toMatch(/same evidence source must agree/);
+  });
+
+  it("bridge_surfaces_read fails when compatibility disagrees across surfaces", async () => {
+    const drifted = JSON.parse(JSON.stringify(LIVE_SELFVERIFY));
+    drifted.bridgeRuntime.compatibility = "BRIDGE_READY";
+    drifted.bridgeRuntime.bridgeEnabled = true;
+    drifted.bridgeRuntime.hasSharedSecret = true;
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({ selfVerify: trpcOk(drifted) }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    const c = report.contracts.find((x) => x.name === "bridge_surfaces_read");
+    expect(c?.passed).toBe(false);
+    expect(c?.detail).toMatch(/cross-surface drift: titanBridge\.compatibility/);
+  });
+
+  it("bridge_surfaces_read fails when providerCounts disagree across surfaces", async () => {
+    const drifted = JSON.parse(JSON.stringify(LIVE_SELFVERIFY));
+    drifted.bridgeRuntime.providerCounts = { validated: 1, configuredUnprobed: 0, missingKey: 0 };
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({ selfVerify: trpcOk(drifted) }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    const c = report.contracts.find((x) => x.name === "bridge_surfaces_read");
+    expect(c?.passed).toBe(false);
+    expect(c?.detail).toMatch(/cross-surface drift: titanBridge\.providerCounts\.validated/);
+  });
+
+  it("bridge_surfaces_read fails when memoryMode disagrees across surfaces", async () => {
+    const drifted = JSON.parse(JSON.stringify(LIVE_SELFVERIFY));
+    drifted.bridgeRuntime.memoryMode = "pg";
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({ selfVerify: trpcOk(drifted) }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    const c = report.contracts.find((x) => x.name === "bridge_surfaces_read");
+    expect(c?.passed).toBe(false);
+    expect(c?.detail).toMatch(/cross-surface drift: titanBridge\.memoryMode/);
   });
 
   it("bridge_surfaces_read fails when the served aggregate checksum is forged", async () => {
@@ -818,6 +886,28 @@ describe("checkBridgeSurfacesRead (STE-P-289)", () => {
     const b = checkBridgeSurfacesRead(200, JSON.parse(JSON.stringify(LIVE_BRIDGE_SURFACES)));
     expect(a).toEqual(b);
     expect(a.passed).toBe(true);
+  });
+
+  // STE-P-290: standalone evaluator stays tolerant without selfVerify data
+  it("passes without cross-surface detail when no bridgeRuntime is supplied (tolerant standalone)", () => {
+    const r = checkBridgeSurfacesRead(200, LIVE_BRIDGE_SURFACES);
+    expect(r.passed).toBe(true);
+    expect(r.detail).not.toMatch(/cross-surface/);
+  });
+
+  it("verifies cross-surface identity directly when bridgeRuntime is supplied", () => {
+    const rt = {
+      compatibility: "BRIDGE_GUARDED",
+      checksum: "3".repeat(64),
+      memoryMode: "memory",
+      providerCounts: { validated: 0, configuredUnprobed: 1, missingKey: 0 },
+    };
+    const ok = checkBridgeSurfacesRead(200, LIVE_BRIDGE_SURFACES, rt);
+    expect(ok.passed).toBe(true);
+    expect(ok.detail).toMatch(/cross-surface identity vs selfVerify\.bridgeRuntime verified/);
+    const drift = checkBridgeSurfacesRead(200, LIVE_BRIDGE_SURFACES, { ...rt, checksum: "b".repeat(64) });
+    expect(drift.passed).toBe(false);
+    expect(drift.detail).toMatch(/cross-surface drift: titanBridge\.checksum/);
   });
 });
 

@@ -735,8 +735,25 @@ export function checkBridgeFailClosed(
 // server uses (bridge-surfaces-checksum.ts). A hand-forged/stale aggregate,
 // a missing bridge, an inconsistent ready/guarded split, or a malformed
 // per-bridge checksum all fail HONESTLY with a named detail.
+//
+// STE-P-290 DEEPENING (same contract, total stays 10): CROSS-SURFACE
+// IDENTITY. selfVerify.bridgeRuntime and bridgeSurfaces.surfaces.titanBridge
+// both derive from the SAME measured runtime evidence
+// (bridge-runtime-proof.ts getRuntimeBridgeDeltaEvidence), so on one live
+// deploy their checksum / compatibility / providerCounts / memoryMode MUST
+// agree. Two public surfaces disagreeing about the same bridge is a measured
+// lie — the runner feeds the bridgeRuntime it already fetched (no extra
+// request) and any drift fails with a named cross-surface detail. Tolerant
+// when the caller has no selfVerify data (standalone evaluator use).
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 const EXPECTED_BRIDGES = ["corpusQuery", "intentEngine", "titanBridge"] as const;
+
+export interface BridgeRuntimeCrossSurface {
+  compatibility?: string;
+  checksum?: string;
+  memoryMode?: string;
+  providerCounts?: { validated?: number; configuredUnprobed?: number; missingKey?: number };
+}
 
 export function checkBridgeSurfacesRead(
   status: number,
@@ -748,9 +765,17 @@ export function checkBridgeSurfacesRead(
     checksum?: string;
     surfaces?: Record<
       string,
-      { bridge?: string; compatibility?: string; checksum?: string } | undefined
+      | {
+          bridge?: string;
+          compatibility?: string;
+          checksum?: string;
+          memoryMode?: string;
+          providerCounts?: { validated?: number; configuredUnprobed?: number; missingKey?: number };
+        }
+      | undefined
     >;
   },
+  selfVerifyBridgeRuntime?: BridgeRuntimeCrossSurface,
 ): ContractResult {
   const name = "bridge_surfaces_read";
   if (status !== 200) return { name, passed: false, detail: `expected 200, got ${status}` };
@@ -788,10 +813,51 @@ export function checkBridgeSurfacesRead(
       passed: false,
       detail: `aggregate checksum forged/stale: served ${data.checksum.slice(0, 12)}, recomputed ${recomputed.slice(0, 12)}`,
     };
+  // STE-P-290: cross-surface identity — the titan part must be the SAME
+  // measured evidence selfVerify.bridgeRuntime reports on this deploy.
+  let crossDetail = "";
+  if (selfVerifyBridgeRuntime) {
+    const titan = surfaces.titanBridge as {
+      compatibility?: string;
+      checksum?: string;
+      memoryMode?: string;
+      providerCounts?: { validated?: number; configuredUnprobed?: number; missingKey?: number };
+    };
+    const rt = selfVerifyBridgeRuntime;
+    if (rt.compatibility !== undefined && titan.compatibility !== rt.compatibility)
+      return {
+        name,
+        passed: false,
+        detail: `cross-surface drift: titanBridge.compatibility=${String(titan.compatibility)} but selfVerify.bridgeRuntime.compatibility=${String(rt.compatibility)}`,
+      };
+    if (rt.memoryMode !== undefined && titan.memoryMode !== undefined && titan.memoryMode !== rt.memoryMode)
+      return {
+        name,
+        passed: false,
+        detail: `cross-surface drift: titanBridge.memoryMode=${String(titan.memoryMode)} but selfVerify.bridgeRuntime.memoryMode=${String(rt.memoryMode)}`,
+      };
+    if (rt.providerCounts && titan.providerCounts) {
+      for (const k of ["validated", "configuredUnprobed", "missingKey"] as const) {
+        if (Number(titan.providerCounts[k]) !== Number(rt.providerCounts[k]))
+          return {
+            name,
+            passed: false,
+            detail: `cross-surface drift: titanBridge.providerCounts.${k}=${String(titan.providerCounts[k])} but selfVerify.bridgeRuntime.providerCounts.${k}=${String(rt.providerCounts[k])}`,
+          };
+      }
+    }
+    if (rt.checksum !== undefined && titan.checksum !== rt.checksum)
+      return {
+        name,
+        passed: false,
+        detail: `cross-surface drift: titanBridge.checksum=${String(titan.checksum).slice(0, 12)} but selfVerify.bridgeRuntime.checksum=${String(rt.checksum).slice(0, 12)} — same evidence source must agree`,
+      };
+    crossDetail = "; cross-surface identity vs selfVerify.bridgeRuntime verified (checksum match)";
+  }
   return {
     name,
     passed: true,
-    detail: `3 bridges aggregated (ready=${measuredReady}, guarded=${measuredGuarded}); aggregate checksum RECOMPUTED from served parts and verified (${recomputed.slice(0, 12)})`,
+    detail: `3 bridges aggregated (ready=${measuredReady}, guarded=${measuredGuarded}); aggregate checksum RECOMPUTED from served parts and verified (${recomputed.slice(0, 12)})${crossDetail}`,
   };
 }
 
@@ -1248,6 +1314,9 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
         };
       }
     | undefined = undefined;
+  // STE-P-290: bridgeRuntime captured from selfVerify (contract 2) and fed
+  // to the bridge_surfaces_read cross-surface identity check — no extra fetch.
+  let bridgeRuntimeFromSelfVerify: BridgeRuntimeCrossSurface | undefined = undefined;
 
   function mergeParity(contract: ContractResult, mismatch: string | null): ContractResult {
     if (!mismatch || !contract.passed) return contract;
@@ -1310,6 +1379,7 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
           oldestRetainedIsGenesis?: boolean;
         };
       };
+      bridgeRuntime?: BridgeRuntimeCrossSurface;
     };
     const schedulerRows = Array.isArray(schedulerStatusUnwrapped.data)
       ? (schedulerStatusUnwrapped.data as Array<{
@@ -1355,6 +1425,7 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
     contracts.push(contract);
     truthLedgerTotalCountFromSummary = selfVerifyData?.truthLedgerSummary?.count;
     truthLedgerSummaryFromSelfVerify = selfVerifyData?.truthLedgerSummary;
+    bridgeRuntimeFromSelfVerify = selfVerifyData?.bridgeRuntime;
     const leak = assertNoKeyLeak(raw);
     if (leak) leaks.push(`selfVerify:${leak}`);
   }
@@ -1476,11 +1547,13 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
   // the /truth page (STE-P-287 surface + P288 UI). NEW 10th contract
   // (STE-P-289): the aggregate checksum is RECOMPUTED from the served
   // per-bridge parts via the shared canonical helper — never trusted.
+  // STE-P-290 deepening: the titanBridge part is checked for CROSS-SURFACE
+  // IDENTITY against selfVerify.bridgeRuntime captured in contract 2.
   {
     const { status, body, raw } = await getJson(fetchImpl, trpcGetUrl(base, "onx.bridgeSurfaces"));
     const u = unwrapTrpc(body);
     const bridgeData = (u.data ?? {}) as Parameters<typeof checkBridgeSurfacesRead>[1];
-    let contract = checkBridgeSurfacesRead(status, bridgeData);
+    let contract = checkBridgeSurfacesRead(status, bridgeData, bridgeRuntimeFromSelfVerify);
     if (parityBase) {
       let mismatch: string | null = null;
       try {
