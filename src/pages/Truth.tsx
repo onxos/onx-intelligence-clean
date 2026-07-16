@@ -22,6 +22,7 @@ import {
   type ProvidersStatusData,
   type CommitData,
   type TruthHistoryData,
+  type BridgeSurfacesData,
 } from "../../api/lib/truth-page-model";
 
 function toOutcome<T>(q: { isError: boolean; error: unknown; data: T | undefined }): SourceOutcome<T> {
@@ -110,6 +111,7 @@ export default function Truth() {
   const corpusQ = trpc.corpusQuery.manifest.useQuery();
   const providersQ = trpc.providers.status.useQuery();
   const truthHistoryQ = trpc.onx.truthHistory.useQuery({ limit: 10 });
+  const bridgeSurfacesQ = trpc.onx.bridgeSurfaces.useQuery();
   const commitQ = useQuery<CommitData>({
     queryKey: ["truth-commit"],
     queryFn: async () => {
@@ -125,6 +127,7 @@ export default function Truth() {
     providers: toOutcome<ProvidersStatusData>(providersQ as never),
     commit: toOutcome<CommitData>(commitQ as never),
     truthHistory: toOutcome<TruthHistoryData>(truthHistoryQ as never),
+    bridgeSurfaces: toOutcome<BridgeSurfacesData>(bridgeSurfacesQ as never),
   });
 
   const { claims, corpus, ledger, ledgerRows, retention, rateLimit, bridges, freshness } = model;
@@ -346,19 +349,29 @@ export default function Truth() {
           {bridges.items.length === 0 ? (
             <p className="text-sm text-gray-500">لا جسور معلنة. · No bridges declared.</p>
           ) : (
-            bridges.items.map((b) => (
-              <Row
-                key={b.id}
-                label={b.id}
-                en={b.enabled ? "enabled" : "locked"}
-                value={
-                  <Badge className={b.failClosed ? "bg-emerald-600" : "bg-gray-400"}>
-                    {b.failClosed ? "مقفل بأمان · FAIL-CLOSED" : "مفتوح · OPEN"}
-                    {b.hasSharedSecret ? " · keyed" : ""}
-                  </Badge>
-                }
-              />
-            ))
+            <>
+              <Row label="إجمالي الجسور" en="total" value={bridges.total ?? dash} />
+              <Row label="جاهزة" en="ready" value={bridges.ready ?? dash} />
+              <Row label="محروسة" en="guarded" value={bridges.guarded ?? dash} />
+              <Row label="البصمة الموحّدة" en="aggregate checksum" value={bridges.checksumShort ?? dash} />
+              {bridges.items.map((b) => (
+                <Row
+                  key={b.id}
+                  label={b.id}
+                  en={b.compatibility === "BRIDGE_READY" ? "ready" : "guarded"}
+                  value={
+                    <span className="inline-flex flex-col items-end gap-1">
+                      <Badge className={b.compatibility === "BRIDGE_READY" ? "bg-emerald-600" : "bg-amber-500"}>
+                        {b.compatibility ?? dash}
+                      </Badge>
+                      <span className="font-mono text-xs text-gray-500" dir="ltr">
+                        {b.checksumShort ?? dash}
+                      </span>
+                    </span>
+                  }
+                />
+              ))}
+            </>
           )}
         </Section>
 

@@ -69,12 +69,38 @@ export type TruthHistoryData = {
   }>;
 };
 
+export type BridgeSurfacesData = {
+  access?: "PUBLIC_READ";
+  total?: number;
+  ready?: number;
+  guarded?: number;
+  checksum?: string;
+  surfaces?: {
+    corpusQuery?: {
+      bridge?: string;
+      compatibility?: string;
+      checksum?: string;
+    };
+    intentEngine?: {
+      bridge?: string;
+      compatibility?: string;
+      checksum?: string;
+    };
+    titanBridge?: {
+      bridge?: string;
+      compatibility?: string;
+      checksum?: string;
+    };
+  };
+};
+
 export interface TruthPageSources {
   selfVerify: SourceOutcome<SelfVerifyData>;
   corpus: SourceOutcome<CorpusManifestData>;
   providers: SourceOutcome<ProvidersStatusData>;
   commit: SourceOutcome<CommitData>;
   truthHistory: SourceOutcome<TruthHistoryData>;
+  bridgeSurfaces: SourceOutcome<BridgeSurfacesData>;
 }
 
 export interface ClaimsSection {
@@ -129,7 +155,11 @@ export interface RetentionSection {
 export interface BridgesSection {
   state: SectionState;
   error: string | null;
-  items: Array<{ id: string; failClosed: boolean; enabled: boolean; hasSharedSecret: boolean }>;
+  total: number | null;
+  ready: number | null;
+  guarded: number | null;
+  checksumShort: string | null;
+  items: Array<{ id: string; compatibility: string | null; checksumShort: string | null }>;
 }
 
 // STE-K-27: deploy-freshness disclosure for the human reader — the
@@ -314,19 +344,35 @@ function buildRetention(src: SourceOutcome<SelfVerifyData>): RetentionSection {
   };
 }
 
-function buildBridges(src: SourceOutcome<SelfVerifyData>): BridgesSection {
+function buildBridges(src: SourceOutcome<BridgeSurfacesData>): BridgesSection {
   if (!src.ok) {
-    return { state: "FETCH_FAILED", error: src.error, items: [] };
+    return {
+      state: "FETCH_FAILED",
+      error: src.error,
+      total: null,
+      ready: null,
+      guarded: null,
+      checksumShort: null,
+      items: [],
+    };
   }
-  const bridges = Array.isArray(src.data.bridges) ? src.data.bridges : [];
+  const surfaces = src.data.surfaces ?? {};
+  const bridges = [surfaces.corpusQuery, surfaces.intentEngine, surfaces.titanBridge].filter(Boolean) as Array<{
+    bridge?: string;
+    compatibility?: string;
+    checksum?: string;
+  }>;
   return {
     state: bridges.length > 0 ? "OK" : "EMPTY",
     error: null,
+    total: typeof src.data.total === "number" ? src.data.total : bridges.length,
+    ready: typeof src.data.ready === "number" ? src.data.ready : null,
+    guarded: typeof src.data.guarded === "number" ? src.data.guarded : null,
+    checksumShort: shortHash(src.data.checksum),
     items: bridges.map((b) => ({
-      id: b.id,
-      failClosed: b.failClosed === true,
-      enabled: b.enabled,
-      hasSharedSecret: b.hasSharedSecret,
+      id: b.bridge ?? "unknown",
+      compatibility: typeof b.compatibility === "string" ? b.compatibility : null,
+      checksumShort: shortHash(b.checksum),
     })),
   };
 }
@@ -408,7 +454,7 @@ export function buildTruthPageModel(
     ledgerRows: buildLedgerRows(sources.truthHistory),
     retention: buildRetention(sources.selfVerify),
     rateLimit: buildRateLimit(sources.providers),
-    bridges: buildBridges(sources.selfVerify),
+    bridges: buildBridges(sources.bridgeSurfaces),
     freshness: buildFreshness(sources.commit),
   };
 }

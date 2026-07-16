@@ -15,6 +15,7 @@ import {
   type ProvidersStatusData,
   type CommitData,
   type TruthHistoryData,
+  type BridgeSurfacesData,
 } from "../lib/truth-page-model";
 
 const FROZEN = () => "2026-01-01T00:00:00.000Z";
@@ -114,6 +115,34 @@ function truthHistory(overrides: Partial<TruthHistoryData> = {}): TruthHistoryDa
   };
 }
 
+function bridgeSurfaces(overrides: Partial<BridgeSurfacesData> = {}): BridgeSurfacesData {
+  return {
+    access: "PUBLIC_READ",
+    total: 3,
+    ready: 0,
+    guarded: 3,
+    checksum: "9bb1a6e9d459584a90f65334bc62a3822fb66e66c5ecc6e4827014c66a4ded3c",
+    surfaces: {
+      corpusQuery: {
+        bridge: "corpusQuery",
+        compatibility: "BRIDGE_GUARDED",
+        checksum: "71edcb69746a0db6384debd548acb02ab9682d837fde3ce42a907dbc3cc846ea",
+      },
+      intentEngine: {
+        bridge: "intentEngine",
+        compatibility: "BRIDGE_GUARDED",
+        checksum: "746f09121c350c3fa7a3afd58a46500d1396b08454f466245d3a993c78ea400d",
+      },
+      titanBridge: {
+        bridge: "titanBridge",
+        compatibility: "BRIDGE_GUARDED",
+        checksum: "4ae7539e5b021cbe1ee5e755545105b86bfd325bdb36070e4e4cef519ec42e06",
+      },
+    },
+    ...overrides,
+  };
+}
+
 function allOk(): TruthPageSources {
   return {
     selfVerify: { ok: true, data: selfVerify() },
@@ -121,6 +150,7 @@ function allOk(): TruthPageSources {
     providers: { ok: true, data: providers() },
     commit: { ok: true, data: commit() },
     truthHistory: { ok: true, data: truthHistory() },
+    bridgeSurfaces: { ok: true, data: bridgeSurfaces() },
   };
 }
 
@@ -135,7 +165,11 @@ describe("STE-K-17 truth page view-model", () => {
     expect(m.claims.fingerprintShort).toBe("abcdef012345"); // 12 chars
     expect(m.bridges.state).toBe("OK");
     expect(m.bridges.items).toHaveLength(3);
-    expect(m.bridges.items.every((b) => b.failClosed)).toBe(true);
+    expect(m.bridges.total).toBe(3);
+    expect(m.bridges.ready).toBe(0);
+    expect(m.bridges.guarded).toBe(3);
+    expect(m.bridges.checksumShort).toBe("9bb1a6e9d459");
+    expect(m.bridges.items.every((b) => b.compatibility === "BRIDGE_GUARDED")).toBe(true);
     expect(m.ledger.state).toBe("OK");
     expect(m.ledger.count).toBe(3);
     expect(m.ledger.latestFingerprintShort).toBe("bb642469aaaa");
@@ -214,6 +248,15 @@ describe("STE-K-17 truth page view-model", () => {
     expect(m.bridges.state).toBe("OK");
   });
 
+  it("marks bridge proof fetch failure distinctly", () => {
+    const src = allOk();
+    src.bridgeSurfaces = { ok: false, error: "network: 503" };
+    const m = buildTruthPageModel(src, FROZEN);
+    expect(m.bridges.state).toBe("FETCH_FAILED");
+    expect(m.bridges.error).toBe("network: 503");
+    expect(m.bridges.items).toEqual([]);
+  });
+
   it("marks a FETCH FAILURE as a distinct fail-honest state, never a fake zero", () => {
     const src: TruthPageSources = {
       selfVerify: { ok: false, error: "network: 503" },
@@ -221,6 +264,7 @@ describe("STE-K-17 truth page view-model", () => {
       providers: { ok: false, error: "parse error" },
       commit: { ok: false, error: "commit surface 502" },
       truthHistory: { ok: false, error: "truthHistory 503" },
+      bridgeSurfaces: { ok: false, error: "bridgeSurfaces 503" },
     };
     const m = buildTruthPageModel(src, FROZEN);
     expect(m.claims.state).toBe("FETCH_FAILED");
