@@ -14,6 +14,7 @@ import {
   checkAskRefusal,
   checkAskCited,
   checkBridgeFailClosed,
+  checkBridgeSurfacesRead,
   checkCorpusManifestTruth,
   checkTruthLedgerRead,
   commitMatches,
@@ -30,6 +31,7 @@ import {
   type SmokeResponse,
   type CorpusManifestContract,
 } from "../lib/smoke-contracts";
+import { computeBridgeSurfacesChecksum } from "../lib/bridge-surfaces-checksum";
 
 // ---- helpers to build a live-shaped tRPC fetch double ----
 
@@ -271,10 +273,33 @@ const LIVE_SELFVERIFY = {
 };
 
 // A full honest-live fetch double routing by URL.
+// STE-P-289: live-shaped onx.bridgeSurfaces aggregate. The aggregate
+// checksum is COMPUTED with the same shared canonical helper the server
+// uses — the fixture is honest by construction, and the forged-checksum
+// tests mutate it explicitly.
+const BRIDGE_SURFACE_PARTS = [
+  { bridge: "corpusQuery", compatibility: "BRIDGE_READY", checksum: "1".repeat(64) },
+  { bridge: "intentEngine", compatibility: "BRIDGE_GUARDED", checksum: "2".repeat(64) },
+  { bridge: "titanBridge", compatibility: "BRIDGE_GUARDED", checksum: "3".repeat(64) },
+];
+const LIVE_BRIDGE_SURFACES = {
+  access: "PUBLIC_READ",
+  total: 3,
+  ready: 1,
+  guarded: 2,
+  checksum: computeBridgeSurfacesChecksum(BRIDGE_SURFACE_PARTS, 1, 2),
+  surfaces: {
+    corpusQuery: { ...BRIDGE_SURFACE_PARTS[0], access: "PUBLIC_READ" },
+    intentEngine: { ...BRIDGE_SURFACE_PARTS[1], access: "PUBLIC_READ" },
+    titanBridge: { ...BRIDGE_SURFACE_PARTS[2], access: "PUBLIC_READ" },
+  },
+};
+
 function liveFetch(overrides: Partial<Record<string, SmokeResponse>> = {}): FetchLike {
   return async (url, init) => {
     if (url.endsWith("/health")) return overrides.health ?? resp(200, LIVE_HEALTH);
     if (url.includes("onx.selfVerify")) return overrides.selfVerify ?? trpcOk(LIVE_SELFVERIFY);
+    if (url.includes("onx.bridgeSurfaces")) return overrides.bridgeSurfaces ?? trpcOk(LIVE_BRIDGE_SURFACES);
     if (url.includes("scheduler.status")) return overrides.schedulerStatus ?? trpcOk(LIVE_SCHEDULER_STATUS);
     if (url.includes("providers.status")) return overrides.providers ?? trpcOk(LIVE_PROVIDERS);
     if (url.includes("corpusQuery.manifest")) return overrides.manifest ?? trpcOk(LIVE_MANIFEST);
@@ -520,9 +545,10 @@ describe("runSmoke orchestration (mocked fetch)", () => {
     });
     expect(report.passed).toBe(true);
     expect(report.failedCount).toBe(0);
-    expect(report.total).toBe(9); // 8 contracts + no_key_leak guard (also scans /truth page)
+    expect(report.total).toBe(10); // 9 contracts + no_key_leak guard (also scans /truth page)
     expect(report.contracts.map((c) => c.name)).toContain("corpus_manifest_truth");
     expect(report.contracts.map((c) => c.name)).toContain("truth_ledger_read");
+    expect(report.contracts.map((c) => c.name)).toContain("bridge_surfaces_read");
     expect(report.contracts.map((c) => c.name)).toContain("no_key_leak");
   });
 
@@ -603,7 +629,7 @@ describe("runSmoke orchestration (mocked fetch)", () => {
     const guard = report.contracts.find((c) => c.name === "no_key_leak");
     expect(guard?.passed).toBe(true);
     expect(guard?.detail).toMatch(/render-proven/);
-    expect(report.total).toBe(9); // still 9 — deepened, not a new contract
+    expect(report.total).toBe(10); // still 10 — deepened, not a new contract
   });
 
   it("no_key_leak render proof (STE-K-25) FAILS on a hollow 200 shell (no root, no bundle)", async () => {
@@ -715,6 +741,83 @@ describe("runSmoke orchestration (mocked fetch)", () => {
 
   it("probes distinct in/out-of-corpus questions", () => {
     expect(OUT_OF_CORPUS_QUESTION).not.toEqual(IN_CORPUS_QUESTION);
+  });
+
+  // ---- STE-P-289: bridge_surfaces_read (10th contract) ----
+  it("bridge_surfaces_read passes on an honest aggregate and RECOMPUTES the checksum", async () => {
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch(),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    const c = report.contracts.find((x) => x.name === "bridge_surfaces_read");
+    expect(c?.passed).toBe(true);
+    expect(c?.detail).toMatch(/RECOMPUTED from served parts/);
+    expect(c?.detail).toMatch(/ready=1, guarded=2/);
+  });
+
+  it("bridge_surfaces_read fails when the served aggregate checksum is forged", async () => {
+    const forged = { ...LIVE_BRIDGE_SURFACES, checksum: "f".repeat(64) };
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({ bridgeSurfaces: trpcOk(forged) }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    const c = report.contracts.find((x) => x.name === "bridge_surfaces_read");
+    expect(c?.passed).toBe(false);
+    expect(c?.detail).toMatch(/forged\/stale/);
+  });
+
+  it("bridge_surfaces_read fails when a bridge surface is missing", async () => {
+    const partial = {
+      ...LIVE_BRIDGE_SURFACES,
+      surfaces: { corpusQuery: LIVE_BRIDGE_SURFACES.surfaces.corpusQuery },
+    };
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({ bridgeSurfaces: trpcOk(partial) }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    const c = report.contracts.find((x) => x.name === "bridge_surfaces_read");
+    expect(c?.passed).toBe(false);
+    expect(c?.detail).toMatch(/missing bridge surface: intentEngine/);
+  });
+
+  it("bridge_surfaces_read fails when the ready/guarded split lies about the parts", async () => {
+    const lying = { ...LIVE_BRIDGE_SURFACES, ready: 3, guarded: 0 };
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({ bridgeSurfaces: trpcOk(lying) }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    const c = report.contracts.find((x) => x.name === "bridge_surfaces_read");
+    expect(c?.passed).toBe(false);
+    expect(c?.detail).toMatch(/split lies/);
+  });
+});
+
+describe("checkBridgeSurfacesRead (STE-P-289)", () => {
+  it("rejects non-200, wrong access, malformed per-bridge checksums and wrong totals", () => {
+    expect(checkBridgeSurfacesRead(503, LIVE_BRIDGE_SURFACES).passed).toBe(false);
+    expect(checkBridgeSurfacesRead(200, { ...LIVE_BRIDGE_SURFACES, access: "PRIVATE" }).passed).toBe(false);
+    expect(checkBridgeSurfacesRead(200, { ...LIVE_BRIDGE_SURFACES, total: 2 }).passed).toBe(false);
+    const badPart = {
+      ...LIVE_BRIDGE_SURFACES,
+      surfaces: {
+        ...LIVE_BRIDGE_SURFACES.surfaces,
+        corpusQuery: { ...LIVE_BRIDGE_SURFACES.surfaces.corpusQuery, checksum: "nothex" },
+      },
+    };
+    const r = checkBridgeSurfacesRead(200, badPart);
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/not sha256 hex/);
+  });
+
+  it("is deterministic: same served parts always recompute the same aggregate", () => {
+    const a = checkBridgeSurfacesRead(200, LIVE_BRIDGE_SURFACES);
+    const b = checkBridgeSurfacesRead(200, JSON.parse(JSON.stringify(LIVE_BRIDGE_SURFACES)));
+    expect(a).toEqual(b);
+    expect(a.passed).toBe(true);
   });
 });
 
@@ -1106,9 +1209,9 @@ describe("gateway single-origin (STE-K-20)", () => {
       expectedSha: "810700e",
       committedManifest: COMMITTED_MANIFEST,
     });
-    // Same 9 contracts, all green through the gateway origin.
+    // Same 10 contracts, all green through the gateway origin.
     expect(report.passed).toBe(true);
-    expect(report.total).toBe(9);
+    expect(report.total).toBe(10);
     expect(report.baseUrl).toBe(base);
     // The four doctrine surface shapes were all reached via the mount:
     expect(seen.some((u) => u === `${base}/health`)).toBe(true);
@@ -1169,7 +1272,7 @@ describe("gateway single-origin (STE-K-20)", () => {
       committedManifest: COMMITTED_MANIFEST,
       parityBaseUrl: directBase,
     });
-    expect(report.total).toBe(9);
+    expect(report.total).toBe(10);
     expect(report.passed).toBe(false);
     expect(report.contracts.find((c) => c.name === "health_live")?.detail).toMatch(/parity mismatch/);
     expect(report.contracts.find((c) => c.name === "honest_status_selfverify")?.detail).toMatch(/parity mismatch/);

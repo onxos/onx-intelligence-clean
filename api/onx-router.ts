@@ -6,7 +6,6 @@
 // truth.snapshot: behind the fail-closed bridge guard.
 // ============================================================
 import { z } from "zod";
-import { createHash } from "node:crypto";
 import { createRouter, publicQuery } from "./middleware";
 import { enforceRateLimit } from "./lib/rate-limiter";
 import { buildSelfVerification } from "./lib/self-verify";
@@ -14,6 +13,7 @@ import { assertBridgeAccess } from "./bridge-guard";
 import { getTruthHistory, recordTruthSnapshot, summarizeTruthLedger } from "./lib/truth-ledger";
 import { getCorpusBridgeSurfaceProof, getIntentBridgeSurfaceProof } from "./lib/bridge-surface-proof";
 import { getTitanBridgeStatusProof } from "./lib/bridge-runtime-proof";
+import { computeBridgeSurfacesChecksum } from "./lib/bridge-surfaces-checksum";
 
 export const onxRouter = createRouter({
   // STE-K-15: the honest self-audit now also surfaces a MEASURED
@@ -34,17 +34,10 @@ export const onxRouter = createRouter({
     const surfaces = [corpusQuery, intentEngine, titanBridge];
     const ready = surfaces.filter((s) => s.compatibility === "BRIDGE_READY").length;
     const guarded = surfaces.length - ready;
-    const checksum = createHash("sha256")
-      .update(JSON.stringify({
-        bridges: surfaces.map((surface) => ({
-          bridge: surface.bridge,
-          compatibility: surface.compatibility,
-          checksum: surface.checksum,
-        })),
-        ready,
-        guarded,
-      }))
-      .digest("hex");
+    // STE-P-289: the aggregate checksum is computed by the SHARED canonical
+    // helper — the same function the live smoke contract uses to RECOMPUTE
+    // it from the served parts, so a forged aggregate can never pass.
+    const checksum = computeBridgeSurfacesChecksum(surfaces, ready, guarded);
     return {
       access: "PUBLIC_READ" as const,
       total: surfaces.length,

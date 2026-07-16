@@ -16,6 +16,7 @@
 // ============================================================
 
 import { TRUTH_SNAPSHOT_INTERVAL_MS } from "./truth-snapshot-cron";
+import { computeBridgeSurfacesChecksum } from "./bridge-surfaces-checksum";
 
 // Minimal response shape we depend on (Node/undici fetch compatible).
 export interface SmokeResponse {
@@ -727,6 +728,73 @@ export function checkBridgeFailClosed(
   };
 }
 
+// STE-P-289: onx.bridgeSurfaces — the aggregated public bridge proof that
+// the /truth page renders (P287 surface + P288 UI). This is the 10th live
+// contract. It does NOT trust the served aggregate checksum: it RECOMPUTES
+// it from the served per-bridge parts with the SAME canonical helper the
+// server uses (bridge-surfaces-checksum.ts). A hand-forged/stale aggregate,
+// a missing bridge, an inconsistent ready/guarded split, or a malformed
+// per-bridge checksum all fail HONESTLY with a named detail.
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+const EXPECTED_BRIDGES = ["corpusQuery", "intentEngine", "titanBridge"] as const;
+
+export function checkBridgeSurfacesRead(
+  status: number,
+  data: {
+    access?: string;
+    total?: number;
+    ready?: number;
+    guarded?: number;
+    checksum?: string;
+    surfaces?: Record<
+      string,
+      { bridge?: string; compatibility?: string; checksum?: string } | undefined
+    >;
+  },
+): ContractResult {
+  const name = "bridge_surfaces_read";
+  if (status !== 200) return { name, passed: false, detail: `expected 200, got ${status}` };
+  if (data?.access !== "PUBLIC_READ")
+    return { name, passed: false, detail: `access must be PUBLIC_READ, got ${String(data?.access)}` };
+  const surfaces = data?.surfaces ?? {};
+  const parts: Array<{ bridge: string; compatibility: string; checksum: string }> = [];
+  for (const key of EXPECTED_BRIDGES) {
+    const s = surfaces[key];
+    if (!s) return { name, passed: false, detail: `missing bridge surface: ${key}` };
+    if (s.bridge !== key)
+      return { name, passed: false, detail: `surface ${key} carries wrong bridge id: ${String(s.bridge)}` };
+    if (s.compatibility !== "BRIDGE_READY" && s.compatibility !== "BRIDGE_GUARDED")
+      return { name, passed: false, detail: `surface ${key} has unknown compatibility: ${String(s.compatibility)}` };
+    if (typeof s.checksum !== "string" || !SHA256_HEX.test(s.checksum))
+      return { name, passed: false, detail: `surface ${key} checksum is not sha256 hex` };
+    parts.push({ bridge: key, compatibility: s.compatibility, checksum: s.checksum });
+  }
+  if (data?.total !== EXPECTED_BRIDGES.length)
+    return { name, passed: false, detail: `total must be ${EXPECTED_BRIDGES.length}, got ${String(data?.total)}` };
+  const measuredReady = parts.filter((p) => p.compatibility === "BRIDGE_READY").length;
+  const measuredGuarded = parts.length - measuredReady;
+  if (data?.ready !== measuredReady || data?.guarded !== measuredGuarded)
+    return {
+      name,
+      passed: false,
+      detail: `ready/guarded split lies: served ${String(data?.ready)}/${String(data?.guarded)}, measured ${measuredReady}/${measuredGuarded}`,
+    };
+  if (typeof data?.checksum !== "string" || !SHA256_HEX.test(data.checksum))
+    return { name, passed: false, detail: "aggregate checksum is not sha256 hex" };
+  const recomputed = computeBridgeSurfacesChecksum(parts, measuredReady, measuredGuarded);
+  if (recomputed !== data.checksum)
+    return {
+      name,
+      passed: false,
+      detail: `aggregate checksum forged/stale: served ${data.checksum.slice(0, 12)}, recomputed ${recomputed.slice(0, 12)}`,
+    };
+  return {
+    name,
+    passed: true,
+    detail: `3 bridges aggregated (ready=${measuredReady}, guarded=${measuredGuarded}); aggregate checksum RECOMPUTED from served parts and verified (${recomputed.slice(0, 12)})`,
+  };
+}
+
 // STE-K-13: truth-ledger read surface (onx.truthHistory, public read).
 // Proves the chronological OSVA snapshot store is reachable and shaped
 // honestly. An EMPTY ledger remains a VALID, HONEST state (fresh boot
@@ -1404,7 +1472,38 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
     if (leak) leaks.push(`onx.truthHistory:${leak}`);
   }
 
-  // 9) /truth — the public human-readable truth page (STE-K-17). It is
+  // 9) onx.bridgeSurfaces — the aggregated public bridge proof consumed by
+  // the /truth page (STE-P-287 surface + P288 UI). NEW 10th contract
+  // (STE-P-289): the aggregate checksum is RECOMPUTED from the served
+  // per-bridge parts via the shared canonical helper — never trusted.
+  {
+    const { status, body, raw } = await getJson(fetchImpl, trpcGetUrl(base, "onx.bridgeSurfaces"));
+    const u = unwrapTrpc(body);
+    const bridgeData = (u.data ?? {}) as Parameters<typeof checkBridgeSurfacesRead>[1];
+    let contract = checkBridgeSurfacesRead(status, bridgeData);
+    if (parityBase) {
+      let mismatch: string | null = null;
+      try {
+        const { status: parityStatus, body: parityBody } = await getJson(
+          fetchImpl,
+          trpcGetUrl(parityBase, "onx.bridgeSurfaces"),
+        );
+        const parityUnwrapped = unwrapTrpc(parityBody);
+        const peer = (parityUnwrapped.data ?? {}) as { checksum?: string };
+        if (parityStatus !== 200) mismatch = `direct onx.bridgeSurfaces returned ${parityStatus}`;
+        else if (String(bridgeData?.checksum) !== String(peer?.checksum))
+          mismatch = `aggregate checksum gateway=${String(bridgeData?.checksum).slice(0, 12)} direct=${String(peer?.checksum).slice(0, 12)}`;
+      } catch (error) {
+        mismatch = `direct onx.bridgeSurfaces fetch failed (${error instanceof Error ? error.message : String(error)})`;
+      }
+      contract = mergeParity(contract, mismatch);
+    }
+    contracts.push(contract);
+    const leak = assertNoKeyLeak(raw);
+    if (leak) leaks.push(`onx.bridgeSurfaces:${leak}`);
+  }
+
+  // 10) /truth — the public human-readable truth page (STE-K-17). It is
   // rendered ENTIRELY from the honest surfaces already checked above, so
   // its own bytes must also never echo a full provider key. A single GET
   // of the served HTML feeds the same leak guard (deep-link SPA route).
