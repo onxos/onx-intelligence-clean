@@ -17,6 +17,11 @@
 
 import { TRUTH_SNAPSHOT_INTERVAL_MS } from "./truth-snapshot-cron";
 import { computeBridgeSurfacesChecksum } from "./bridge-surfaces-checksum";
+import {
+  computeCorpusBridgeChecksum,
+  computeIntentBridgeChecksum,
+  computeTitanBridgeChecksum,
+} from "./bridge-part-checksums";
 
 // Minimal response shape we depend on (Node/undici fetch compatible).
 export interface SmokeResponse {
@@ -753,8 +758,113 @@ export function checkBridgeFailClosed(
 // (contract #7) serves. The runner feeds the manifest it already fetched
 // (zero extra requests); sha256 or docCount disagreement between the two
 // public surfaces fails with a named cross-surface detail.
+//
+// STE-P-292 DEEPENING (same contract, total stays 10): PER-BRIDGE CHECKSUM
+// RECOMPUTATION. Until now each per-bridge checksum was only format-checked
+// (sha256 hex) — a forged-but-well-formed value passed. Every served
+// per-bridge checksum is now RECOMPUTED from the served semantic fields
+// with the SAME canonical helpers the server uses
+// (bridge-part-checksums.ts), and each compatibility flag must agree with
+// the served enabled/hasSharedSecret pair (getCompatibility semantics).
+// A forged part checksum or a lying compatibility fails with a named detail.
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 const EXPECTED_BRIDGES = ["corpusQuery", "intentEngine", "titanBridge"] as const;
+
+interface ServedBridgeSurface {
+  bridge?: string;
+  compatibility?: string;
+  checksum?: string;
+  enabled?: boolean;
+  hasSharedSecret?: boolean;
+  memoryMode?: string;
+  providerCounts?: { validated?: number; configuredUnprobed?: number; missingKey?: number };
+  manifestSha256?: string;
+  corpusDocs?: number;
+  persistence?: string;
+  publicSearch?: { engine?: string; indexedDocs?: number; probeQuery?: string; totalMatches?: number };
+  classify?: {
+    engine?: string;
+    mode?: string;
+    probeText?: string;
+    topIntent?: string;
+    topConfidence?: number;
+    tokenCount?: number;
+  };
+}
+
+// STE-P-292: recompute one served per-bridge checksum from its served
+// semantic fields. Returns null when required fields are absent (named
+// fail upstream) — never guesses.
+function recomputeBridgePartChecksum(key: string, s: ServedBridgeSurface): string | null {
+  if (typeof s.enabled !== "boolean" || typeof s.hasSharedSecret !== "boolean") return null;
+  if (key === "corpusQuery") {
+    if (
+      typeof s.persistence !== "string" ||
+      typeof s.manifestSha256 !== "string" ||
+      typeof s.corpusDocs !== "number" ||
+      !s.publicSearch ||
+      typeof s.publicSearch.engine !== "string" ||
+      typeof s.publicSearch.indexedDocs !== "number" ||
+      typeof s.publicSearch.probeQuery !== "string" ||
+      typeof s.publicSearch.totalMatches !== "number"
+    ) return null;
+    return computeCorpusBridgeChecksum({
+      enabled: s.enabled,
+      hasSharedSecret: s.hasSharedSecret,
+      compatibility: String(s.compatibility),
+      persistence: s.persistence,
+      manifestSha256: s.manifestSha256,
+      corpusDocs: s.corpusDocs,
+      publicSearch: {
+        engine: s.publicSearch.engine,
+        indexedDocs: s.publicSearch.indexedDocs,
+        probeQuery: s.publicSearch.probeQuery,
+        totalMatches: s.publicSearch.totalMatches,
+      },
+    });
+  }
+  if (key === "intentEngine") {
+    if (
+      !s.classify ||
+      typeof s.classify.engine !== "string" ||
+      typeof s.classify.mode !== "string" ||
+      typeof s.classify.probeText !== "string" ||
+      typeof s.classify.topIntent !== "string" ||
+      typeof s.classify.topConfidence !== "number" ||
+      typeof s.classify.tokenCount !== "number"
+    ) return null;
+    return computeIntentBridgeChecksum({
+      enabled: s.enabled,
+      hasSharedSecret: s.hasSharedSecret,
+      compatibility: String(s.compatibility),
+      classify: {
+        engine: s.classify.engine,
+        mode: s.classify.mode,
+        probeText: s.classify.probeText,
+        topIntent: s.classify.topIntent,
+        topConfidence: s.classify.topConfidence,
+        tokenCount: s.classify.tokenCount,
+      },
+    });
+  }
+  if (
+    !s.providerCounts ||
+    typeof s.providerCounts.validated !== "number" ||
+    typeof s.providerCounts.configuredUnprobed !== "number" ||
+    typeof s.providerCounts.missingKey !== "number" ||
+    typeof s.memoryMode !== "string"
+  ) return null;
+  return computeTitanBridgeChecksum({
+    enabled: s.enabled,
+    hasSharedSecret: s.hasSharedSecret,
+    providerCounts: {
+      validated: s.providerCounts.validated,
+      configuredUnprobed: s.providerCounts.configuredUnprobed,
+      missingKey: s.providerCounts.missingKey,
+    },
+    memoryMode: s.memoryMode,
+  });
+}
 
 export interface BridgeRuntimeCrossSurface {
   compatibility?: string;
@@ -776,19 +886,7 @@ export function checkBridgeSurfacesRead(
     ready?: number;
     guarded?: number;
     checksum?: string;
-    surfaces?: Record<
-      string,
-      | {
-          bridge?: string;
-          compatibility?: string;
-          checksum?: string;
-          memoryMode?: string;
-          providerCounts?: { validated?: number; configuredUnprobed?: number; missingKey?: number };
-          manifestSha256?: string;
-          corpusDocs?: number;
-        }
-      | undefined
-    >;
+    surfaces?: Record<string, ServedBridgeSurface | undefined>;
   },
   selfVerifyBridgeRuntime?: BridgeRuntimeCrossSurface,
   corpusManifestCross?: CorpusManifestCrossSurface,
@@ -808,6 +906,31 @@ export function checkBridgeSurfacesRead(
       return { name, passed: false, detail: `surface ${key} has unknown compatibility: ${String(s.compatibility)}` };
     if (typeof s.checksum !== "string" || !SHA256_HEX.test(s.checksum))
       return { name, passed: false, detail: `surface ${key} checksum is not sha256 hex` };
+    // STE-P-292: compatibility must be derived honestly from the served
+    // enabled/hasSharedSecret pair (getCompatibility semantics).
+    if (typeof s.enabled === "boolean" && typeof s.hasSharedSecret === "boolean") {
+      const derived = s.enabled && s.hasSharedSecret ? "BRIDGE_READY" : "BRIDGE_GUARDED";
+      if (s.compatibility !== derived)
+        return {
+          name,
+          passed: false,
+          detail: `surface ${key} compatibility lies: served ${s.compatibility}, but enabled=${s.enabled} hasSharedSecret=${s.hasSharedSecret} derives ${derived}`,
+        };
+    }
+    // STE-P-292: recompute the per-bridge checksum from served fields.
+    const recomputedPart = recomputeBridgePartChecksum(key, s);
+    if (recomputedPart === null)
+      return {
+        name,
+        passed: false,
+        detail: `surface ${key} is missing the semantic fields required to recompute its checksum`,
+      };
+    if (recomputedPart !== s.checksum)
+      return {
+        name,
+        passed: false,
+        detail: `per-bridge checksum forged/stale: ${key} served ${s.checksum.slice(0, 12)}, recomputed ${recomputedPart.slice(0, 12)}`,
+      };
     parts.push({ bridge: key, compatibility: s.compatibility, checksum: s.checksum });
   }
   if (data?.total !== EXPECTED_BRIDGES.length)
@@ -892,7 +1015,7 @@ export function checkBridgeSurfacesRead(
   return {
     name,
     passed: true,
-    detail: `3 bridges aggregated (ready=${measuredReady}, guarded=${measuredGuarded}); aggregate checksum RECOMPUTED from served parts and verified (${recomputed.slice(0, 12)})${crossDetail}`,
+    detail: `3 bridges aggregated (ready=${measuredReady}, guarded=${measuredGuarded}); per-bridge checksums RECOMPUTED from served fields (3/3); aggregate checksum RECOMPUTED from served parts and verified (${recomputed.slice(0, 12)})${crossDetail}`,
   };
 }
 

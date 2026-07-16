@@ -32,6 +32,11 @@ import {
   type CorpusManifestContract,
 } from "../lib/smoke-contracts";
 import { computeBridgeSurfacesChecksum } from "../lib/bridge-surfaces-checksum";
+import {
+  computeCorpusBridgeChecksum,
+  computeIntentBridgeChecksum,
+  computeTitanBridgeChecksum,
+} from "../lib/bridge-part-checksums";
 
 // ---- helpers to build a live-shaped tRPC fetch double ----
 
@@ -248,6 +253,43 @@ const LIVE_SCHEDULER_STATUS = [
     actions: 8,
   },
 ];
+// STE-P-292: full per-bridge surfaces with honest-by-construction
+// per-bridge checksums (same canonical helpers the server uses).
+// Declared BEFORE LIVE_SELFVERIFY because bridgeRuntime.checksum must
+// equal the titan fixture checksum (P290 cross-surface identity).
+const CORPUS_SURFACE_FIELDS = {
+  enabled: true,
+  hasSharedSecret: true,
+  compatibility: "BRIDGE_READY",
+  persistence: "POSTGRES",
+  manifestSha256: MANIFEST_SHA,
+  corpusDocs: 22500,
+  publicSearch: { engine: "lexical-v1", indexedDocs: 22500, probeQuery: "entropy principles", totalMatches: 4 },
+};
+const INTENT_SURFACE_FIELDS = {
+  enabled: false,
+  hasSharedSecret: false,
+  compatibility: "BRIDGE_GUARDED",
+  classify: {
+    engine: "intent-lexical-v1",
+    mode: "LEXICAL",
+    probeText: "كم سعر التطعيم؟",
+    topIntent: "PRICE",
+    topConfidence: 0.9,
+    tokenCount: 3,
+  },
+};
+const TITAN_SURFACE_FIELDS = {
+  enabled: false,
+  hasSharedSecret: false,
+  compatibility: "BRIDGE_GUARDED",
+  providerCounts: { validated: 0, configuredUnprobed: 1, missingKey: 0 },
+  memoryMode: "memory",
+};
+const CORPUS_FIXTURE_CHECKSUM = computeCorpusBridgeChecksum(CORPUS_SURFACE_FIELDS);
+const INTENT_FIXTURE_CHECKSUM = computeIntentBridgeChecksum(INTENT_SURFACE_FIELDS);
+const TITAN_FIXTURE_CHECKSUM = computeTitanBridgeChecksum(TITAN_SURFACE_FIELDS);
+
 const LIVE_SELFVERIFY = {
   items: [
     { area: "health", name: "Database", verdict: "IMPLEMENTED_PROVEN", measured: true },
@@ -267,7 +309,7 @@ const LIVE_SELFVERIFY = {
     // STE-P-290: cross-surface identity — MUST equal
     // LIVE_BRIDGE_SURFACES.surfaces.titanBridge.checksum (same evidence
     // source, bridge-runtime-proof.ts). Drift tests mutate it explicitly.
-    checksum: "3".repeat(64),
+    checksum: TITAN_FIXTURE_CHECKSUM,
   },
   claimsMeasured: 5,
   claimsAsserted: 0,
@@ -281,9 +323,9 @@ const LIVE_SELFVERIFY = {
 // uses — the fixture is honest by construction, and the forged-checksum
 // tests mutate it explicitly.
 const BRIDGE_SURFACE_PARTS = [
-  { bridge: "corpusQuery", compatibility: "BRIDGE_READY", checksum: "1".repeat(64) },
-  { bridge: "intentEngine", compatibility: "BRIDGE_GUARDED", checksum: "2".repeat(64) },
-  { bridge: "titanBridge", compatibility: "BRIDGE_GUARDED", checksum: "3".repeat(64) },
+  { bridge: "corpusQuery", compatibility: "BRIDGE_READY", checksum: CORPUS_FIXTURE_CHECKSUM },
+  { bridge: "intentEngine", compatibility: "BRIDGE_GUARDED", checksum: INTENT_FIXTURE_CHECKSUM },
+  { bridge: "titanBridge", compatibility: "BRIDGE_GUARDED", checksum: TITAN_FIXTURE_CHECKSUM },
 ];
 const LIVE_BRIDGE_SURFACES = {
   access: "PUBLIC_READ",
@@ -296,18 +338,20 @@ const LIVE_BRIDGE_SURFACES = {
     // live) — cross-surface identity holds by default; drift tests mutate.
     corpusQuery: {
       ...BRIDGE_SURFACE_PARTS[0],
+      ...CORPUS_SURFACE_FIELDS,
       access: "PUBLIC_READ",
-      manifestSha256: MANIFEST_SHA,
-      corpusDocs: 22500,
     },
-    intentEngine: { ...BRIDGE_SURFACE_PARTS[1], access: "PUBLIC_READ" },
+    intentEngine: {
+      ...BRIDGE_SURFACE_PARTS[1],
+      ...INTENT_SURFACE_FIELDS,
+      access: "PUBLIC_READ",
+    },
     // STE-P-290: titanBridge mirrors LIVE_SELFVERIFY.bridgeRuntime exactly
     // (same evidence source live) — cross-surface identity holds by default.
     titanBridge: {
       ...BRIDGE_SURFACE_PARTS[2],
+      ...TITAN_SURFACE_FIELDS,
       access: "PUBLIC_READ",
-      memoryMode: "memory",
-      providerCounts: { validated: 0, configuredUnprobed: 1, missingKey: 0 },
     },
   },
 };
@@ -771,6 +815,8 @@ describe("runSmoke orchestration (mocked fetch)", () => {
     expect(c?.passed).toBe(true);
     expect(c?.detail).toMatch(/RECOMPUTED from served parts/);
     expect(c?.detail).toMatch(/ready=1, guarded=2/);
+    // STE-P-292: all three per-bridge checksums recomputed from served fields
+    expect(c?.detail).toMatch(/per-bridge checksums RECOMPUTED from served fields \(3\/3\)/);
     // STE-P-290: the runner feeds selfVerify.bridgeRuntime — identity verified
     expect(c?.detail).toMatch(/cross-surface identity vs selfVerify\.bridgeRuntime verified/);
     // STE-P-291: the runner feeds corpusQuery.manifest — identity verified
@@ -834,9 +880,27 @@ describe("runSmoke orchestration (mocked fetch)", () => {
   });
 
   // ---- STE-P-291: corpusQuery cross-surface identity vs corpusQuery.manifest ----
-  it("bridge_surfaces_read fails when corpusQuery.manifestSha256 drifts from the served manifest", async () => {
+  // STE-P-292 note: the drifted surface must stay INTERNALLY honest (its
+  // per-bridge checksum recomputed over the drifted fields) so that ONLY
+  // the cross-surface identity check can catch the lie.
+  function internallyHonestCorpusDrift(mutate: (cq: Record<string, unknown>) => void) {
     const drifted = JSON.parse(JSON.stringify(LIVE_BRIDGE_SURFACES));
-    drifted.surfaces.corpusQuery.manifestSha256 = "d".repeat(64);
+    mutate(drifted.surfaces.corpusQuery);
+    drifted.surfaces.corpusQuery.checksum = computeCorpusBridgeChecksum(drifted.surfaces.corpusQuery);
+    drifted.checksum = computeBridgeSurfacesChecksum(
+      (["corpusQuery", "intentEngine", "titanBridge"] as const).map((k) => ({
+        bridge: k,
+        compatibility: drifted.surfaces[k].compatibility,
+        checksum: drifted.surfaces[k].checksum,
+      })),
+      drifted.ready,
+      drifted.guarded,
+    );
+    return drifted;
+  }
+
+  it("bridge_surfaces_read fails when corpusQuery.manifestSha256 drifts from the served manifest", async () => {
+    const drifted = internallyHonestCorpusDrift((cq) => { cq.manifestSha256 = "d".repeat(64); });
     const report = await runSmoke("https://x.dev", {
       fetchImpl: liveFetch({ bridgeSurfaces: trpcOk(drifted) }),
       expectedSha: null,
@@ -849,8 +913,7 @@ describe("runSmoke orchestration (mocked fetch)", () => {
   });
 
   it("bridge_surfaces_read fails when corpusQuery.corpusDocs disagrees with manifest.docCount", async () => {
-    const drifted = JSON.parse(JSON.stringify(LIVE_BRIDGE_SURFACES));
-    drifted.surfaces.corpusQuery.corpusDocs = 1;
+    const drifted = internallyHonestCorpusDrift((cq) => { cq.corpusDocs = 1; });
     const report = await runSmoke("https://x.dev", {
       fetchImpl: liveFetch({ bridgeSurfaces: trpcOk(drifted) }),
       expectedSha: null,
@@ -859,6 +922,61 @@ describe("runSmoke orchestration (mocked fetch)", () => {
     const c = report.contracts.find((x) => x.name === "bridge_surfaces_read");
     expect(c?.passed).toBe(false);
     expect(c?.detail).toMatch(/cross-surface drift: corpusQuery\.corpusDocs=1 but corpusQuery\.manifest\.docCount=22500/);
+  });
+
+  // ---- STE-P-292: per-bridge checksum recomputation + compatibility honesty ----
+  it("bridge_surfaces_read fails when a per-bridge checksum is forged but well-formed", async () => {
+    for (const key of ["corpusQuery", "intentEngine", "titanBridge"] as const) {
+      const drifted = JSON.parse(JSON.stringify(LIVE_BRIDGE_SURFACES));
+      drifted.surfaces[key].checksum = "c".repeat(64);
+      // keep the aggregate honest over the forged part so ONLY the
+      // per-bridge recomputation can catch the forgery
+      drifted.checksum = computeBridgeSurfacesChecksum(
+        (["corpusQuery", "intentEngine", "titanBridge"] as const).map((k) => ({
+          bridge: k,
+          compatibility: drifted.surfaces[k].compatibility,
+          checksum: drifted.surfaces[k].checksum,
+        })),
+        drifted.ready,
+        drifted.guarded,
+      );
+      const report = await runSmoke("https://x.dev", {
+        fetchImpl: liveFetch({ bridgeSurfaces: trpcOk(drifted) }),
+        expectedSha: null,
+        committedManifest: COMMITTED_MANIFEST,
+      });
+      const c = report.contracts.find((x) => x.name === "bridge_surfaces_read");
+      expect(c?.passed).toBe(false);
+      expect(c?.detail).toMatch(new RegExp(`per-bridge checksum forged/stale: ${key}`));
+    }
+  });
+
+  it("bridge_surfaces_read fails when compatibility lies about enabled/hasSharedSecret", async () => {
+    const drifted = JSON.parse(JSON.stringify(LIVE_BRIDGE_SURFACES));
+    // titan claims READY while enabled=false — compatibility is not part of
+    // the titan checksum payload, so only the semantic check can catch it
+    drifted.surfaces.titanBridge.compatibility = "BRIDGE_READY";
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({ bridgeSurfaces: trpcOk(drifted) }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    const c = report.contracts.find((x) => x.name === "bridge_surfaces_read");
+    expect(c?.passed).toBe(false);
+    expect(c?.detail).toMatch(/surface titanBridge compatibility lies: served BRIDGE_READY, but enabled=false hasSharedSecret=false derives BRIDGE_GUARDED/);
+  });
+
+  it("bridge_surfaces_read fails when semantic fields required for recomputation are stripped", async () => {
+    const drifted = JSON.parse(JSON.stringify(LIVE_BRIDGE_SURFACES));
+    delete drifted.surfaces.intentEngine.classify;
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({ bridgeSurfaces: trpcOk(drifted) }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    const c = report.contracts.find((x) => x.name === "bridge_surfaces_read");
+    expect(c?.passed).toBe(false);
+    expect(c?.detail).toMatch(/surface intentEngine is missing the semantic fields required to recompute its checksum/);
   });
 
   it("bridge_surfaces_read fails when the served aggregate checksum is forged", async () => {
@@ -935,7 +1053,7 @@ describe("checkBridgeSurfacesRead (STE-P-289)", () => {
   it("verifies cross-surface identity directly when bridgeRuntime is supplied", () => {
     const rt = {
       compatibility: "BRIDGE_GUARDED",
-      checksum: "3".repeat(64),
+      checksum: TITAN_FIXTURE_CHECKSUM,
       memoryMode: "memory",
       providerCounts: { validated: 0, configuredUnprobed: 1, missingKey: 0 },
     };

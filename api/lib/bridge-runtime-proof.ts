@@ -1,7 +1,9 @@
-import { createHash } from "node:crypto";
 import { getBridgeState } from "../bridge-guard";
 import { getProviderStates } from "./provider-registry";
 import { PgVectorMemoryStore } from "./persistent-memory";
+// STE-P-292: the titan runtime checksum comes from the SHARED canonical
+// helper — the same function the live smoke contract uses to RECOMPUTE it.
+import { computeTitanBridgeChecksum } from "./bridge-part-checksums";
 
 export interface BridgeRuntimeProof {
   bridge: "titanBridge";
@@ -48,7 +50,12 @@ export function getRuntimeBridgeDeltaEvidence(): BridgeRuntimeProof {
     providerCounts,
     memoryMode: memory.mode,
   };
-  const checksum = createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+  const checksum = computeTitanBridgeChecksum({
+    enabled: bridge.enabled,
+    hasSharedSecret: bridge.hasSharedSecret,
+    providerCounts,
+    memoryMode: memory.mode,
+  });
   return {
     bridge: "titanBridge",
     ...payload,

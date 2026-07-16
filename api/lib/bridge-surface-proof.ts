@@ -1,9 +1,11 @@
-import { createHash } from "node:crypto";
 import { getBridgeState } from "../bridge-guard";
 import { getCorpusContentManifest } from "./corpus-manifest";
 import { searchCorpus } from "./corpus-search";
 import { isCorpusPersistenceConfigured } from "./corpus-pg-store";
 import { classifyIntent } from "./intent-engine";
+// STE-P-292: per-bridge checksums come from the SHARED canonical helpers —
+// the same functions the live smoke contract uses to RECOMPUTE them.
+import { computeCorpusBridgeChecksum, computeIntentBridgeChecksum } from "./bridge-part-checksums";
 
 type BridgeCompatibility = "BRIDGE_READY" | "BRIDGE_GUARDED";
 
@@ -71,7 +73,7 @@ export async function getCorpusBridgeSurfaceProof(): Promise<CorpusBridgeSurface
     bridge: "corpusQuery",
     access: "PUBLIC_READ",
     ...payload,
-    checksum: createHash("sha256").update(JSON.stringify(payload)).digest("hex"),
+    checksum: computeCorpusBridgeChecksum(payload),
     timestamp: new Date().toISOString(),
   };
 }
@@ -98,7 +100,7 @@ export function getIntentBridgeSurfaceProof(): IntentBridgeSurfaceProof {
     bridge: "intentEngine",
     access: "PUBLIC_READ",
     ...payload,
-    checksum: createHash("sha256").update(JSON.stringify(payload)).digest("hex"),
+    checksum: computeIntentBridgeChecksum(payload),
     timestamp: new Date().toISOString(),
   };
 }
