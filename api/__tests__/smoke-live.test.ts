@@ -252,8 +252,19 @@ const LIVE_SELFVERIFY = {
     { area: "health", name: "Scheduler", verdict: "IMPLEMENTED_PROVEN", measured: true, detail: "2/5 rhythms active, 0 failing; IUC cron active, last tick 2026-01-01T00:00:00.000Z" },
     { area: "corpus", name: "Corpus", verdict: "DEMO", measured: true },
     { area: "providers", name: "openai", verdict: "DOCUMENTED_ONLY", measured: true },
+    { area: "runtime", name: "Titan Bridge Proof Surface", verdict: "IMPLEMENTED_PROVEN", measured: true },
   ],
-  claimsMeasured: 4,
+  bridgeRuntime: {
+    bridge: "titanBridge",
+    bridgeEnabled: false,
+    hasSharedSecret: false,
+    providerCounts: { validated: 0, configuredUnprobed: 1, missingKey: 0 },
+    memoryMode: "memory",
+    compatibility: "BRIDGE_GUARDED",
+    commitSha: COMMIT,
+    checksum: "b".repeat(64),
+  },
+  claimsMeasured: 5,
   claimsAsserted: 0,
   fingerprint: "a".repeat(64),
   truthLedgerSummary: LIVE_SUMMARY_EMPTY,
@@ -348,6 +359,12 @@ describe("smoke-live contract evaluators", () => {
     ).toBe(false);
     expect(checkSelfVerify(200, { ...LIVE_SELFVERIFY, fingerprint: "short" }).passed).toBe(false);
     expect(checkSelfVerify(200, { ...LIVE_SELFVERIFY, truthLedgerSummary: { count: -1 } }).passed).toBe(false);
+    expect(
+      checkSelfVerify(200, {
+        ...LIVE_SELFVERIFY,
+        bridgeRuntime: { ...LIVE_SELFVERIFY.bridgeRuntime, providerCounts: { validated: -1, configuredUnprobed: 1, missingKey: 0 } },
+      }).passed,
+    ).toBe(false);
   });
 
   it("selfVerify fails on forged truthLedgerSummary derived coherence", () => {

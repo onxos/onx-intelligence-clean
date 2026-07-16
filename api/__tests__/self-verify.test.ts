@@ -23,10 +23,12 @@ describe("OSVA self-verification (STE-V-01)", () => {
     expect(report.health.length).toBe(6);
     expect(report.providers.length).toBe(8);
     expect(report.bridges.map((b) => b.id)).toEqual(["corpusQuery", "intentEngine", "titanBridge"]);
+    expect(report.bridgeRuntime.bridge).toBe("titanBridge");
+    expect(["BRIDGE_READY", "BRIDGE_GUARDED"]).toContain(report.bridgeRuntime.compatibility);
     expect(report.corpus.rawTotal).toBe(22500);
     expect(report.runtime.node).toBe(process.version);
-    // items = 6 health + 1 corpus + 8 providers + 3 bridges + 1 runtime
-    expect(report.items.length).toBe(19);
+    // items = 6 health + 1 corpus + 8 providers + 3 bridges + 1 runtime bridge proof + 1 runtime
+    expect(report.items.length).toBe(20);
     for (const item of report.items) {
       expect(VERDICTS).toContain(item.verdict);
       expect(typeof item.measured).toBe("boolean");
@@ -65,6 +67,16 @@ describe("OSVA self-verification (STE-V-01)", () => {
       },
       providers: report.providers.map((p) => ({ id: p.id, status: p.status })),
       bridges: report.bridges,
+      bridgeRuntime: {
+        bridge: report.bridgeRuntime.bridge,
+        bridgeEnabled: report.bridgeRuntime.bridgeEnabled,
+        hasSharedSecret: report.bridgeRuntime.hasSharedSecret,
+        providerCounts: report.bridgeRuntime.providerCounts,
+        memoryMode: report.bridgeRuntime.memoryMode,
+        compatibility: report.bridgeRuntime.compatibility,
+        commitSha: report.bridgeRuntime.commitSha,
+        checksum: report.bridgeRuntime.checksum,
+      },
       claimsMeasured: report.claimsMeasured,
       claimsAsserted: report.claimsAsserted,
     };
@@ -104,6 +116,6 @@ describe("OSVA self-verification (STE-V-01)", () => {
     // current items are measured live, so the kit passes with 0 today.
     expect(exitCode).toBe(report.claimsAsserted > 0 ? 1 : 0);
     expect(report.claimsAsserted).toBe(0);
-    expect(report.claimsMeasured).toBe(19);
+    expect(report.claimsMeasured).toBe(20);
   });
 });

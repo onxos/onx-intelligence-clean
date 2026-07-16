@@ -262,10 +262,24 @@ export function checkHealth(
 export function checkSelfVerify(
   status: number,
   data: {
-    items?: Array<{ verdict?: string; measured?: boolean; name?: string }>;
+    items?: Array<{ area?: string; detail?: string; verdict?: string; measured?: boolean; name?: string }>;
     claimsMeasured?: number;
     claimsAsserted?: number;
     fingerprint?: string;
+    bridgeRuntime?: {
+      bridge?: string;
+      bridgeEnabled?: boolean;
+      hasSharedSecret?: boolean;
+      providerCounts?: {
+        validated?: number;
+        configuredUnprobed?: number;
+        missingKey?: number;
+      };
+      memoryMode?: string;
+      compatibility?: string;
+      commitSha?: string | null;
+      checksum?: string;
+    };
     truthLedgerSummary?: {
       state?: string;
       persistence?: string;
@@ -323,6 +337,66 @@ export function checkSelfVerify(
       passed: false,
       detail: `claimsAsserted=${data?.claimsAsserted} mismatches asserted items (${assertedCount})`,
     };
+  const bridgeRuntime = data?.bridgeRuntime;
+  if (!bridgeRuntime)
+    return { name, passed: false, detail: "bridgeRuntime proof missing from selfVerify" };
+  if (bridgeRuntime.bridge !== "titanBridge")
+    return { name, passed: false, detail: `bridgeRuntime.bridge invalid (${String(bridgeRuntime.bridge)})` };
+  if (typeof bridgeRuntime.bridgeEnabled !== "boolean")
+    return {
+      name,
+      passed: false,
+      detail: `bridgeRuntime.bridgeEnabled invalid (${String(bridgeRuntime.bridgeEnabled)})`,
+    };
+  if (typeof bridgeRuntime.hasSharedSecret !== "boolean")
+    return {
+      name,
+      passed: false,
+      detail: `bridgeRuntime.hasSharedSecret invalid (${String(bridgeRuntime.hasSharedSecret)})`,
+    };
+  if (!bridgeRuntime.providerCounts)
+    return { name, passed: false, detail: "bridgeRuntime.providerCounts missing" };
+  for (const [label, value] of Object.entries(bridgeRuntime.providerCounts)) {
+    if (!Number.isInteger(value) || Number(value) < 0)
+      return { name, passed: false, detail: `bridgeRuntime.providerCounts.${label} invalid (${String(value)})` };
+  }
+  const providerTotal = Object.values(bridgeRuntime.providerCounts).reduce((sum, value) => sum + Number(value), 0);
+  const providerItems = items.filter((i) => i.area === "providers");
+  if (providerItems.length > 0 && providerTotal !== providerItems.length)
+    return {
+      name,
+      passed: false,
+      detail: `bridgeRuntime.providerCounts total ${providerTotal} mismatches provider items (${providerItems.length})`,
+    };
+  if (bridgeRuntime.memoryMode !== "pg" && bridgeRuntime.memoryMode !== "memory")
+    return { name, passed: false, detail: `bridgeRuntime.memoryMode invalid (${String(bridgeRuntime.memoryMode)})` };
+  if (bridgeRuntime.compatibility !== "BRIDGE_READY" && bridgeRuntime.compatibility !== "BRIDGE_GUARDED")
+    return {
+      name,
+      passed: false,
+      detail: `bridgeRuntime.compatibility invalid (${String(bridgeRuntime.compatibility)})`,
+    };
+  if (
+    bridgeRuntime.compatibility === "BRIDGE_READY" &&
+    (!bridgeRuntime.bridgeEnabled || !bridgeRuntime.hasSharedSecret)
+  ) return {
+    name,
+    passed: false,
+    detail: "bridgeRuntime.compatibility=BRIDGE_READY requires bridgeEnabled=true and hasSharedSecret=true",
+  };
+  if (
+    bridgeRuntime.compatibility === "BRIDGE_GUARDED" &&
+    bridgeRuntime.bridgeEnabled &&
+    bridgeRuntime.hasSharedSecret
+  ) return {
+    name,
+    passed: false,
+    detail: "bridgeRuntime.compatibility=BRIDGE_GUARDED inconsistent with enabled bridge + shared secret",
+  };
+  if (bridgeRuntime.commitSha !== null && !/^[0-9a-f]{40}$/i.test(String(bridgeRuntime.commitSha)))
+    return { name, passed: false, detail: `bridgeRuntime.commitSha invalid (${String(bridgeRuntime.commitSha)})` };
+  if (!/^[0-9a-f]{64}$/.test(String(bridgeRuntime.checksum)))
+    return { name, passed: false, detail: "bridgeRuntime.checksum is not sha256 hex" };
   const summary = data?.truthLedgerSummary;
   const total = summary?.count;
   if (!Number.isInteger(total) || Number(total) < 0)
