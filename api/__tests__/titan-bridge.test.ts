@@ -35,7 +35,18 @@ describe("Titan Bridge Router", () => {
       expect(typeof result.enabled).toBe("boolean");
       expect(typeof result.hasSharedSecret).toBe("boolean");
       expect(result.bridge).toBe("titanBridge");
+      expect(result.access).toBe("PUBLIC_READ");
+      expect(["BRIDGE_READY", "BRIDGE_GUARDED"]).toContain(result.compatibility);
+      expect(["pg", "memory"]).toContain(result.memoryMode);
+      expect(typeof result.providerCounts.validated).toBe("number");
+      expect(result.checksum).toMatch(/^[a-f0-9]{64}$/);
       expect(["ACTIVE", "SAFE_DISABLED"]).toContain(result.mode);
+    });
+
+    it("should keep bridge status checksum stable across identical facts", async () => {
+      const first = await caller.titan.bridgeStatus();
+      const second = await caller.titan.bridgeStatus();
+      expect(first.checksum).toBe(second.checksum);
     });
   });
 

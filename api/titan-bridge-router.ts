@@ -8,7 +8,7 @@ import OpenAI from "openai";
 import { createRouter, publicQuery } from "./middleware";
 import { env } from "./lib/env";
 import { rateLimiter, budgetController, costDashboard } from "./advanced-engines-router";
-import { assertBridgeAccess, getBridgeState } from "./bridge-guard";
+import { assertBridgeAccess } from "./bridge-guard";
 import {
   insertEvent,
   getEventStats,
@@ -356,14 +356,24 @@ export async function ingestThroughBridgeContract(
 // ============================================================
 export const titanBridgeRouter = createRouter({
   // --- Bridge status for integration gates ---
-  bridgeStatus: publicQuery.query(() => ({
-    ...getBridgeState(),
+  bridgeStatus: publicQuery.query(() => {
+    const proof = getRuntimeBridgeDeltaEvidence();
+    return {
+    access: "PUBLIC_READ" as const,
     bridge: "titanBridge",
+    enabled: proof.bridgeEnabled,
+    hasSharedSecret: proof.hasSharedSecret,
+    compatibility: proof.compatibility,
+    providerCounts: proof.providerCounts,
+    memoryMode: proof.memoryMode,
+    checksum: proof.checksum,
+    timestamp: proof.timestamp,
     mode: env.bridgeEnabled ? "ACTIVE" : "SAFE_DISABLED",
     message: env.bridgeEnabled
       ? "Bridge is enabled for cross-repo integration traffic"
       : "Bridge is disabled by default. Set BRIDGE_ENABLED=true after V6 gate approval.",
-  })),
+    };
+  }),
 
   // --- Runtime bridge/material compatibility proof ---
   runtimeBridgeDelta: publicQuery.query(() => getRuntimeBridgeDeltaEvidence()),
