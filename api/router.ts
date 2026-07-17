@@ -38,6 +38,7 @@ import { founderCompanionRouter } from "./founder-companion-router";
 import { personalAssistantRouter } from "./personal-assistant-router";
 import { builderAssistantRouter } from "./builder-assistant-router";
 import { operatorAssistantRouter } from "./operator-assistant-router";
+import { analystAssistantRouter } from "./analyst-assistant-router";
 import { iucRouter } from "./iuc-router";
 import { measurementRouter } from "./measurement-router";
 import { ficRouter } from "./fic-router";
@@ -170,6 +171,8 @@ export const appRouter = createRouter({
   builderAssistant: builderAssistantRouter,
   // Phase P — Operator Assistant operational substrate (durable+tool+memory+auth+eval+feedback)
   operatorAssistant: operatorAssistantRouter,
+  // Phase P — Analyst Assistant operational substrate (durable+tool+memory+auth+eval+feedback)
+  analystAssistant: analystAssistantRouter,
 });
 
 export type AppRouter = typeof appRouter;
