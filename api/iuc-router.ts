@@ -46,6 +46,7 @@ import { vectorSearchCorpus } from "./lib/corpus-vector";
 import { planRetention, applyRetention } from "./lib/corpus-retention";
 import { filterByClearance, accessBreakdown } from "./lib/corpus-access";
 import { buildInvertedIndex, indexStats, bm25Search } from "./lib/corpus-index";
+import { corpusPersistenceProof } from "./lib/corpus-health";
 
 const zType = z.enum(IURG_TYPES as unknown as [IurgObjectType, ...IurgObjectType[]]);
 const zVerification = z.enum(["UNVERIFIED", "POSSIBLE", "PROBABLE", "CONFIRMED", "PROVEN"]);
@@ -383,6 +384,16 @@ export const iucRouter = createRouter({
       const cleared = filterByClearance(persistedObjects, input?.clearance ?? "PUBLIC");
       return indexStats(buildInvertedIndex(cleared));
     }),
+
+  // --- Durable-pg proof: run a LIVE read-after-write against the corpus pg
+  //     adapter (iurg-pg-store) on this instance's DATABASE_URL and report
+  //     persistence=POSTGRES ONLY after a verified round-trip (never a text
+  //     flag). In memory/mysql mode it reports that mode honestly. Numbers /
+  //     mode / booleans / truncated error only — never corpus contents.
+  //     Safe to curl on prod: it self-cleans its throwaway probe row. ---
+  corpusPersistenceProof: publicQuery.query(async () => ({
+    ...(await corpusPersistenceProof()),
+  })),
 
   // --- Vector retrieval: classic TF-IDF vector-space model (cosine similarity)
   //     over persisted objects. Honestly labelled — real term weights, NOT

@@ -165,6 +165,30 @@ export async function pgDeleteObjectsByIdPrefix(prefix: string): Promise<void> {
   );
 }
 
+/**
+ * Targeted read-back of the rows whose id starts with `prefix` (literal match).
+ * Used by the corpus persistence proof to verify a probe row round-trips
+ * through Postgres WITHOUT loading the entire table.
+ */
+export async function pgGetObjectsByIdPrefix(
+  prefix: string,
+): Promise<IurgObjectInput[]> {
+  await ensureSchema();
+  const escaped = escapeLikePrefix(prefix);
+  const result = await getPool().query<{ id: string; payload: unknown }>(
+    `SELECT id, payload FROM onx_iurg_object WHERE id LIKE $1 ESCAPE '\\' ORDER BY created_at ASC`,
+    [`${escaped}%`],
+  );
+  const objects: IurgObjectInput[] = [];
+  for (const row of result.rows) {
+    const raw = typeof row.payload === "string" ? JSON.parse(row.payload) : row.payload;
+    if (raw && typeof raw === "object") {
+      objects.push({ ...(raw as IurgObjectInput), id: row.id });
+    }
+  }
+  return objects;
+}
+
 // --- Atomic replace (fail-closed) ---------------------------------
 // The old path did DELETE then a loop of independently-swallowed INSERTs:
 // a mid-way pg failure left Postgres partially rewritten and silently

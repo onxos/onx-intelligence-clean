@@ -20,6 +20,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Pool } from "pg";
 import { buildCorpusObjects, searchCorpus, summarizeCorpus, type CorpusSeed } from "../lib/corpus";
 import { CURATED_VET_CORPUS } from "../lib/corpus-data";
+import { corpusPersistenceProof } from "../lib/corpus-health";
 
 const PG_URL = process.env.PG_TEST_URL;
 // Runs against live pg in CI; cleanly skipped locally when unset.
@@ -127,5 +128,31 @@ suite("corpus durable Postgres persistence (live pg)", () => {
       `SELECT count(*)::int AS n FROM onx_iurg_object WHERE id LIKE 'corpus-%'`,
     );
     expect(total.rows[0].n).toBe(built.length);
+  });
+
+  it("proves durability with a live read-after-write round-trip (persistence=POSTGRES)", async () => {
+    const proof = await corpusPersistenceProof();
+
+    // The proof reports POSTGRES ONLY after a verified pg round-trip.
+    expect(proof.mode).toBe("pg");
+    expect(proof.persistence).toBe("POSTGRES");
+    expect(proof.roundTrip).toBe(true);
+    expect(proof.writtenBack).toBe(true);
+    expect(proof.probeId).toMatch(/^corpus-health-probe-/);
+    expect(proof.error).toBeUndefined();
+    expect(proof.latencyMs).toBeGreaterThanOrEqual(0);
+
+    // The throwaway probe row must be cleaned up — it never pollutes the corpus.
+    const leftover = await pool.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM onx_iurg_object WHERE id LIKE 'corpus-health-probe-%'`,
+    );
+    expect(leftover.rows[0].n).toBe(0);
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `[corpus-pg] LIVE persistence proof: persistence=${proof.persistence} ` +
+        `roundTrip=${proof.roundTrip} writtenBack=${proof.writtenBack} ` +
+        `latency=${proof.latencyMs}ms (probe cleaned).`,
+    );
   });
 });

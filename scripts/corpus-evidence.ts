@@ -18,6 +18,7 @@ import { vectorSearchCorpus } from "../api/lib/corpus-vector";
 import { planRetention } from "../api/lib/corpus-retention";
 import { accessBreakdown, filterByClearance } from "../api/lib/corpus-access";
 import { indexSearchCorpus, buildInvertedIndex, indexStats } from "../api/lib/corpus-index";
+import { corpusPersistenceProof } from "../api/lib/corpus-health";
 import { CURATED_VET_CORPUS } from "../api/lib/corpus-data";
 
 function synthetic(contentText: string): CorpusSeed {
@@ -172,6 +173,22 @@ async function main() {
     restrictedViewer: { visible: filterByClearance(withRestricted, "RESTRICTED").length },
     publicCanReadRestrictedRecord: filterByClearance(withRestricted, "PUBLIC").some((o) => o.id === restrictedDemo.id),
     restrictedCanReadRestrictedRecord: filterByClearance(withRestricted, "RESTRICTED").some((o) => o.id === restrictedDemo.id),
+  }, null, 2));
+
+  // Durable-pg proof: report whether the corpus adapter REALLY persists to
+  // Postgres on THIS process's DATABASE_URL, via a live read-after-write.
+  // Locally (no postgres DATABASE_URL) it honestly reports MEMORY; in CI /
+  // prod with a postgres url it reports POSTGRES only after a verified
+  // round-trip. Never a text flag — the proof self-cleans its probe row.
+  const proof = await corpusPersistenceProof();
+  console.log("\n=== DURABLE-PG PROOF (live read-after-write; honest fallback) ===");
+  console.log(JSON.stringify({
+    mode: proof.mode,
+    persistence: proof.persistence,
+    roundTrip: proof.roundTrip,
+    writtenBack: proof.writtenBack,
+    latencyMs: proof.latencyMs,
+    note: proof.note,
   }, null, 2));
 }
 
