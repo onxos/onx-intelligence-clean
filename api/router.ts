@@ -33,6 +33,7 @@ import { providersRouter } from "./providers-router";
 import { onxRouter } from "./onx-router";
 import { askRouter } from "./ask-router";
 import { titanDecisionRouter } from "./titan-decision-router";
+import { clinicAssistantRouter } from "./clinic-assistant-router";
 import { iucRouter } from "./iuc-router";
 import { measurementRouter } from "./measurement-router";
 import { ficRouter } from "./fic-router";
@@ -155,6 +156,8 @@ export const appRouter = createRouter({
   // Phase P — Titan Decision Engine: durable + tool-grounded + authority-gated
   // + evaluated + outcome-feedback operational replacement for prompt-only titans
   titanDecision: titanDecisionRouter,
+  // Phase P — Clinic Assistant operational substrate (durable+tool+memory+auth+eval+feedback)
+  clinicAssistant: clinicAssistantRouter,
 });
 
 export type AppRouter = typeof appRouter;
