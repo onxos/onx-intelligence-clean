@@ -48,6 +48,7 @@ import { filterByClearance, accessBreakdown } from "./lib/corpus-access";
 import { buildInvertedIndex, indexStats, bm25Search } from "./lib/corpus-index";
 import { corpusPersistenceProof } from "./lib/corpus-health";
 import { hybridSearch, DEFAULT_HYBRID_WEIGHTS, type HybridWeights } from "./lib/corpus-hybrid";
+import { auditCorpus } from "./lib/corpus-quality";
 
 const zType = z.enum(IURG_TYPES as unknown as [IurgObjectType, ...IurgObjectType[]]);
 const zVerification = z.enum(["UNVERIFIED", "POSSIBLE", "PROBABLE", "CONFIRMED", "PROVEN"]);
@@ -420,6 +421,33 @@ export const iucRouter = createRouter({
         signalReach: result.signalReach,
         returned: result.returned,
         results: result.hits,
+      };
+    }),
+
+  // --- Quality audit: measured per-record quality distribution + flags over
+  //     the persisted corpus (histogram, per-provenance averages, and flag
+  //     counts for below-threshold / missing-citation / missing-domain /
+  //     short-content / synthetic-scaffold). Read-only; clearance-enforced. ---
+  corpusQualityAudit: publicQuery
+    .input(z.object({
+      minQuality: z.number().min(0).max(1).default(0.5),
+      minContentChars: z.number().int().min(0).max(2000).default(80),
+      limit: z.number().int().min(1).max(200).default(50),
+      clearance: zClearance,
+    }).optional())
+    .query(async ({ input }) => {
+      const persistedObjects = await getIurgObjects();
+      const cleared = filterByClearance(persistedObjects, input?.clearance ?? "PUBLIC");
+      const audit = auditCorpus(cleared, {
+        minQuality: input?.minQuality,
+        minContentChars: input?.minContentChars,
+        limit: input?.limit,
+      });
+      return {
+        clearance: input?.clearance ?? "PUBLIC",
+        corpusSize: persistedObjects.length,
+        accessible: cleared.length,
+        ...audit,
       };
     }),
 

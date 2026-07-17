@@ -20,6 +20,7 @@ import { accessBreakdown, filterByClearance } from "../api/lib/corpus-access";
 import { indexSearchCorpus, buildInvertedIndex, indexStats } from "../api/lib/corpus-index";
 import { corpusPersistenceProof } from "../api/lib/corpus-health";
 import { hybridSearch } from "../api/lib/corpus-hybrid";
+import { auditCorpus } from "../api/lib/corpus-quality";
 import { CURATED_VET_CORPUS } from "../api/lib/corpus-data";
 
 function synthetic(contentText: string): CorpusSeed {
@@ -191,6 +192,19 @@ async function main() {
       sourceAuthority: hybrid.hits[0].sourceAuthority,
       citation: hybrid.hits[0].citation,
     },
+  }, null, 2));
+
+  // Quality audit evidence: measured distribution + honest flags.
+  const audit = auditCorpus(persisted);
+  console.log("\n=== QUALITY AUDIT (measured distribution + per-record flags) ===");
+  console.log(JSON.stringify({
+    total: audit.total,
+    avgQuality: audit.avgQuality,
+    histogram: audit.histogram.map((b) => `[${b.from}-${b.to}]=${b.count}`),
+    avgQualityByProvenance: audit.avgQualityByProvenance,
+    flagCounts: audit.flagCounts,
+    flaggedCount: audit.flaggedCount,
+    cleanCount: audit.cleanCount,
   }, null, 2));
 
   // Durable-pg proof: report whether the corpus adapter REALLY persists to
