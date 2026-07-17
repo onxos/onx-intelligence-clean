@@ -531,6 +531,61 @@ describe("smoke-live contract evaluators", () => {
     expect(r.detail).toMatch(/fabricated provider trust distribution/);
   });
 
+  // STE-P-298: health verdict cross-surface identity.
+  it("selfVerify PASSES and proves health item verdicts == health section status (STE-P-298)", () => {
+    const r = checkSelfVerify(200, LIVE_SELFVERIFY);
+    expect(r.passed).toBe(true);
+    expect(r.detail).toMatch(/health item verdicts == health section status/);
+  });
+
+  it("selfVerify FAILS when a health item verdict contradicts its section status (STE-P-298)", () => {
+    // Section says Database HEALTHY (→IMPLEMENTED_PROVEN) but the item claims
+    // MISSING. Recompute the fingerprint so the forgery reaches the health
+    // cross-surface check, not the fingerprint gate.
+    const forged: Record<string, any> = JSON.parse(JSON.stringify(LIVE_SELFVERIFY));
+    forged.items = forged.items.map((it: any) =>
+      it.area === "health" && it.name === "Database" ? { ...it, verdict: "MISSING" } : it,
+    );
+    forged.fingerprint = computeSelfVerifyFingerprint({
+      items: forged.items,
+      health: forged.health,
+      corpus: forged.corpus,
+      providers: forged.providers,
+      bridges: forged.bridges,
+      bridgeRuntime: forged.bridgeRuntime,
+      claimsMeasured: forged.claimsMeasured,
+      claimsAsserted: forged.claimsAsserted,
+    });
+    const r = checkSelfVerify(200, forged as never);
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/health verdict cross-surface drift for Database/);
+    expect(r.detail).toMatch(/fabricated health verdict/);
+  });
+
+  it("selfVerify FAILS when health items count diverges from the health section (STE-P-298)", () => {
+    // Drop one health item but leave the section intact — count mismatch.
+    const forged: Record<string, any> = JSON.parse(JSON.stringify(LIVE_SELFVERIFY));
+    forged.items = forged.items.filter(
+      (it: any) => !(it.area === "health" && it.name === "Scheduler"),
+    );
+    // keep claim counters consistent so we reach the health check
+    forged.claimsMeasured = forged.items.filter((i: any) => i.measured === true).length;
+    forged.claimsAsserted = forged.items.length - forged.claimsMeasured;
+    forged.fingerprint = computeSelfVerifyFingerprint({
+      items: forged.items,
+      health: forged.health,
+      corpus: forged.corpus,
+      providers: forged.providers,
+      bridges: forged.bridges,
+      bridgeRuntime: forged.bridgeRuntime,
+      claimsMeasured: forged.claimsMeasured,
+      claimsAsserted: forged.claimsAsserted,
+    });
+    const r = checkSelfVerify(200, forged as never);
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/health items \(1\) != health section entries \(2\)/);
+  });
+
   it("selfVerify fails on forged truthLedgerSummary derived coherence", () => {
     expect(
       checkSelfVerify(200, {
@@ -1404,7 +1459,15 @@ describe("runSmoke orchestration (mocked fetch)", () => {
   it("honest_status_selfverify fails when a section mutates but the fingerprint stays stale (drift caught)", () => {
     for (const mutate of [
       (sv: Record<string, any>) => { sv.corpus = { ...sv.corpus, rawTotal: 99999 }; },
-      (sv: Record<string, any>) => { sv.health = [{ name: "Database", status: "UNAVAILABLE" }, sv.health[1]]; },
+      (sv: Record<string, any>) => {
+        // Keep health item/section internally consistent (both flip to the
+        // DEGRADED→PARTIAL pair) so the STE-P-298 cross-surface gate passes
+        // and the STALE fingerprint is what catches the drift.
+        sv.health = [{ name: "Database", status: "DEGRADED" }, sv.health[1]];
+        sv.items = sv.items.map((it: Record<string, any>) =>
+          it.area === "health" && it.name === "Database" ? { ...it, verdict: "PARTIAL" } : it,
+        );
+      },
       (sv: Record<string, any>) => { sv.providers = [{ id: "openai", status: "VALIDATED" }]; },
       (sv: Record<string, any>) => { sv.bridges = sv.bridges.map((b: Record<string, unknown>) => ({ ...b, enabled: true })); },
     ] as Array<(sv: Record<string, any>) => void>) {

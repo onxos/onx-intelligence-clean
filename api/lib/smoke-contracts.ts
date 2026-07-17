@@ -512,6 +512,52 @@ export function checkSelfVerify(
       passed: false,
       detail: `fingerprint sections missing from served report: ${missingSections.join(", ")}`,
     };
+  // STE-P-298: health verdict cross-surface identity. The health ITEMS
+  // (area:health) carry a verdict DERIVED from the health SECTION status
+  // via healthVerdict() (self-verify.ts:54-63,100-107) — both come from one
+  // collectComponents() and are BOTH frozen into the fingerprint. Because
+  // the fingerprint recompute only proves the served value matches its own
+  // sections, a deploy could serve section [Database:HEALTHY] alongside item
+  // [Database verdict:MISSING] (both frozen, so the recompute still passes),
+  // claiming the DB is simultaneously healthy and missing. Recompute the
+  // expected verdict from the served section status and require every health
+  // item to match. Same source, served-value recompute, no extra fetch.
+  const HEALTH_STATUS_TO_VERDICT: Record<string, string> = {
+    HEALTHY: "IMPLEMENTED_PROVEN",
+    DEGRADED: "PARTIAL",
+    UNHEALTHY: "PARTIAL",
+    UNAVAILABLE: "MISSING",
+  };
+  const healthSection = data.health ?? [];
+  const healthItems = items.filter((i) => String(i.area) === "health");
+  if (healthItems.length !== healthSection.length)
+    return {
+      name,
+      passed: false,
+      detail: `health items (${healthItems.length}) != health section entries (${healthSection.length}) — surface mismatch`,
+    };
+  for (const item of healthItems) {
+    const section = healthSection.find((h) => String(h.name) === String(item.name));
+    if (!section)
+      return {
+        name,
+        passed: false,
+        detail: `health item ${String(item.name)} has no matching health section entry`,
+      };
+    const expected = HEALTH_STATUS_TO_VERDICT[String(section.status)];
+    if (!expected)
+      return {
+        name,
+        passed: false,
+        detail: `health section ${String(section.name)} has unknown status ${String(section.status)}`,
+      };
+    if (String(item.verdict) !== expected)
+      return {
+        name,
+        passed: false,
+        detail: `health verdict cross-surface drift for ${String(item.name)}: item verdict=${String(item.verdict)} but section status=${String(section.status)} maps to ${expected} — fabricated health verdict`,
+      };
+  }
   const badBridge = (data.bridges ?? []).find(
     (b) =>
       typeof b?.id !== "string" ||
@@ -792,7 +838,7 @@ export function checkSelfVerify(
   return {
     name,
     passed: true,
-    detail: `${items.length} items, measured=${measuredCount} asserted=${assertedCount}, truthLedgerSummary.count=${total}; fingerprint RECOMPUTED from served sections and verified; providerCounts per-bucket tally == provider items${
+    detail: `${items.length} items, measured=${measuredCount} asserted=${assertedCount}, truthLedgerSummary.count=${total}; fingerprint RECOMPUTED from served sections and verified; providerCounts per-bucket tally == provider items; health item verdicts == health section status${
       typeof crossSurface?.deployedCommit === "string" &&
       /^[0-9a-f]{7,40}$/i.test(crossSurface.deployedCommit) &&
       bridgeRuntime.commitSha !== null
