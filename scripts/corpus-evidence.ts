@@ -17,6 +17,7 @@ import { buildCorpusGraph, relatedByQuery } from "../api/lib/corpus-graph";
 import { vectorSearchCorpus } from "../api/lib/corpus-vector";
 import { planRetention } from "../api/lib/corpus-retention";
 import { accessBreakdown, filterByClearance } from "../api/lib/corpus-access";
+import { indexSearchCorpus, buildInvertedIndex, indexStats } from "../api/lib/corpus-index";
 import { CURATED_VET_CORPUS } from "../api/lib/corpus-data";
 
 function synthetic(contentText: string): CorpusSeed {
@@ -127,6 +128,28 @@ async function main() {
     provenanceValidBefore: plan.before.provenanceValidCount,
     provenanceValidAfter: plan.after.provenanceValidCount,
     provenanceValidPreserved: plan.provenanceValidPreserved,
+  }, null, 2));
+
+  // Inverted-index BM25 evidence: measured index structure + selective indexed
+  // retrieval (only docs containing a query term are examined) over persisted.
+  const invIndex = buildInvertedIndex(persisted);
+  console.log("\n=== INVERTED INDEX (bm25) stats + selective retrieval ===");
+  const idxStats = indexStats(invIndex);
+  const bm25 = indexSearchCorpus(persisted, "canine parvovirus", 2);
+  console.log(JSON.stringify({
+    docCount: idxStats.docCount,
+    termCount: idxStats.termCount,
+    postingsCount: idxStats.postingsCount,
+    avgDocLength: idxStats.avgDocLength,
+    query: bm25.query,
+    candidatesExamined: bm25.candidates,
+    ofTotalDocs: idxStats.docCount,
+    topHit: bm25.hits[0] && {
+      score: bm25.hits[0].score,
+      matchedTerms: bm25.hits[0].matchedTerms,
+      sourceAuthority: bm25.hits[0].sourceAuthority,
+      citation: bm25.hits[0].citation,
+    },
   }, null, 2));
 
   // Access-control evidence: overlay one RESTRICTED demo record on the persisted

@@ -45,6 +45,7 @@ import { buildCorpusGraph, relatedByQuery } from "./lib/corpus-graph";
 import { vectorSearchCorpus } from "./lib/corpus-vector";
 import { planRetention, applyRetention } from "./lib/corpus-retention";
 import { filterByClearance, accessBreakdown } from "./lib/corpus-access";
+import { buildInvertedIndex, indexStats, bm25Search } from "./lib/corpus-index";
 
 const zType = z.enum(IURG_TYPES as unknown as [IurgObjectType, ...IurgObjectType[]]);
 const zVerification = z.enum(["UNVERIFIED", "POSSIBLE", "PROBABLE", "CONFIRMED", "PROVEN"]);
@@ -341,6 +342,46 @@ export const iucRouter = createRouter({
       const persistedObjects = await getIurgObjects();
       const corpusObjects = persistedObjects.filter((o) => (o.id ?? "").startsWith("corpus-"));
       return accessBreakdown(corpusObjects, input?.clearance ?? "PUBLIC");
+    }),
+
+  // --- Inverted-index BM25 retrieval: builds a term->postings index and ranks
+  //     with Okapi BM25, scoring ONLY documents that contain a query term
+  //     (candidate count reported). Clearance-enforced + CITED. ---
+  corpusIndexSearch: publicQuery
+    .input(z.object({
+      query: z.string().min(1).max(200),
+      limit: z.number().int().min(1).max(50).default(10),
+      provenanceValidOnly: z.boolean().default(false),
+      clearance: zClearance,
+    }))
+    .query(async ({ input }) => {
+      const persistedObjects = await getIurgObjects();
+      const cleared = filterByClearance(persistedObjects, input.clearance);
+      const pool = input.provenanceValidOnly
+        ? cleared.filter((o) => o.provenance && o.provenance.type !== "SYNTHETIC" && !!o.provenance.citation)
+        : cleared;
+      const result = bm25Search(buildInvertedIndex(pool), pool, input.query, input.limit);
+      return {
+        query: input.query,
+        model: "bm25",
+        clearance: input.clearance,
+        corpusSize: persistedObjects.length,
+        accessible: cleared.length,
+        searched: pool.length,
+        candidates: result.candidates,
+        returned: result.hits.length,
+        results: result.hits,
+      };
+    }),
+
+  // --- Inverted-index stats: measured structure size (docs, vocabulary,
+  //     postings, avg doc length, top terms by document frequency). ---
+  corpusIndexStats: publicQuery
+    .input(z.object({ clearance: zClearance }).optional())
+    .query(async ({ input }) => {
+      const persistedObjects = await getIurgObjects();
+      const cleared = filterByClearance(persistedObjects, input?.clearance ?? "PUBLIC");
+      return indexStats(buildInvertedIndex(cleared));
     }),
 
   // --- Vector retrieval: classic TF-IDF vector-space model (cosine similarity)
