@@ -650,6 +650,26 @@ export function checkSelfVerify(
     return { name, passed: false, detail: `truthLedgerSummary.state invalid (${String(summary?.state)})` };
   if (summary.persistence !== "POSTGRES" && summary.persistence !== "UNPERSISTED")
     return { name, passed: false, detail: `truthLedgerSummary.persistence invalid (${String(summary.persistence)})` };
+  // STE-P-300: DB-config identity extended to the truth-ledger surface. The
+  // ledger's persistence disclosure is decided by the SAME config predicate
+  // as the corpus — isTruthLedgerPersistenceConfigured() = DATABASE_URL
+  // .startsWith("postgres") (truth-ledger.ts:59-61) vs the corpus's own
+  // startsWith check (knowledge-router.ts:212). They MUST agree: you cannot
+  // have a POSTGRES-backed truth-ledger without a postgres DATABASE_URL, and
+  // that same URL forces corpus=POSTGRES. Unlike the fingerprint sections,
+  // truthLedgerSummary is NOT anchored by the recomputed fingerprint, so this
+  // cross-check is the only thing that can catch a forged ledger-persistence
+  // claim (e.g. a deploy serving ledger=POSTGRES with corpus=UNPERSISTED,
+  // faking a durable truth-chain on a DB-less instance). Combined with the
+  // STE-P-299 corpus↔health tie, this binds all three independent DB-config
+  // surfaces (health.Database + corpus + truth-ledger) into one identity.
+  // Same served body, no extra fetch.
+  if (String(summary.persistence) !== String(corpusSection.persistence))
+    return {
+      name,
+      passed: false,
+      detail: `DB-config cross-surface drift: truthLedgerSummary.persistence=${String(summary.persistence)} != corpus.persistence=${String(corpusSection.persistence)} — both derive from DATABASE_URL, contradictory DB-configuration claim`,
+    };
   if (typeof summary.drift !== "boolean")
     return { name, passed: false, detail: `truthLedgerSummary.drift invalid (${String(summary.drift)})` };
   const retention = summary.retention;
@@ -861,7 +881,7 @@ export function checkSelfVerify(
   return {
     name,
     passed: true,
-    detail: `${items.length} items, measured=${measuredCount} asserted=${assertedCount}, truthLedgerSummary.count=${total}; fingerprint RECOMPUTED from served sections and verified; providerCounts per-bucket tally == provider items; health item verdicts == health section status; DB-config identity: corpus persistence == health Database status${
+    detail: `${items.length} items, measured=${measuredCount} asserted=${assertedCount}, truthLedgerSummary.count=${total}; fingerprint RECOMPUTED from served sections and verified; providerCounts per-bucket tally == provider items; health item verdicts == health section status; DB-config identity: corpus persistence == health Database status == truthLedger persistence${
       typeof crossSurface?.deployedCommit === "string" &&
       /^[0-9a-f]{7,40}$/i.test(crossSurface.deployedCommit) &&
       bridgeRuntime.commitSha !== null

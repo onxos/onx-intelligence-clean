@@ -160,7 +160,7 @@ const LIVE_TRUTH_HISTORY_EMPTY = {
 };
 const LIVE_TRUTH_HISTORY_POPULATED = {
   rateLimit: { limit: 60, remaining: 59, category: "PUBLIC_READ", persistence: "PER_INSTANCE_UNPERSISTED" },
-  persistence: "UNPERSISTED",
+  persistence: "POSTGRES",
   count: 2,
   snapshots: [
     { id: 2, fingerprint: LEDGER_FP_B, claimsMeasured: 19, claimsAsserted: 0, createdAt: LEDGER_TS_NEW, drift: true },
@@ -181,7 +181,7 @@ const LIVE_SUMMARY_EMPTY = {
 };
 const LIVE_SUMMARY_POPULATED = {
   state: "POPULATED",
-  persistence: "UNPERSISTED",
+  persistence: "POSTGRES",
   count: 2,
   latestFingerprint: LEDGER_FP_B,
   capturedAt: LEDGER_TS_NEW,
@@ -656,6 +656,8 @@ describe("smoke-live contract evaluators", () => {
       it.area === "health" && it.name === "Database" ? { ...it, verdict: "MISSING" } : it,
     );
     honest.corpus = { ...honest.corpus, persistence: "UNPERSISTED" };
+    // STE-P-300: the ledger surface must agree too on a DB-less deploy.
+    honest.truthLedgerSummary = { ...honest.truthLedgerSummary, persistence: "UNPERSISTED" };
     honest.fingerprint = computeSelfVerifyFingerprint({
       items: honest.items,
       health: honest.health,
@@ -669,6 +671,60 @@ describe("smoke-live contract evaluators", () => {
     const r = checkSelfVerify(200, honest as never);
     expect(r.passed).toBe(true);
     expect(r.detail).toMatch(/DB-config identity: corpus persistence == health Database status/);
+  });
+
+  // STE-P-300: DB-config identity extended to the truth-ledger surface —
+  // truthLedgerSummary.persistence (isTruthLedgerPersistenceConfigured =
+  // DATABASE_URL.startsWith) must equal corpus.persistence. truthLedgerSummary
+  // is NOT fingerprint-anchored, so this is the only guard against a forged
+  // ledger-persistence claim inside selfVerify.
+  it("selfVerify PASSES and proves truthLedger persistence == corpus persistence (STE-P-300)", () => {
+    const r = checkSelfVerify(200, LIVE_SELFVERIFY);
+    expect(r.passed).toBe(true);
+    expect(r.detail).toMatch(/corpus persistence == health Database status == truthLedger persistence/);
+  });
+
+  it("selfVerify FAILS when the ledger claims POSTGRES but the corpus says UNPERSISTED (STE-P-300)", () => {
+    // A DB-less deploy (Database UNAVAILABLE, corpus UNPERSISTED) that forges a
+    // durable POSTGRES truth-ledger — a fabricated persistence claim the
+    // fingerprint cannot catch (truthLedgerSummary is not anchored). Keep the
+    // corpus↔health tie internally honest so we reach the ledger check.
+    const forged: Record<string, any> = JSON.parse(JSON.stringify(LIVE_SELFVERIFY));
+    forged.health = forged.health.map((h: any) =>
+      h.name === "Database" ? { ...h, status: "UNAVAILABLE" } : h,
+    );
+    forged.items = forged.items.map((it: any) =>
+      it.area === "health" && it.name === "Database" ? { ...it, verdict: "MISSING" } : it,
+    );
+    forged.corpus = { ...forged.corpus, persistence: "UNPERSISTED" };
+    // ledger stays POSTGRES (the forged durable claim under test)
+    forged.fingerprint = computeSelfVerifyFingerprint({
+      items: forged.items,
+      health: forged.health,
+      corpus: forged.corpus,
+      providers: forged.providers,
+      bridges: forged.bridges,
+      bridgeRuntime: forged.bridgeRuntime,
+      claimsMeasured: forged.claimsMeasured,
+      claimsAsserted: forged.claimsAsserted,
+    });
+    const r = checkSelfVerify(200, forged as never);
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/truthLedgerSummary.persistence=POSTGRES/);
+    expect(r.detail).toMatch(/corpus.persistence=UNPERSISTED/);
+    expect(r.detail).toMatch(/contradictory DB-configuration claim/);
+  });
+
+  it("selfVerify FAILS when the ledger claims UNPERSISTED but the corpus says POSTGRES (STE-P-300)", () => {
+    // corpus/health stay POSTGRES/HEALTHY (the honest live state); only the
+    // ledger surface lies UNPERSISTED. truthLedgerSummary is not anchored by
+    // the fingerprint, so no recompute is needed — the cross-check catches it.
+    const forged: Record<string, any> = JSON.parse(JSON.stringify(LIVE_SELFVERIFY));
+    forged.truthLedgerSummary = { ...forged.truthLedgerSummary, persistence: "UNPERSISTED" };
+    const r = checkSelfVerify(200, forged as never);
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/truthLedgerSummary.persistence=UNPERSISTED/);
+    expect(r.detail).toMatch(/corpus.persistence=POSTGRES/);
   });
 
 
