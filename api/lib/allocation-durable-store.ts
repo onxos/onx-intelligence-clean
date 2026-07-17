@@ -61,6 +61,7 @@ async function ensureSchema(): Promise<void> {
     authority_decision VARCHAR(16) NOT NULL,
     authority_reason TEXT NOT NULL,
     status VARCHAR(24) NOT NULL,
+    execution_policy VARCHAR(24) NOT NULL DEFAULT 'HUMAN_REVIEW_REQUIRED',
     eval_score REAL NOT NULL,
     fingerprint VARCHAR(64) NOT NULL,
     outcome VARCHAR(16) NOT NULL DEFAULT 'PENDING',
@@ -68,6 +69,10 @@ async function ensureSchema(): Promise<void> {
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     resolved_at TIMESTAMPTZ
   )`);
+  await p.query(
+    `ALTER TABLE onx_allocation_decisions
+     ADD COLUMN IF NOT EXISTS execution_policy VARCHAR(24) NOT NULL DEFAULT 'HUMAN_REVIEW_REQUIRED'`,
+  );
   schemaReady = true;
 }
 
@@ -85,6 +90,7 @@ function rowToRecord(r: any): DurableAllocationRecord {
     authorityDecision: r.authority_decision,
     authorityReason: r.authority_reason,
     status: r.status,
+    executionPolicy: r.execution_policy,
     evalScore: Number(r.eval_score),
     fingerprint: r.fingerprint,
     outcome: r.outcome,
@@ -120,8 +126,8 @@ export async function recordAllocationDecision(
       const ins = await client.query(
         `INSERT INTO onx_allocation_decisions
           (question, request, decision, verdict, rationale, evidence, authority_level, authority_decision,
-           authority_reason, status, eval_score, fingerprint)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+           authority_reason, status, execution_policy, eval_score, fingerprint)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
          RETURNING id`,
         [
           draft.question,
@@ -134,6 +140,7 @@ export async function recordAllocationDecision(
           draft.authorityDecision,
           draft.authorityReason,
           draft.status,
+          draft.executionPolicy,
           draft.evalScore,
           draft.fingerprint,
         ],
@@ -321,4 +328,3 @@ export async function getAllocationAccuracy(): Promise<AllocationAccuracy> {
     accuracy: resolved === 0 ? 0 : Math.round((confirmed / resolved) * 10000) / 10000,
   };
 }
-

@@ -82,6 +82,10 @@ export const allocationRouter = createRouter({
       rateLimit,
       persistenceConfigured: isAllocationPersistenceConfigured(),
       relevanceThreshold: ALLOCATION_RELEVANCE_THRESHOLD,
+      failClosedRules: [
+        "INSUFFICIENT_EVIDENCE=>REQUIRES_APPROVAL",
+        "AUTHORITY_DENIED=>REQUIRES_APPROVAL",
+      ],
       capabilities: [
         "durable-state",
         "corpus-tool",

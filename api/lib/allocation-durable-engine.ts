@@ -17,6 +17,7 @@ import {
 
 export type AllocationVerdict = "ACTIONABLE" | "INSUFFICIENT_EVIDENCE";
 export type AllocationStatus = "EXECUTED_ELIGIBLE" | "REQUIRES_APPROVAL";
+export type AllocationExecutionPolicy = "AUTO_EXECUTE" | "HUMAN_REVIEW_REQUIRED";
 
 export interface AllocationEvidence {
   id: string;
@@ -36,6 +37,7 @@ export interface DurableAllocationDraft {
   authorityDecision: AuthorityDecision;
   authorityReason: string;
   status: AllocationStatus;
+  executionPolicy: AllocationExecutionPolicy;
   evalScore: number;
   fingerprint: string;
 }
@@ -66,6 +68,7 @@ function fingerprintDraft(d: Omit<DurableAllocationDraft, "fingerprint">): strin
     authorityLevel: d.authorityLevel,
     authorityDecision: d.authorityDecision,
     status: d.status,
+    executionPolicy: d.executionPolicy,
     evalScore: d.evalScore,
   });
   return createHash("sha256").update(canonical).digest("hex");
@@ -128,15 +131,19 @@ export async function decideDurableAllocation(
     action: `allocation decision: ${input.question.slice(0, 120)}`,
     requested: authorityLevel,
   });
-  const status: AllocationStatus =
-    authorityRank(authorityLevel) <= authorityRank(AUTO_GRANT_CEILING)
-      ? "EXECUTED_ELIGIBLE"
-      : "REQUIRES_APPROVAL";
+  const canAutoExecute =
+    verdict === "ACTIONABLE" &&
+    auth.decision === "GRANTED" &&
+    authorityRank(authorityLevel) <= authorityRank(AUTO_GRANT_CEILING);
+  const status: AllocationStatus = canAutoExecute ? "EXECUTED_ELIGIBLE" : "REQUIRES_APPROVAL";
+  const executionPolicy: AllocationExecutionPolicy = canAutoExecute
+    ? "AUTO_EXECUTE"
+    : "HUMAN_REVIEW_REQUIRED";
 
   const rationale =
     verdict === "ACTIONABLE"
-      ? `D13.5 Allocation: grounded decision from ${evidence.length} corpus evidence item(s); top score=${topScore.toFixed(4)}; priority=${decision.priority ?? "NONE"}; mode=${decision.mode}; authority=${authorityLevel} (${auth.decision}).`
-      : `D13.5 Allocation: insufficient evidence (top score=${topScore.toFixed(4)} < ${ALLOCATION_RELEVANCE_THRESHOLD}); fail-honest refusal to fabricate; priority=${decision.priority ?? "NONE"}; mode=${decision.mode}; authority=${authorityLevel} (${auth.decision}).`;
+      ? `D13.5 Allocation: grounded decision from ${evidence.length} corpus evidence item(s); top score=${topScore.toFixed(4)}; priority=${decision.priority ?? "NONE"}; mode=${decision.mode}; authority=${authorityLevel} (${auth.decision}); executionPolicy=${executionPolicy}.`
+      : `D13.5 Allocation: insufficient evidence (top score=${topScore.toFixed(4)} < ${ALLOCATION_RELEVANCE_THRESHOLD}); fail-honest refusal to fabricate; priority=${decision.priority ?? "NONE"}; mode=${decision.mode}; authority=${authorityLevel} (${auth.decision}); executionPolicy=${executionPolicy}.`;
 
   const base: Omit<DurableAllocationDraft, "fingerprint"> = {
     question: input.question,
@@ -149,8 +156,8 @@ export async function decideDurableAllocation(
     authorityDecision: auth.decision,
     authorityReason: auth.reason,
     status,
+    executionPolicy,
     evalScore,
   };
   return { ...base, fingerprint: fingerprintDraft(base) };
 }
-

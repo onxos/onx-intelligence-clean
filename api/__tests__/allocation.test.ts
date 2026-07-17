@@ -197,6 +197,7 @@ describe("Allocation durable engine (D13.5)", () => {
     expect(d.verdict).toBe("ACTIONABLE");
     expect(d.authorityDecision).toBe("GRANTED");
     expect(d.status).toBe("EXECUTED_ELIGIBLE");
+    expect(d.executionPolicy).toBe("AUTO_EXECUTE");
   });
 
   it("fails honest when below threshold", async () => {
@@ -214,6 +215,8 @@ describe("Allocation durable engine (D13.5)", () => {
     );
     expect(ALLOCATION_RELEVANCE_THRESHOLD).toBe(1);
     expect(d.verdict).toBe("INSUFFICIENT_EVIDENCE");
+    expect(d.status).toBe("REQUIRES_APPROVAL");
+    expect(d.executionPolicy).toBe("HUMAN_REVIEW_REQUIRED");
     expect(d.rationale).toContain("fail-honest");
   });
 });
@@ -277,6 +280,7 @@ describe("Allocation durable router", () => {
   it("exposes durable status and supports decide/history/accuracy/outcome", async () => {
     const status = await caller.allocation.status();
     expect(status.persistenceConfigured).toBe(false);
+    expect(status.failClosedRules).toContain("INSUFFICIENT_EVIDENCE=>REQUIRES_APPROVAL");
 
     const decided = await caller.allocation.decide({
       question: "route D13.5 allocation",
@@ -290,6 +294,7 @@ describe("Allocation durable router", () => {
     });
     expect(decided.persistence).toBe("UNPERSISTED");
     expect(decided.decision.id).toBeGreaterThan(0);
+    expect(decided.decision.executionPolicy).toBe("AUTO_EXECUTE");
 
     const history = await caller.allocation.history({ limit: 10 });
     expect(history.count).toBeGreaterThan(0);
