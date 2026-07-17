@@ -35,13 +35,31 @@ import {
   getLatestIucSnapshot,
   recordObjectsLoadedOnBoot,
   replaceIurgObjects,
+  replaceIurgObjectsByIdPrefix,
   saveIucSnapshot,
   saveIurgObject,
 } from "./lib/iurg-store";
 import { getIucRuntimeStatus } from "./lib/iuc-runtime";
+import { searchCorpus, summarizeCorpus } from "./lib/corpus";
+import { buildCorpusGraph, relatedByQuery } from "./lib/corpus-graph";
+import { vectorSearchCorpus } from "./lib/corpus-vector";
+import { planRetention, applyRetention } from "./lib/corpus-retention";
+import { filterByClearance, accessBreakdown } from "./lib/corpus-access";
+import { buildInvertedIndex, indexStats, bm25Search } from "./lib/corpus-index";
+import { corpusPersistenceProof } from "./lib/corpus-health";
+import { hybridSearch, DEFAULT_HYBRID_WEIGHTS, type HybridWeights } from "./lib/corpus-hybrid";
+import { auditCorpus } from "./lib/corpus-quality";
+import { exportCorpusManifest } from "./lib/corpus-export";
 
 const zType = z.enum(IURG_TYPES as unknown as [IurgObjectType, ...IurgObjectType[]]);
 const zVerification = z.enum(["UNVERIFIED", "POSSIBLE", "PROBABLE", "CONFIRMED", "PROVEN"]);
+
+const zRetentionPolicy = z.object({
+  dropSynthetic: z.boolean().default(true),
+  minQuality: z.number().min(0).max(1).default(0),
+});
+
+const zClearance = z.enum(["PUBLIC", "INTERNAL", "RESTRICTED"]).default("PUBLIC");
 
 const zObject = z.object({
   id: z.string().optional(),
@@ -230,7 +248,7 @@ export const iucRouter = createRouter({
     };
   }),
 
-  // --- Persisted corpus status: grouped core counts + current corpus metrics ---
+  // --- Persisted corpus status: grouped core counts + provenance/quality ---
   corpusStatus: publicQuery.query(async () => {
     const [counts, persistedObjects, latest] = await Promise.all([
       getIurgObjectCounts(),
@@ -239,18 +257,303 @@ export const iucRouter = createRouter({
     ]);
 
     const computed = computeIUC(persistedObjects);
+    const corpus = summarizeCorpus(persistedObjects);
 
     return {
       perceptionCount: counts.PERCEPTION ?? 0,
       patternCount: counts.PATTERN ?? 0,
       understandingCount: counts.UNDERSTANDING ?? 0,
       totalObjects: persistedObjects.length,
+      // --- provenance & quality (honest, measured — no inflation) ---
+      provenanceValidCount: corpus.provenanceValidCount,
+      authoredCount: corpus.authoredCount,
+      ingestedCount: corpus.ingestedCount,
+      syntheticCount: corpus.syntheticCount,
+      avgQuality: corpus.avgQuality,
+      avgProvenanceValidQuality: corpus.avgProvenanceValidQuality,
       tuc: computed.tuc,
       ksr: indicatorValue(computed, "UC"),
       krr: indicatorValue(computed, "UVR"),
       latestSnapshotAt: latest?.timestamp ?? null,
     };
   }),
+
+  // --- Cited corpus retrieval: lexical search over persisted objects that
+  //     returns each hit WITH its provenance citation + quality score. ---
+  corpusSearch: publicQuery
+    .input(z.object({
+      query: z.string().min(1).max(200),
+      limit: z.number().int().min(1).max(50).default(10),
+      provenanceValidOnly: z.boolean().default(false),
+      clearance: zClearance,
+    }))
+    .query(async ({ input }) => {
+      const persistedObjects = await getIurgObjects();
+      const cleared = filterByClearance(persistedObjects, input.clearance);
+      const pool = input.provenanceValidOnly
+        ? cleared.filter((o) => o.provenance && o.provenance.type !== "SYNTHETIC" && !!o.provenance.citation)
+        : cleared;
+      const hits = searchCorpus(pool, input.query, input.limit);
+      return {
+        query: input.query,
+        clearance: input.clearance,
+        corpusSize: persistedObjects.length,
+        accessible: cleared.length,
+        withheld: persistedObjects.length - cleared.length,
+        searched: pool.length,
+        returned: hits.length,
+        results: hits,
+      };
+    }),
+
+  // --- Corpus knowledge graph: deterministic graph (records / authorities /
+  //     domains) built from real provenance metadata. Returns stats only by
+  //     default; include nodes/edges when explicitly requested. ---
+  corpusGraph: publicQuery
+    .input(z.object({ includeElements: z.boolean().default(false), clearance: zClearance }).optional())
+    .query(async ({ input }) => {
+      const persistedObjects = await getIurgObjects();
+      const cleared = filterByClearance(persistedObjects, input?.clearance ?? "PUBLIC");
+      const graph = buildCorpusGraph(cleared);
+      return {
+        stats: graph.stats,
+        ...(input?.includeElements ? { nodes: graph.nodes, edges: graph.edges } : {}),
+      };
+    }),
+
+  // --- Graph-augmented cited retrieval: lexically pick a seed record for the
+  //     query, then return its cited graph neighbours (shared authority / terms
+  //     / domain). Traversal stays verifiable — every neighbour carries a
+  //     citation. ---
+  corpusRelated: publicQuery
+    .input(z.object({
+      query: z.string().min(1).max(200),
+      limit: z.number().int().min(1).max(25).default(5),
+      clearance: zClearance,
+    }))
+    .query(async ({ input }) => {
+      const persistedObjects = await getIurgObjects();
+      const cleared = filterByClearance(persistedObjects, input.clearance);
+      return relatedByQuery(cleared, input.query, input.limit);
+    }),
+
+  // --- Access-control visibility: measured rollup of how many corpus records a
+  //     given clearance tier can read vs. what is withheld (honest, no
+  //     inflation). Proves tier enforcement is real, not cosmetic. ---
+  corpusAccess: publicQuery
+    .input(z.object({ clearance: zClearance }).optional())
+    .query(async ({ input }) => {
+      const persistedObjects = await getIurgObjects();
+      const corpusObjects = persistedObjects.filter((o) => (o.id ?? "").startsWith("corpus-"));
+      return accessBreakdown(corpusObjects, input?.clearance ?? "PUBLIC");
+    }),
+
+  // --- Inverted-index BM25 retrieval: builds a term->postings index and ranks
+  //     with Okapi BM25, scoring ONLY documents that contain a query term
+  //     (candidate count reported). Clearance-enforced + CITED. ---
+  corpusIndexSearch: publicQuery
+    .input(z.object({
+      query: z.string().min(1).max(200),
+      limit: z.number().int().min(1).max(50).default(10),
+      provenanceValidOnly: z.boolean().default(false),
+      clearance: zClearance,
+    }))
+    .query(async ({ input }) => {
+      const persistedObjects = await getIurgObjects();
+      const cleared = filterByClearance(persistedObjects, input.clearance);
+      const pool = input.provenanceValidOnly
+        ? cleared.filter((o) => o.provenance && o.provenance.type !== "SYNTHETIC" && !!o.provenance.citation)
+        : cleared;
+      const result = bm25Search(buildInvertedIndex(pool), pool, input.query, input.limit);
+      return {
+        query: input.query,
+        model: "bm25",
+        clearance: input.clearance,
+        corpusSize: persistedObjects.length,
+        accessible: cleared.length,
+        searched: pool.length,
+        candidates: result.candidates,
+        returned: result.hits.length,
+        results: result.hits,
+      };
+    }),
+
+  // --- Inverted-index stats: measured structure size (docs, vocabulary,
+  //     postings, avg doc length, top terms by document frequency). ---
+  corpusIndexStats: publicQuery
+    .input(z.object({ clearance: zClearance }).optional())
+    .query(async ({ input }) => {
+      const persistedObjects = await getIurgObjects();
+      const cleared = filterByClearance(persistedObjects, input?.clearance ?? "PUBLIC");
+      return indexStats(buildInvertedIndex(cleared));
+    }),
+
+  // --- Hybrid retrieval: deterministic weighted fusion of BM25 + TF-IDF cosine
+  //     + provenance-graph proximity into one explainable, CITED ranking. Each
+  //     hit carries its per-signal normalised components. Clearance-enforced. ---
+  corpusHybridSearch: publicQuery
+    .input(z.object({
+      query: z.string().min(1).max(200),
+      limit: z.number().int().min(1).max(50).default(10),
+      provenanceValidOnly: z.boolean().default(false),
+      clearance: zClearance,
+      weights: z.object({
+        bm25: z.number().min(0).max(1),
+        vector: z.number().min(0).max(1),
+        graph: z.number().min(0).max(1),
+      }).optional(),
+    }))
+    .query(async ({ input }) => {
+      const persistedObjects = await getIurgObjects();
+      const cleared = filterByClearance(persistedObjects, input.clearance);
+      const pool = input.provenanceValidOnly
+        ? cleared.filter((o) => o.provenance && o.provenance.type !== "SYNTHETIC" && !!o.provenance.citation)
+        : cleared;
+      const weights: HybridWeights = input.weights ?? DEFAULT_HYBRID_WEIGHTS;
+      const result = hybridSearch(pool, input.query, input.limit, weights);
+      return {
+        query: input.query,
+        model: result.model,
+        weights: result.weights,
+        clearance: input.clearance,
+        corpusSize: persistedObjects.length,
+        accessible: cleared.length,
+        searched: pool.length,
+        signalReach: result.signalReach,
+        returned: result.returned,
+        results: result.hits,
+      };
+    }),
+
+  // --- Quality audit: measured per-record quality distribution + flags over
+  //     the persisted corpus (histogram, per-provenance averages, and flag
+  //     counts for below-threshold / missing-citation / missing-domain /
+  //     short-content / synthetic-scaffold). Read-only; clearance-enforced. ---
+  corpusQualityAudit: publicQuery
+    .input(z.object({
+      minQuality: z.number().min(0).max(1).default(0.5),
+      minContentChars: z.number().int().min(0).max(2000).default(80),
+      limit: z.number().int().min(1).max(200).default(50),
+      clearance: zClearance,
+    }).optional())
+    .query(async ({ input }) => {
+      const persistedObjects = await getIurgObjects();
+      const cleared = filterByClearance(persistedObjects, input?.clearance ?? "PUBLIC");
+      const audit = auditCorpus(cleared, {
+        minQuality: input?.minQuality,
+        minContentChars: input?.minContentChars,
+        limit: input?.limit,
+      });
+      return {
+        clearance: input?.clearance ?? "PUBLIC",
+        corpusSize: persistedObjects.length,
+        accessible: cleared.length,
+        ...audit,
+      };
+    }),
+
+  // --- Provenance export: deterministic, audit-grade manifest of the corpus
+  //     (per-record content hash + citation + quality + a stable manifestHash
+  //     anchor). Independently verifiable + re-ingestible; no inflation.
+  //     Clearance-enforced. `includeRecords=false` returns just the summary +
+  //     hash for a lightweight integrity check. ---
+  corpusManifest: publicQuery
+    .input(z.object({
+      includeRecords: z.boolean().default(true),
+      clearance: zClearance,
+    }).optional())
+    .query(async ({ input }) => {
+      const persistedObjects = await getIurgObjects();
+      const cleared = filterByClearance(persistedObjects, input?.clearance ?? "PUBLIC");
+      const manifest = exportCorpusManifest(cleared);
+      const includeRecords = input?.includeRecords ?? true;
+      return {
+        clearance: input?.clearance ?? "PUBLIC",
+        corpusSize: persistedObjects.length,
+        accessible: cleared.length,
+        version: manifest.version,
+        generatedAt: manifest.generatedAt,
+        total: manifest.total,
+        provenanceValidCount: manifest.provenanceValidCount,
+        countByProvenance: manifest.countByProvenance,
+        manifestHash: manifest.manifestHash,
+        records: includeRecords ? manifest.records : undefined,
+      };
+    }),
+
+  // --- Durable-pg proof: run a LIVE read-after-write against the corpus pg
+  //     adapter (iurg-pg-store) on this instance's DATABASE_URL and report
+  //     persistence=POSTGRES ONLY after a verified round-trip (never a text
+  //     flag). In memory/mysql mode it reports that mode honestly. Numbers /
+  //     mode / booleans / truncated error only — never corpus contents.
+  //     Safe to curl on prod: it self-cleans its throwaway probe row. ---
+  corpusPersistenceProof: publicQuery.query(async () => ({
+    ...(await corpusPersistenceProof()),
+  })),
+
+  // --- Vector retrieval: classic TF-IDF vector-space model (cosine similarity)
+  //     over persisted objects. Honestly labelled — real term weights, NOT
+  //     neural embeddings. Each hit stays CITED + explainable (matchedTerms). ---
+  corpusVectorSearch: publicQuery
+    .input(z.object({
+      query: z.string().min(1).max(200),
+      limit: z.number().int().min(1).max(50).default(10),
+      provenanceValidOnly: z.boolean().default(false),
+      clearance: zClearance,
+    }))
+    .query(async ({ input }) => {
+      const persistedObjects = await getIurgObjects();
+      const cleared = filterByClearance(persistedObjects, input.clearance);
+      const pool = input.provenanceValidOnly
+        ? cleared.filter((o) => o.provenance && o.provenance.type !== "SYNTHETIC" && !!o.provenance.citation)
+        : cleared;
+      const results = vectorSearchCorpus(pool, input.query, input.limit);
+      return {
+        query: input.query,
+        model: "tf-idf-cosine",
+        clearance: input.clearance,
+        corpusSize: persistedObjects.length,
+        accessible: cleared.length,
+        withheld: persistedObjects.length - cleared.length,
+        searched: pool.length,
+        returned: results.length,
+        results,
+      };
+    }),
+
+  // --- Retention preview (dry-run): report what a retention policy WOULD prune
+  //     from the corpus and the measured before/after, WITHOUT mutating. Only
+  //     corpus- records are considered; provenance-valid records are never
+  //     eligible for pruning. ---
+  corpusRetentionPreview: publicQuery
+    .input(zRetentionPolicy.optional())
+    .query(async ({ input }) => {
+      const persistedObjects = await getIurgObjects();
+      const corpusObjects = persistedObjects.filter((o) => (o.id ?? "").startsWith("corpus-"));
+      const plan = planRetention(corpusObjects, input ?? {});
+      return { applied: false, ...plan };
+    }),
+
+  // --- Retention apply (mutation): prune synthetic / low-quality NON-cited
+  //     corpus records, ALWAYS preserving provenance-valid records. Scoped to
+  //     the corpus- id prefix so nothing else is touched. Measured + logged. ---
+  corpusRetentionApply: publicQuery
+    .input(zRetentionPolicy.optional())
+    .mutation(async ({ input }) => {
+      const persistedObjects = await getIurgObjects();
+      const corpusObjects = persistedObjects.filter((o) => (o.id ?? "").startsWith("corpus-"));
+      const plan = planRetention(corpusObjects, input ?? {});
+      const kept = applyRetention(corpusObjects, input ?? {});
+      await replaceIurgObjectsByIdPrefix("corpus-", kept);
+      if (plan.prunedIds.length > 0) {
+        await appendContinuityLog({
+          tick: 0,
+          eventType: "DECAY",
+          detail: `CORPUS_RETENTION:pruned=${plan.prunedIds.length}:synthetic=${plan.prunedByReason.synthetic}:lowQuality=${plan.prunedByReason.lowQuality}:provenanceValidPreserved=${plan.provenanceValidPreserved}`,
+        });
+      }
+      return { applied: true, ...plan };
+    }),
 
   // --- Live health for IUC + Living Loop scheduler ---
   health: publicQuery.query(async () => {
