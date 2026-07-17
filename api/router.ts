@@ -32,6 +32,7 @@ import { intentEngineRouter } from "./intent-engine-router";
 import { providersRouter } from "./providers-router";
 import { onxRouter } from "./onx-router";
 import { askRouter } from "./ask-router";
+import { titanDecisionRouter } from "./titan-decision-router";
 import { iucRouter } from "./iuc-router";
 import { measurementRouter } from "./measurement-router";
 import { ficRouter } from "./fic-router";
@@ -151,6 +152,9 @@ export const appRouter = createRouter({
   onx: onxRouter,
   // K4 — ask.onx: deterministic cited answer (intent + BM25 fused)
   ask: askRouter,
+  // Phase P — Titan Decision Engine: durable + tool-grounded + authority-gated
+  // + evaluated + outcome-feedback operational replacement for prompt-only titans
+  titanDecision: titanDecisionRouter,
 });
 
 export type AppRouter = typeof appRouter;
