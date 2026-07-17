@@ -15,6 +15,7 @@ import { getIurgObjects, replaceIurgObjects } from "../api/lib/iurg-store";
 import { buildCorpusObjects, searchCorpus, summarizeCorpus, type CorpusSeed } from "../api/lib/corpus";
 import { buildCorpusGraph, relatedByQuery } from "../api/lib/corpus-graph";
 import { vectorSearchCorpus } from "../api/lib/corpus-vector";
+import { planRetention } from "../api/lib/corpus-retention";
 import { CURATED_VET_CORPUS } from "../api/lib/corpus-data";
 
 function synthetic(contentText: string): CorpusSeed {
@@ -112,6 +113,20 @@ async function main() {
       excerpt: h.excerpt.slice(0, 100),
     })), null, 2));
   }
+
+  // Retention evidence: dry-run plan (pure, no mutation) proving provenance-valid
+  // records are ALWAYS preserved while synthetic scaffold is prunable. MEASURED.
+  const plan = planRetention(persisted, { dropSynthetic: true });
+  console.log("\n=== RETENTION plan (dry-run, provenance-preserving) ===");
+  console.log(JSON.stringify({
+    policy: plan.policy,
+    beforeTotal: plan.before.total,
+    afterTotal: plan.after.total,
+    prunedByReason: plan.prunedByReason,
+    provenanceValidBefore: plan.before.provenanceValidCount,
+    provenanceValidAfter: plan.after.provenanceValidCount,
+    provenanceValidPreserved: plan.provenanceValidPreserved,
+  }, null, 2));
 }
 
 main().catch((error) => {

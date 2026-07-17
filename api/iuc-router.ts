@@ -35,6 +35,7 @@ import {
   getLatestIucSnapshot,
   recordObjectsLoadedOnBoot,
   replaceIurgObjects,
+  replaceIurgObjectsByIdPrefix,
   saveIucSnapshot,
   saveIurgObject,
 } from "./lib/iurg-store";
@@ -42,9 +43,15 @@ import { getIucRuntimeStatus } from "./lib/iuc-runtime";
 import { searchCorpus, summarizeCorpus } from "./lib/corpus";
 import { buildCorpusGraph, relatedByQuery } from "./lib/corpus-graph";
 import { vectorSearchCorpus } from "./lib/corpus-vector";
+import { planRetention, applyRetention } from "./lib/corpus-retention";
 
 const zType = z.enum(IURG_TYPES as unknown as [IurgObjectType, ...IurgObjectType[]]);
 const zVerification = z.enum(["UNVERIFIED", "POSSIBLE", "PROBABLE", "CONFIRMED", "PROVEN"]);
+
+const zRetentionPolicy = z.object({
+  dropSynthetic: z.boolean().default(true),
+  minQuality: z.number().min(0).max(1).default(0),
+});
 
 const zObject = z.object({
   id: z.string().optional(),
@@ -337,6 +344,40 @@ export const iucRouter = createRouter({
         returned: results.length,
         results,
       };
+    }),
+
+  // --- Retention preview (dry-run): report what a retention policy WOULD prune
+  //     from the corpus and the measured before/after, WITHOUT mutating. Only
+  //     corpus- records are considered; provenance-valid records are never
+  //     eligible for pruning. ---
+  corpusRetentionPreview: publicQuery
+    .input(zRetentionPolicy.optional())
+    .query(async ({ input }) => {
+      const persistedObjects = await getIurgObjects();
+      const corpusObjects = persistedObjects.filter((o) => (o.id ?? "").startsWith("corpus-"));
+      const plan = planRetention(corpusObjects, input ?? {});
+      return { applied: false, ...plan };
+    }),
+
+  // --- Retention apply (mutation): prune synthetic / low-quality NON-cited
+  //     corpus records, ALWAYS preserving provenance-valid records. Scoped to
+  //     the corpus- id prefix so nothing else is touched. Measured + logged. ---
+  corpusRetentionApply: publicQuery
+    .input(zRetentionPolicy.optional())
+    .mutation(async ({ input }) => {
+      const persistedObjects = await getIurgObjects();
+      const corpusObjects = persistedObjects.filter((o) => (o.id ?? "").startsWith("corpus-"));
+      const plan = planRetention(corpusObjects, input ?? {});
+      const kept = applyRetention(corpusObjects, input ?? {});
+      await replaceIurgObjectsByIdPrefix("corpus-", kept);
+      if (plan.prunedIds.length > 0) {
+        await appendContinuityLog({
+          tick: 0,
+          eventType: "DECAY",
+          detail: `CORPUS_RETENTION:pruned=${plan.prunedIds.length}:synthetic=${plan.prunedByReason.synthetic}:lowQuality=${plan.prunedByReason.lowQuality}:provenanceValidPreserved=${plan.provenanceValidPreserved}`,
+        });
+      }
+      return { applied: true, ...plan };
     }),
 
   // --- Live health for IUC + Living Loop scheduler ---
