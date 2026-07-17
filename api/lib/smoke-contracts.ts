@@ -266,6 +266,41 @@ export function checkHealth(
   };
 }
 
+// STE-P-295: the deployed commit is the deployment-proof ANCHOR. It is
+// exposed on three surfaces that all derive from the same process-level
+// deployedCommit() (boot.ts:26-56): /health.commit, /commit.commit, and
+// selfVerify.bridgeRuntime.commitSha. Because they share one source they
+// MUST be byte-identical on a healthy single deploy — a divergence means
+// a split/stale deploy (gateway serving an older build than the origin)
+// or a forged commitSha in the runtime report. Until P295 nothing
+// asserted this: /commit was never fetched as a contract and commitSha
+// was only format-checked. This returns a mismatch string or null. The
+// bootTime is also process-global, so /commit.bootTime must equal
+// /health.bootTime; the service label is a fixed self-identifier.
+export function checkCommitCrossSurface(
+  healthBody: { commit?: string; bootTime?: string },
+  commitStatus: number,
+  commitBody: { commit?: string; service?: string; bootTime?: string },
+): string | null {
+  if (commitStatus !== 200) return `/commit returned ${commitStatus}`;
+  if (!commitBody?.commit) return "/commit carries no commit field";
+  if (!/^[0-9a-f]{7,40}$/i.test(String(commitBody.commit)))
+    return `/commit commit is not sha-like hex (${commitBody.commit})`;
+  if (!commitMatches(healthBody?.commit, commitBody.commit))
+    return `commit cross-surface drift: /health=${String(healthBody?.commit)} /commit=${String(commitBody.commit)}`;
+  if (commitBody.service !== "onx-intelligence-clean")
+    return `/commit service label unexpected (${String(commitBody.service)})`;
+  // bootTime is a single process-global constant — a mismatch proves the
+  // two responses came from different processes (split deploy).
+  if (
+    healthBody?.bootTime !== undefined &&
+    commitBody.bootTime !== undefined &&
+    String(healthBody.bootTime) !== String(commitBody.bootTime)
+  )
+    return `bootTime cross-surface drift: /health=${String(healthBody.bootTime)} /commit=${String(commitBody.bootTime)}`;
+  return null;
+}
+
 export function checkSelfVerify(
   status: number,
   data: {
@@ -323,6 +358,13 @@ export function checkSelfVerify(
       status?: string;
     }>;
     nowMs?: number;
+  },
+  crossSurface?: {
+    // STE-P-295: the deployed commit measured from /health (same
+    // process-global deployedCommit()). When present and real,
+    // bridgeRuntime.commitSha MUST match it — the runtime report cannot
+    // claim a different build than the one actually serving.
+    deployedCommit?: string | null;
   },
 ): ContractResult {
   const name = "honest_status_selfverify";
@@ -409,6 +451,22 @@ export function checkSelfVerify(
   };
   if (bridgeRuntime.commitSha !== null && !/^[0-9a-f]{40}$/i.test(String(bridgeRuntime.commitSha)))
     return { name, passed: false, detail: `bridgeRuntime.commitSha invalid (${String(bridgeRuntime.commitSha)})` };
+  // STE-P-295: cross-surface commit identity — the runtime report's
+  // commitSha must equal the deployed commit measured from /health (same
+  // process-global source). Only enforced when both are real shas, so
+  // local/dev (deployedCommit()="unknown", commitSha=null) stays honest.
+  const deployedCommit = crossSurface?.deployedCommit;
+  if (
+    bridgeRuntime.commitSha !== null &&
+    typeof deployedCommit === "string" &&
+    /^[0-9a-f]{7,40}$/i.test(deployedCommit) &&
+    !commitMatches(deployedCommit, String(bridgeRuntime.commitSha))
+  )
+    return {
+      name,
+      passed: false,
+      detail: `commit cross-surface drift: bridgeRuntime.commitSha=${String(bridgeRuntime.commitSha)} but /health commit=${deployedCommit}`,
+    };
   if (!/^[0-9a-f]{64}$/.test(String(bridgeRuntime.checksum)))
     return { name, passed: false, detail: "bridgeRuntime.checksum is not sha256 hex" };
   // ---- STE-P-293: fingerprint RECOMPUTATION (anti-forgery) ----
@@ -707,7 +765,13 @@ export function checkSelfVerify(
   return {
     name,
     passed: true,
-    detail: `${items.length} items, measured=${measuredCount} asserted=${assertedCount}, truthLedgerSummary.count=${total}; fingerprint RECOMPUTED from served sections and verified`,
+    detail: `${items.length} items, measured=${measuredCount} asserted=${assertedCount}, truthLedgerSummary.count=${total}; fingerprint RECOMPUTED from served sections and verified${
+      typeof crossSurface?.deployedCommit === "string" &&
+      /^[0-9a-f]{7,40}$/i.test(crossSurface.deployedCommit) &&
+      bridgeRuntime.commitSha !== null
+        ? "; bridgeRuntime.commitSha == /health commit (cross-surface)"
+        : ""
+    }`,
   };
 }
 
@@ -1652,6 +1716,10 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
   // STE-P-291: manifest sha256/docCount captured from corpusQuery.manifest
   // (contract 7) and fed to the same cross-surface identity check.
   let corpusManifestFromContract: CorpusManifestCrossSurface | undefined = undefined;
+  // STE-P-295: the deployed commit measured from /health (same
+  // process-global source as /commit and bridgeRuntime.commitSha), fed to
+  // the selfVerify contract for commitSha cross-surface identity.
+  let deployedCommitFromHealth: string | undefined = undefined;
 
   function mergeParity(contract: ContractResult, mismatch: string | null): ContractResult {
     if (!mismatch || !contract.passed) return contract;
@@ -1662,10 +1730,16 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
     };
   }
 
-  // 1) /health
+  function mergeDetail(contract: ContractResult, mismatch: string | null, suffix: string): ContractResult {
+    if (mismatch) return { name: contract.name, passed: false, detail: mismatch };
+    if (!contract.passed) return contract;
+    return { name: contract.name, passed: true, detail: `${contract.detail}${suffix}` };
+  }
+
+  // 1) /health + /commit — the deployment-proof anchor surfaces
   {
     const { status, body, raw } = await getJson(fetchImpl, `${base}/health`);
-    const healthBody = (body ?? {}) as { commit?: string };
+    const healthBody = (body ?? {}) as { commit?: string; bootTime?: string };
     let contract = checkHealth(status, healthBody as never, expectedSha, Date.now());
     if (parityBase) {
       let mismatch: string | null = null;
@@ -1684,10 +1758,30 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
       }
       contract = mergeParity(contract, mismatch);
     }
+    // STE-P-295: fetch /commit and assert cross-surface commit identity
+    // (/health.commit == /commit.commit, shared bootTime, service label).
+    let commitMismatch: string | null = null;
+    {
+      const commitRes = await getJson(fetchImpl, `${base}/commit`);
+      const commitBody = (commitRes.body ?? {}) as {
+        commit?: string;
+        service?: string;
+        bootTime?: string;
+      };
+      commitMismatch = checkCommitCrossSurface(healthBody, commitRes.status, commitBody);
+      const commitLeak = assertNoKeyLeak(commitRes.raw);
+      if (commitLeak) leaks.push(`commit:${commitLeak}`);
+    }
+    contract = mergeDetail(
+      contract,
+      commitMismatch,
+      "; /commit identity verified (commit+bootTime+service)",
+    );
     contracts.push(contract);
     // Freshness signal for the corpus manifest contract: the live
     // commit is confirmed to equal EXPECT_COMMIT.
     deployFresh = !!expectedSha && commitMatches(healthBody.commit, expectedSha);
+    if (typeof healthBody.commit === "string") deployedCommitFromHealth = healthBody.commit;
     const leak = assertNoKeyLeak(raw);
     if (leak) leaks.push(`health:${leak}`);
   }
@@ -1732,6 +1826,7 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
       status,
       selfVerifyData as never,
       { status: schedulerStatusResponse.status, rows: schedulerRows },
+      { deployedCommit: deployedCommitFromHealth },
     );
     if (parityBase) {
       let mismatch: string | null = null;

@@ -9,6 +9,7 @@ import { describe, it, expect } from "vitest";
 import {
   runSmoke,
   checkHealth,
+  checkCommitCrossSurface,
   checkSelfVerify,
   checkRateDisclosure,
   checkAskRefusal,
@@ -73,6 +74,16 @@ const LIVE_HEALTH = {
   env: "production",
   commit: COMMIT,
   uptime: 1,
+  bootTime: "2026-01-01T00:00:00.000Z",
+  timestamp: "2026-01-01T00:00:00.000Z",
+};
+// STE-P-295: /commit mirrors /health's process-global deployedCommit()
+// and BOOT_TIME (boot.ts:49-56) — cross-surface identity holds by
+// default; the divergence tests override it explicitly.
+const LIVE_COMMIT = {
+  commit: COMMIT,
+  service: "onx-intelligence-clean",
+  bootTime: "2026-01-01T00:00:00.000Z",
   timestamp: "2026-01-01T00:00:00.000Z",
 };
 const LIVE_PROVIDERS = {
@@ -393,6 +404,7 @@ const LIVE_BRIDGE_SURFACES = {
 function liveFetch(overrides: Partial<Record<string, SmokeResponse>> = {}): FetchLike {
   return async (url, init) => {
     if (url.endsWith("/health")) return overrides.health ?? resp(200, LIVE_HEALTH);
+    if (url.endsWith("/commit")) return overrides.commit ?? resp(200, LIVE_COMMIT);
     if (url.includes("onx.selfVerify")) return overrides.selfVerify ?? trpcOk(LIVE_SELFVERIFY);
     if (url.includes("onx.bridgeSurfaces")) return overrides.bridgeSurfaces ?? trpcOk(LIVE_BRIDGE_SURFACES);
     if (url.includes("scheduler.status")) return overrides.schedulerStatus ?? trpcOk(LIVE_SCHEDULER_STATUS);
@@ -553,6 +565,96 @@ describe("smoke-live contract evaluators", () => {
 
   it("ask refusal passes on honest INSUFFICIENT_EVIDENCE + DEMO + no citations", () => {
     expect(checkAskRefusal(200, LIVE_ASK_REFUSAL).passed).toBe(true);
+  });
+
+  // ---- STE-P-295: commit cross-surface identity (direct evaluators) ----
+  describe("STE-P-295 commit cross-surface identity (direct evaluators)", () => {
+    const HEALTH = { commit: COMMIT, bootTime: "2026-01-01T00:00:00.000Z" };
+
+    it("passes when /commit matches /health commit + bootTime + service", () => {
+      expect(checkCommitCrossSurface(HEALTH, 200, LIVE_COMMIT)).toBeNull();
+    });
+
+    it("fails on a non-200 /commit", () => {
+      expect(checkCommitCrossSurface(HEALTH, 503, LIVE_COMMIT)).toMatch(/\/commit returned 503/);
+    });
+
+    it("fails when /commit omits the commit field or serves a non-sha", () => {
+      expect(checkCommitCrossSurface(HEALTH, 200, { ...LIVE_COMMIT, commit: undefined })).toMatch(
+        /no commit field/,
+      );
+      expect(checkCommitCrossSurface(HEALTH, 200, { ...LIVE_COMMIT, commit: "not-a-sha" })).toMatch(
+        /not sha-like hex/,
+      );
+    });
+
+    it("fails on commit drift between /health and /commit (split/stale deploy)", () => {
+      const drifted = { ...LIVE_COMMIT, commit: "0000000000000000000000000000000000000000" };
+      expect(checkCommitCrossSurface(HEALTH, 200, drifted)).toMatch(
+        /commit cross-surface drift: \/health=.* \/commit=0000000000/,
+      );
+    });
+
+    it("fails on bootTime drift (responses from different processes)", () => {
+      const drifted = { ...LIVE_COMMIT, bootTime: "2020-01-01T00:00:00.000Z" };
+      expect(checkCommitCrossSurface(HEALTH, 200, drifted)).toMatch(/bootTime cross-surface drift/);
+    });
+
+    it("fails on an unexpected service label", () => {
+      const drifted = { ...LIVE_COMMIT, service: "some-other-service" };
+      expect(checkCommitCrossSurface(HEALTH, 200, drifted)).toMatch(/service label unexpected/);
+    });
+
+    it("accepts short/prefix commit forms across surfaces", () => {
+      const shortHealth = { commit: COMMIT.slice(0, 7), bootTime: "2026-01-01T00:00:00.000Z" };
+      expect(checkCommitCrossSurface(shortHealth, 200, LIVE_COMMIT)).toBeNull();
+    });
+
+    it("selfVerify passes when bridgeRuntime.commitSha matches the deployed commit", () => {
+      const withSha = {
+        ...LIVE_SELFVERIFY,
+        bridgeRuntime: { ...LIVE_SELFVERIFY_BRIDGE_RUNTIME, commitSha: COMMIT },
+        fingerprint: computeSelfVerifyFingerprint({
+          items: LIVE_SELFVERIFY_ITEMS,
+          health: LIVE_SELFVERIFY_HEALTH,
+          corpus: LIVE_SELFVERIFY_CORPUS,
+          providers: LIVE_SELFVERIFY_PROVIDERS,
+          bridges: LIVE_SELFVERIFY_BRIDGES,
+          bridgeRuntime: { ...LIVE_SELFVERIFY_BRIDGE_RUNTIME, commitSha: COMMIT },
+          claimsMeasured: 5,
+          claimsAsserted: 0,
+        }),
+      };
+      const r = checkSelfVerify(200, withSha as never, undefined, { deployedCommit: COMMIT });
+      expect(r.passed).toBe(true);
+      expect(r.detail).toMatch(/bridgeRuntime\.commitSha == \/health commit \(cross-surface\)/);
+    });
+
+    it("selfVerify fails when bridgeRuntime.commitSha diverges from the deployed commit", () => {
+      const forged = "1111111111111111111111111111111111111111";
+      const withSha = {
+        ...LIVE_SELFVERIFY,
+        bridgeRuntime: { ...LIVE_SELFVERIFY_BRIDGE_RUNTIME, commitSha: forged },
+        fingerprint: computeSelfVerifyFingerprint({
+          items: LIVE_SELFVERIFY_ITEMS,
+          health: LIVE_SELFVERIFY_HEALTH,
+          corpus: LIVE_SELFVERIFY_CORPUS,
+          providers: LIVE_SELFVERIFY_PROVIDERS,
+          bridges: LIVE_SELFVERIFY_BRIDGES,
+          bridgeRuntime: { ...LIVE_SELFVERIFY_BRIDGE_RUNTIME, commitSha: forged },
+          claimsMeasured: 5,
+          claimsAsserted: 0,
+        }),
+      };
+      const r = checkSelfVerify(200, withSha as never, undefined, { deployedCommit: COMMIT });
+      expect(r.passed).toBe(false);
+      expect(r.detail).toMatch(/commit cross-surface drift: bridgeRuntime\.commitSha=1111/);
+    });
+
+    it("selfVerify stays tolerant when commitSha is null (local/dev honest)", () => {
+      const r = checkSelfVerify(200, LIVE_SELFVERIFY as never, undefined, { deployedCommit: COMMIT });
+      expect(r.passed).toBe(true);
+    });
   });
   it("ask refusal fails if it fabricates (citations) or omits DEMO", () => {
     expect(checkAskRefusal(200, { ...LIVE_ASK_REFUSAL, status: "ANSWERED" }).passed).toBe(false);
@@ -956,6 +1058,73 @@ describe("runSmoke orchestration (mocked fetch)", () => {
     const cited = report.contracts.find((c) => c.name === "ask_onx_cited_answer");
     expect(cited?.passed).toBe(false);
     expect(cited?.detail).toMatch(/diverges between ask surfaces/);
+  });
+
+  // ---- STE-P-295: runner enforces commit cross-surface identity ----
+  it("runner verifies /commit identity end-to-end (folded into health_live)", async () => {
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch(),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    const health = report.contracts.find((c) => c.name === "health_live");
+    expect(health?.passed).toBe(true);
+    expect(health?.detail).toMatch(/\/commit identity verified \(commit\+bootTime\+service\)/);
+  });
+
+  it("runner fails health_live when /commit drifts from /health commit", async () => {
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({
+        commit: resp(200, { ...LIVE_COMMIT, commit: "0000000000000000000000000000000000000000" }),
+      }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    expect(report.passed).toBe(false);
+    const health = report.contracts.find((c) => c.name === "health_live");
+    expect(health?.passed).toBe(false);
+    expect(health?.detail).toMatch(/commit cross-surface drift/);
+  });
+
+  it("runner fails health_live when /commit is unreachable", async () => {
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({ commit: resp(503, {}) }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    expect(report.passed).toBe(false);
+    const health = report.contracts.find((c) => c.name === "health_live");
+    expect(health?.passed).toBe(false);
+    expect(health?.detail).toMatch(/\/commit returned 503/);
+  });
+
+  it("runner fails selfVerify when bridgeRuntime.commitSha diverges from live /health commit", async () => {
+    const forged = "1111111111111111111111111111111111111111";
+    const brWithSha = { ...LIVE_SELFVERIFY_BRIDGE_RUNTIME, commitSha: forged };
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({
+        selfVerify: trpcOk({
+          ...LIVE_SELFVERIFY,
+          bridgeRuntime: brWithSha,
+          fingerprint: computeSelfVerifyFingerprint({
+            items: LIVE_SELFVERIFY_ITEMS,
+            health: LIVE_SELFVERIFY_HEALTH,
+            corpus: LIVE_SELFVERIFY_CORPUS,
+            providers: LIVE_SELFVERIFY_PROVIDERS,
+            bridges: LIVE_SELFVERIFY_BRIDGES,
+            bridgeRuntime: brWithSha,
+            claimsMeasured: 5,
+            claimsAsserted: 0,
+          }),
+        }),
+      }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    expect(report.passed).toBe(false);
+    const sv = report.contracts.find((c) => c.name === "honest_status_selfverify");
+    expect(sv?.passed).toBe(false);
+    expect(sv?.detail).toMatch(/commit cross-surface drift: bridgeRuntime\.commitSha=1111/);
   });
 
   it("truth_ledger_read passes on an honest EMPTY live ledger (named empty state)", async () => {
