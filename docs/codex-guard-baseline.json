@@ -1,0 +1,87 @@
+{
+  "note": "Codex Guard baseline — pre-existing (legacy) charter deviations tracked as debt to be closed in a dedicated later wave. NOT muted: still reported. New deviations are NOT accepted here.",
+  "generatedAt": "2026-07-11T04:51:51.258Z",
+  "total": 16,
+  "deviations": [
+    {
+      "filename": "api/advanced-engines-router.ts",
+      "rule": "FORBIDDEN_LABEL",
+      "match": "consciousness"
+    },
+    {
+      "filename": "api/cos-router.ts",
+      "rule": "FAKE_LIVE_METRIC",
+      "match": "node.syncHealth = Math.round((0.8 + Math.random() * 0.2) * 100) / 100;"
+    },
+    {
+      "filename": "api/evidence-registry-router.ts",
+      "rule": "FORBIDDEN_LABEL",
+      "match": "consciousness"
+    },
+    {
+      "filename": "api/health-router.ts",
+      "rule": "FORBIDDEN_LABEL",
+      "match": "consciousness"
+    },
+    {
+      "filename": "api/knowledge-router.ts",
+      "rule": "FAKE_LIVE_METRIC",
+      "match": "confidence: Math.round((0.5 + Math.random() * 0.5) * 100) / 100,"
+    },
+    {
+      "filename": "api/scheduler-router.ts",
+      "rule": "FORBIDDEN_LABEL",
+      "match": "consciousness"
+    },
+    {
+      "filename": "api/scheduler-router.ts",
+      "rule": "FAKE_LIVE_METRIC",
+      "match": "case \"ucr\": results[task] = { certified: true, score: 0.95 + Math.random() * 0.0"
+    },
+    {
+      "filename": "api/ucr-router.ts",
+      "rule": "FAKE_LIVE_METRIC",
+      "match": "score: Math.round((0.5 + Math.random() * 0.5) * 100) / 100,"
+    },
+    {
+      "filename": "api/ucr-router.ts",
+      "rule": "FAKE_LIVE_METRIC",
+      "match": "const score = Math.round((0.5 + Math.random() * 0.5) * 100) / 100;"
+    },
+    {
+      "filename": "src/App.tsx",
+      "rule": "FORBIDDEN_LABEL",
+      "match": "consciousness"
+    },
+    {
+      "filename": "src/App.tsx",
+      "rule": "FORBIDDEN_LABEL",
+      "match": "consciousness"
+    },
+    {
+      "filename": "src/components/Navigation.tsx",
+      "rule": "FORBIDDEN_LABEL",
+      "match": "consciousness"
+    },
+    {
+      "filename": "src/pages/Consciousness.tsx",
+      "rule": "FORBIDDEN_LABEL",
+      "match": "consciousness"
+    },
+    {
+      "filename": "src/pages/DashboardV2.tsx",
+      "rule": "FORBIDDEN_LABEL",
+      "match": "consciousness"
+    },
+    {
+      "filename": "src/pages/Landing.tsx",
+      "rule": "FORBIDDEN_LABEL",
+      "match": "consciousness"
+    },
+    {
+      "filename": "src/pages/Landing.tsx",
+      "rule": "FORBIDDEN_LABEL",
+      "match": "consciousness"
+    }
+  ]
+}

@@ -5,6 +5,16 @@
 import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 import { getBridgeState } from "./bridge-guard";
+import { countEvents } from "./lib/platform-inbox-store";
+import { getPerceptionAdapterStatus } from "./lib/perception-adapter";
+import { getPersistenceStatus } from "./lib/iurg-store";
+import { getReflectionStatus } from "./lib/reflection-cycle";
+import {
+  getInsightsServedTotal,
+  listPublicInsights,
+  PUBLIC_INSIGHTS_MAX,
+} from "./lib/insights-port";
+import { getInsightAckCounters } from "./lib/insight-ack";
 
 // --- Component Health ---
 interface ComponentHealth {
@@ -123,4 +133,68 @@ export const healthRouter = createRouter({
       timestamp: new Date().toISOString(),
     };
   }),
+
+  // HT-07: platformEvents — Phase C3a ingest counter (live verification)
+  platformEvents: publicQuery.query(async () => {
+    try {
+      const count = await countEvents();
+      return {
+        available: true,
+        count,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        available: false,
+        count: null,
+        error: (error as Error).message,
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }),
+
+  // HT-08: perceptionAdapter — Wave 5-b inbox→IUC feed counters.
+  // Numbers + timestamps + truncated error message only; no payloads.
+  perceptionAdapter: publicQuery.query(() => ({
+    ...getPerceptionAdapterStatus(),
+    timestamp: new Date().toISOString(),
+  })),
+
+  // HT-09: persistence — Wave 6-b mind-memory persistence counters.
+  // Numbers + mode only; no object contents are ever exposed.
+  persistence: publicQuery.query(() => ({
+    ...getPersistenceStatus(),
+    timestamp: new Date().toISOString(),
+  })),
+
+  // HT-10: reflection — Wave 7-c insight-generation counters, plus the
+  // Wave 8-a reverse channel counter (insights served to the body) and
+  // the Wave 9-a founder-verdict counters (acks received/failed).
+  // Numbers + timestamps + truncated error message only; no insight contents.
+  reflection: publicQuery.query(() => ({
+    ...getReflectionStatus(),
+    insightsServedTotal: getInsightsServedTotal(),
+    ...getInsightAckCounters(),
+    timestamp: new Date().toISOString(),
+  })),
+
+  // HT-11: insightsPublic — Wave 11-b founder mind-pulse feed (read-only).
+  // Serves the newest reflection insights with the same insight-* filter and
+  // exposure contract as titan.listInsights ({ id, contentText, rank,
+  // verification, type, createdAt } ONLY — no internal graph scores, no
+  // ack-* or other non-insight objects). Public by design: the insights are
+  // already surfaced to the founder on the platform. Max 20, newest first,
+  // and never counted as "served to the body" (HT-10 tracks bridge only).
+  insightsPublic: publicQuery
+    .input(
+      z
+        .object({
+          limit: z.number().int().min(1).max(PUBLIC_INSIGHTS_MAX).optional(),
+        })
+        .optional(),
+    )
+    .query(({ input }) => {
+      const { insights, count } = listPublicInsights({ limit: input?.limit });
+      return { insights, count, timestamp: new Date().toISOString() };
+    }),
 });

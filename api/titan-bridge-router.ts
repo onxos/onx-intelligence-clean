@@ -9,6 +9,27 @@ import { createRouter, publicQuery } from "./middleware";
 import { env } from "./lib/env";
 import { rateLimiter, budgetController, costDashboard } from "./advanced-engines-router";
 import { assertBridgeAccess, getBridgeState } from "./bridge-guard";
+import {
+  insertEvent,
+  getEventStats,
+  getRecentEvents,
+  getAggregateTimeline,
+  getInboxRecordIdByEventId,
+  type InsertEventInput,
+  type InsertEventResult,
+} from "./lib/platform-inbox-store";
+import {
+  admitLiveEvent,
+  type ValidationError,
+} from "./lib/bridge-contracts";
+import {
+  marketingLiveIngest,
+  MarketingIdempotencyCollisionError,
+  type PlatformEventEnvelope,
+  type MarketingInboxDeps,
+} from "./lib/marketing-contracts";
+import { listInsightsFromGraph } from "./lib/insights-port";
+import { recordInsightAck } from "./lib/insight-ack";
 
 // --- Lazy OpenAI client (server starts even without key) ---
 let openai: OpenAI | null = null;
@@ -258,6 +279,78 @@ async function callTitan(
 }
 
 // ============================================================
+// Live ingest gate (G1) — every inbound event passes the B8 institutional
+// contract BEFORE it reaches the inbox store. Extracted from the router
+// mutation so the fail-closed behaviour is directly unit-testable with an
+// injected store (no DB, deterministic). `insert` defaults to the real
+// platform-inbox store in production.
+// ============================================================
+export interface IngestEventInput {
+  source: string;
+  eventId: number;
+  eventType: string;
+  aggregateType: string;
+  aggregateId: string;
+  occurredAt: string;
+  payload?: Record<string, unknown> | null;
+}
+
+export type IngestEventResponse =
+  | { accepted: true; duplicate: boolean; id?: number }
+  | {
+      accepted: false;
+      rejected: true;
+      eventType: string;
+      version: number | null;
+      errors: ValidationError[];
+    };
+
+/**
+ * FAIL-CLOSED live ingest: validate the event against its registered B8
+ * institutional contract, and only persist it if the contract is satisfied.
+ * An unknown event type or a missing/mistyped identity field is rejected
+ * here with explicit errors and is NEVER handed to the store. On success the
+ * response shape is unchanged (`{ accepted, duplicate, id }`); rejections add
+ * the `rejected`/`errors` fields.
+ */
+export async function ingestThroughBridgeContract(
+  input: IngestEventInput,
+  insert: (e: InsertEventInput) => Promise<InsertEventResult> = insertEvent,
+): Promise<IngestEventResponse> {
+  const validation = admitLiveEvent({
+    eventType: input.eventType,
+    source: input.source,
+    eventId: input.eventId,
+    aggregateType: input.aggregateType,
+    aggregateId: input.aggregateId,
+    occurredAt: input.occurredAt,
+    payload: input.payload ?? {},
+  });
+
+  if (!validation.valid) {
+    return {
+      accepted: false,
+      rejected: true,
+      eventType: validation.eventType,
+      version: validation.version,
+      errors: validation.errors,
+    };
+  }
+
+  const result = await insert({
+    source: input.source,
+    eventId: input.eventId,
+    eventType: input.eventType,
+    aggregateType: input.aggregateType,
+    aggregateId: input.aggregateId,
+    occurredAt: input.occurredAt,
+    payload: input.payload ?? null,
+  });
+
+  return { accepted: true, duplicate: result.duplicate, id: result.id };
+}
+
+// ============================================================
 // Titan Bridge Router
 // ============================================================
 export const titanBridgeRouter = createRouter({
@@ -350,6 +443,187 @@ export const titanBridgeRouter = createRouter({
         rateLimit: { remaining: rateCheck.remaining - 1, resetAt: rateCheck.resetAt },
         budget: { remaining: budgetCheck.remaining },
         constitutionalStatus: "COMPLIANT",
+      };
+    }),
+
+  // --- Platform bridge contract: ingestEvent (Phase C3a — Body→Mind event inbox) ---
+  ingestEvent: publicQuery
+    .input(z.object({
+      source: z.string().min(1).max(100).default("platform"),
+      eventId: z.number().int().nonnegative(),
+      eventType: z.string().min(1).max(200),
+      aggregateType: z.string().min(1).max(200),
+      aggregateId: z.string().min(1).max(200),
+      occurredAt: z.string().datetime(),
+      payload: z.record(z.string(), z.unknown()).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      assertBridgeAccess(ctx);
+
+      // FAIL-CLOSED B8 contract gate: an event that does not satisfy its
+      // registered institutional contract (unknown type, missing/mistyped
+      // identity field) is rejected here and NEVER reaches the inbox.
+      return ingestThroughBridgeContract({
+        source: input.source,
+        eventId: input.eventId,
+        eventType: input.eventType,
+        aggregateType: input.aggregateType,
+        aggregateId: input.aggregateId,
+        occurredAt: input.occurredAt,
+        payload: input.payload ?? null,
+      });
+    }),
+
+  // --- Platform bridge contract: ingestMarketingEvent (G3 — marketing bridge) ---
+  // The onx-marketing-platform forwards a literal PlatformEventEnvelope. This
+  // authenticated, rate-limited receiver reuses the SAME bridge secret and rate
+  // limiter as `ingestEvent`, converts the envelope through the fail-closed G3
+  // contract, and lands it in the SAME `onx_platform_event_inbox` the minds read.
+  // A genuine idempotency collision surfaces as an explicit error, never a silent
+  // duplicate drop.
+  ingestMarketingEvent: publicQuery
+    .input(z.object({
+      recordId: z.string().min(1).max(200),
+      workspaceId: z.string().min(1).max(200),
+      requesterId: z.string().min(1).max(200),
+      sourceType: z.string().min(1).max(200),
+      sourceId: z.string().min(1).max(200),
+      eventType: z.string().min(1).max(200),
+      rawPayload: z.record(z.string(), z.unknown()).default({}),
+      traceId: z.string().min(1).max(200),
+      occurredAt: z.string().datetime(),
+      metadata: z.object({
+        origin: z.string().min(1).max(200),
+        entityType: z.string().min(1).max(200),
+        entityId: z.string().min(1).max(200),
+      }),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      assertBridgeAccess(ctx);
+
+      // Namespaced rate-limit bucket: marketing traffic gets its own quota and
+      // does NOT consume the general `ingestEvent`/`consult` allowance.
+      const rateCheck = rateLimiter.checkLimit(`marketing:${input.workspaceId}`);
+      if (!rateCheck.allowed) {
+        throw new Error(
+          `RATE_LIMIT_EXCEEDED: ${rateCheck.remaining} remaining, resets at ${rateCheck.resetAt.toISOString()}`,
+        );
+      }
+
+      const deps: MarketingInboxDeps = {
+        insert: insertEvent,
+        lookupRecordId: getInboxRecordIdByEventId,
+      };
+
+      try {
+        const res = await marketingLiveIngest(input as PlatformEventEnvelope, deps);
+        if (!res.accepted) {
+          return { accepted: false as const, rejected: true as const, errors: res.errors ?? [] };
+        }
+        return { accepted: true as const, duplicate: !!res.duplicate, id: res.id, eventId: res.eventId };
+      } catch (error) {
+        if (error instanceof MarketingIdempotencyCollisionError) {
+          throw new Error(`IDEMPOTENCY_COLLISION: eventId ${error.eventId} maps to two distinct records`);
+        }
+        throw error;
+      }
+    }),
+
+  // --- Phase E1 "Mind reads body": read-only inbox analytics ---
+  // Public by design: aggregate counts + basic event columns only.
+  // No payload bodies are exposed here (payload stays behind the bridge key).
+  inboxStats: publicQuery.query(async () => {
+    const stats = await getEventStats();
+    return {
+      bridge: "titanBridge",
+      ...stats,
+      timestamp: new Date().toISOString(),
+    };
+  }),
+
+  recentEvents: publicQuery
+    .input(z.object({ limit: z.number().int().min(1).max(50).default(20) }).optional())
+    .query(async ({ input }) => {
+      const rows = await getRecentEvents(input?.limit ?? 20);
+      return {
+        bridge: "titanBridge",
+        count: rows.length,
+        // Strip payload preview from the public surface — types/entities/timestamps only
+        events: rows.map(({ payloadPreview: _payloadPreview, ...rest }) => rest),
+        timestamp: new Date().toISOString(),
+      };
+    }),
+
+  // Aggregate timeline includes truncated payload previews → bridge-guarded
+  aggregateTimeline: publicQuery
+    .input(z.object({
+      aggregateType: z.string().min(1).max(200),
+      aggregateId: z.string().min(1).max(200),
+      limit: z.number().int().min(1).max(200).default(50),
+    }))
+    .query(async ({ input, ctx }) => {
+      assertBridgeAccess(ctx);
+      const events = await getAggregateTimeline(input.aggregateType, input.aggregateId, input.limit);
+      return {
+        bridge: "titanBridge",
+        aggregateType: input.aggregateType,
+        aggregateId: input.aggregateId,
+        count: events.length,
+        events,
+        timestamp: new Date().toISOString(),
+      };
+    }),
+
+  // --- Wave 8-a "Mind speaks back": first reverse channel (mind → body) ---
+  // The platform pulls the reflection-cycle insights (insight-* PATTERN
+  // objects in the live IURG graph) for the founder decision inbox.
+  // Read-only; bridge-guarded exactly like aggregateTimeline. Each item
+  // exposes ONLY { id, contentText, rank, verification, type, createdAt }.
+  // Internal failures / empty graph → { insights: [], count: 0 }, no throw.
+  listInsights: publicQuery
+    .input(z.object({
+      afterTimestamp: z.string().datetime().optional(),
+      limit: z.number().int().min(1).optional(),
+    }).optional())
+    .query(({ input, ctx }) => {
+      assertBridgeAccess(ctx);
+      const { insights, count } = listInsightsFromGraph({
+        afterTimestamp: input?.afterTimestamp,
+        limit: input?.limit,
+      });
+      return {
+        bridge: "titanBridge",
+        insights,
+        count,
+        timestamp: new Date().toISOString(),
+      };
+    }),
+
+  // --- Wave 9-a "Founder verdict feeds back": the platform notifies the
+  // mind that the founder approved/rejected an insight it served over
+  // listInsights. Bridge-guarded exactly like aggregateTimeline. The
+  // verdict is upserted into the live IURG graph as `ack-<insightId>`
+  // (recordInsightAck never throws) and the response exposes ONLY
+  // { bridge, ok, insightId, timestamp } — internal failure reasons
+  // stay behind the bridge (counters surface through HT-10).
+  acknowledgeInsight: publicQuery
+    .input(z.object({
+      insightId: z.string().min(1),
+      verdict: z.enum(["approved", "rejected"]),
+      decidedAt: z.string().datetime().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      assertBridgeAccess(ctx);
+      const result = await recordInsightAck({
+        insightId: input.insightId,
+        verdict: input.verdict,
+        decidedAt: input.decidedAt,
+      });
+      return {
+        bridge: "titanBridge",
+        ok: result.ok,
+        insightId: input.insightId,
+        timestamp: new Date().toISOString(),
       };
     }),
 

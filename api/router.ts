@@ -39,6 +39,18 @@ import { proofRouter } from "./proof-router";
 import { osRouter } from "./os-router";
 import { livingLoopRouter } from "./living-loop-router";
 import { usfipRouter } from "./usfip-router";
+import { ocmbrRouter } from "./ocmbr-router";
+import { codexGuardRouter } from "./codex-guard-router";
+import { authorityRouter } from "./authority-router";
+import { orchestratorRouter } from "./orchestrator-router";
+import { methodsLibraryRouter } from "./methods-library-router";
+import { capabilityFactoryRouter } from "./capability-factory-router";
+import { intelligenceObjectRouter } from "./intelligence-object-router";
+import { bridgeContractsRouter } from "./bridge-contracts-router";
+import { realityEngineRouter } from "./reality-engine-router";
+import { zeroInputRouter } from "./zero-input-router";
+import { evaluationLearningRouter } from "./evaluation-learning-router";
+import { deepResearchRouter } from "./deep-research-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -104,6 +116,30 @@ export const appRouter = createRouter({
   os: osRouter,
   livingLoop: livingLoopRouter,
   usfip: usfipRouter,
+  // B0 — OCMBR Runtime: executive truth ledger (five-state maturity)
+  ocmbr: ocmbrRouter,
+  // B1 — Codex Guard: charter enforcement (deviation scan + claim eval)
+  codexGuard: codexGuardRouter,
+  // B3 — Constitution runtime: A0–A5 authority gate + CCMR + CEvP (fail-closed)
+  authority: authorityRouter,
+  // B2 — ONX Orchestrator: mandate → closed waves → verify → report
+  orchestrator: orchestratorRouter,
+  // B2-β — Methods Library: governed method records + compliance verify
+  methodsLibrary: methodsLibraryRouter,
+  // B2-γ — Capability Factory: propose → A2-gated generate → guard → verify → promote
+  capabilityFactory: capabilityFactoryRouter,
+  // B4 — Intelligence Objects: deterministic reasoning lifecycle + persistent memory
+  intelligenceObject: intelligenceObjectRouter,
+  // B8 — Bridge Contracts: versioned schema registry + fail-closed validation + unified activity log
+  bridgeContracts: bridgeContractsRouter,
+  // B5 — Reality Engine: deterministic ingest→graph→contradiction detection
+  realityEngine: realityEngineRouter,
+  // B7 — Constrained Zero-Input: authority-classified suggestions (propose-only, fail-closed)
+  zeroInput: zeroInputRouter,
+  // B6 — Evaluation & Learning: deterministic golden sets + fail-closed regression gates + OCMBR RUN evidence
+  evaluationLearning: evaluationLearningRouter,
+  // K1 — Deep Research: plan→collect→validate→contradict→report loop (reuses B5 contradiction detection)
+  deepResearch: deepResearchRouter,
   // Platform contract aliases
   bridge: titanBridgeRouter,
   corpusQuery: corpusQueryRouter,

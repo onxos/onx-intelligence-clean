@@ -1,0 +1,127 @@
+name: Codex Guard (B1)
+
+# Charter enforcement in CI (mandatory step). Scans ONLY new/changed
+# source against the deviation rules — legacy code is not retroactively
+# gated — and runs the B0/B1 governance test suites.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  codex-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Codex Guard — scan changed files
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin "${{ github.base_ref }}" --depth=1
+            npx tsx scripts/codex-guard-scan.ts --base=origin/${{ github.base_ref }}
+          else
+            npx tsx scripts/codex-guard-scan.ts --changed
+          fi
+
+      - name: OCMBR + Codex Guard test suites (B0/B1)
+        run: npx vitest run api/__tests__/ocmbr.test.ts api/__tests__/codex-guard.test.ts
+
+      - name: Orchestrator test suite (B2)
+        run: npx vitest run api/__tests__/orchestrator.test.ts
+
+      - name: Constitution runtime + Authority test suites (B3)
+        run: npx vitest run api/__tests__/constitution.test.ts api/__tests__/authority.test.ts
+
+      - name: Methods Library test suite (B2-β)
+        run: npx vitest run api/__tests__/methods-library.test.ts
+
+      - name: Capability Factory test suite (B2-γ)
+        run: npx vitest run api/__tests__/capability-factory.test.ts
+
+      - name: Intelligence Objects + Persistent Memory test suites (B4)
+        run: npx vitest run api/__tests__/intelligence-object.test.ts api/__tests__/persistent-memory.test.ts
+
+      - name: Bridge Contracts test suite (B8)
+        run: npx vitest run api/__tests__/bridge-contract.test.ts
+
+      - name: Marketing Event Contracts test suite (G3)
+        run: npx vitest run api/__tests__/marketing-contracts.test.ts
+
+      - name: Reality Engine test suite (B5)
+        run: npx vitest run api/__tests__/reality-engine.test.ts
+
+      - name: Zero-Input test suite (B7)
+        run: npx vitest run api/__tests__/zero-input.test.ts
+
+      - name: Evaluation & Learning test suite (B6)
+        run: npx vitest run api/__tests__/evaluation-learning.test.ts
+
+      - name: Bridge Ingest Contract test suite (G1+G4)
+        run: npx vitest run api/__tests__/bridge-ingest-contract.test.ts
+
+      # Privacy evidence: perception summaries are key-names-only, pulse
+      # endpoints expose counts only — these suites are the enforcement.
+      - name: Perception + Reflection + Revenue-Pulse test suites (privacy)
+        run: npx vitest run api/__tests__/perception-adapter.test.ts api/__tests__/reflection-cycle.test.ts api/__tests__/revenue-pulse.test.ts
+
+      # K4 evidence: method-bound tasks are verified from INDEPENDENT
+      # artifacts only (executor's methodOutput is recorded-but-ignored),
+      # hollow evidence rejects, and REVIEW/MERGE + RUN/FIX ordering is
+      # matched per-ref. Filters assert the anti-self-certify tests ran.
+      - name: Governed Methods Enforcement (K4)
+        run: |
+          npx vitest run api/__tests__/methods-library.test.ts -t "anti-self-certification"
+          npx vitest run api/__tests__/orchestrator.test.ts -t "K4"
+
+      - name: Deep Research test suite (K1)
+        run: npx vitest run api/__tests__/deep-research.test.ts
+
+  # Resolves the recorded B4 constraint `pg-adapter-untested`: exercises the
+  # real PgVectorMemoryStore against a LIVE Postgres+pgvector (no mock). This
+  # job genuinely RUNS the integration suite (never skipped) because the
+  # service container provides PG_TEST_URL.
+  pg-adapter-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: onx_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: PgVector adapter integration test (B4 pg-adapter-untested)
+        env:
+          PG_TEST_URL: postgres://postgres:postgres@localhost:5432/onx_test
+        run: npx vitest run api/__tests__/pg-adapter-integration.test.ts

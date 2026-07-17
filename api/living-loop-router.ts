@@ -16,6 +16,7 @@ import {
   type LoopState,
   type Rung,
 } from "./living-loop";
+import { appendContinuityLog } from "./lib/iurg-store";
 
 const zRung = z.enum(RUNGS as unknown as [Rung, ...Rung[]]);
 const zSeed = z.array(z.object({
@@ -31,18 +32,36 @@ let loop: LoopState = createLoop([
   { id: "obj-2", rung: "R2", strength: 0.55, reinforceRate: 0.0, decayRate: 0.06 },
 ]);
 
+async function persistEvents(events: LoopState["log"]) {
+  for (const event of events) {
+    await appendContinuityLog({
+      tick: event.tick,
+      eventType: event.type,
+      objectId: event.objectId,
+      detail: event.detail,
+    });
+  }
+}
+
 export const livingLoopRouter = createRouter({
   rungs: publicQuery.query(() => ({ rungs: RUNGS, thresholds: PROMOTION_THRESHOLDS })),
 
-  seed: publicQuery.input(z.object({ objects: zSeed })).mutation(({ input }) => {
+  seed: publicQuery.input(z.object({ objects: zSeed })).mutation(async ({ input }) => {
     loop = createLoop(input.objects);
+    await appendContinuityLog({
+      tick: loop.tick,
+      eventType: "SNAPSHOT",
+      detail: `LOOP_SEEDED:${loop.objects.length}`,
+    });
     return snapshot(loop);
   }),
 
   tick: publicQuery.input(z.object({ times: z.number().int().min(1).max(1000).optional() }).optional())
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       const times = input?.times ?? 1;
+      const start = loop.log.length;
       for (let i = 0; i < times; i++) tickLoop(loop);
+      await persistEvents(loop.log.slice(start));
       return snapshot(loop);
     }),
 
@@ -56,18 +75,25 @@ export const livingLoopRouter = createRouter({
   log: publicQuery.query(() => ({ total: loop.log.length, events: loop.log })),
 
   resolveGate: publicQuery.input(z.object({ objectId: z.string(), approve: z.boolean() }))
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
+      const start = loop.log.length;
       resolveGate(loop, input.objectId, input.approve);
+      await persistEvents(loop.log.slice(start));
       return snapshot(loop);
     }),
 
   snapshot: publicQuery.query(() => snapshot(loop)),
 
-  reset: publicQuery.mutation(() => {
+  reset: publicQuery.mutation(async () => {
     loop = createLoop([
       { id: "obj-1", rung: "R1", strength: 0.5, reinforceRate: 0.08, decayRate: 0.02 },
       { id: "obj-2", rung: "R2", strength: 0.55, reinforceRate: 0.0, decayRate: 0.06 },
     ]);
+    await appendContinuityLog({
+      tick: loop.tick,
+      eventType: "SNAPSHOT",
+      detail: "LOOP_RESET",
+    });
     return snapshot(loop);
   }),
 });

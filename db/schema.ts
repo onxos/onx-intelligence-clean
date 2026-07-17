@@ -9,6 +9,8 @@ import {
   bigint,
   int,
   index,
+  json,
+  uniqueIndex,
 } from "drizzle-orm/mysql-core";
 
 // ============================================================
@@ -338,6 +340,63 @@ export const continuityLog = mysqlTable("continuity_log", {
   index("cont_layer_idx").on(table.layer),
   index("cont_entity_idx").on(table.entityId),
   index("cont_hash_idx").on(table.hash),
+]);
+
+// --- Track I: IURG persistence + hourly IUC snapshots + append-only continuity entries ---
+export const iurgObjects = mysqlTable("iurg_objects", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  type: mysqlEnum("type", [
+    "PERCEPTION", "PATTERN", "UNDERSTANDING", "JUDGMENT", "DECISION", "EXECUTION", "OUTCOME",
+    "FOUNDER_INTENT", "CONSTITUTIONAL_CONSTRAINT",
+    "EVIDENCE", "REVIEW", "AMENDMENT", "CONFLICT", "OVERRIDE", "VALIDATION", "LEARNING_EVENT",
+  ]).notNull(),
+  rank: mysqlEnum("rank", ["R1", "R2", "R3", "R4", "R5", "R6"]).default("R1").notNull(),
+  strength: decimal("strength", { precision: 12, scale: 6 }).default("0.500000").notNull(),
+  verification: mysqlEnum("verification", ["UNVERIFIED", "POSSIBLE", "PROBABLE", "CONFIRMED", "PROVEN"])
+    .default("UNVERIFIED")
+    .notNull(),
+  content: text("content"),
+  context: text("context"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull().$onUpdate(() => new Date()),
+  decayAppliedAt: timestamp("decay_applied_at"),
+  hashChain: text("hash_chain"),
+}, (table) => [
+  index("iurg_type_idx").on(table.type),
+  index("iurg_rank_idx").on(table.rank),
+]);
+
+export const iucSnapshots = mysqlTable("iuc_snapshots", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+  tuc: decimal("tuc", { precision: 14, scale: 6 }).notNull(),
+  ugr: decimal("ugr", { precision: 14, scale: 6 }).default("0.000000").notNull(),
+  urs: decimal("urs", { precision: 14, scale: 6 }).default("0.000000").notNull(),
+  ksr: decimal("ksr", { precision: 14, scale: 6 }).default("0.000000").notNull(),
+  pdr: decimal("pdr", { precision: 14, scale: 6 }).default("0.000000").notNull(),
+  krr: decimal("krr", { precision: 14, scale: 6 }).default("0.000000").notNull(),
+  kor: decimal("kor", { precision: 14, scale: 6 }).default("0.000000").notNull(),
+  scg: decimal("scg", { precision: 14, scale: 6 }).default("0.000000").notNull(),
+  sai: decimal("sai", { precision: 14, scale: 6 }).default("0.000000").notNull(),
+  objectCount: int("object_count").default(0).notNull(),
+  snapshotHash: text("snapshot_hash").notNull(),
+}, (table) => [
+  index("iuc_snapshot_ts_idx").on(table.timestamp),
+]);
+
+export const continuityLogEntries = mysqlTable("continuity_log_entries", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tick: int("tick").default(0).notNull(),
+  eventType: mysqlEnum("event_type", ["DECAY", "REINFORCE", "PROMOTION", "DEMOTION", "GATE_PENDING", "SNAPSHOT"]).notNull(),
+  objectId: varchar("object_id", { length: 64 }),
+  detail: text("detail"),
+  previousHash: text("previous_hash").notNull(),
+  currentHash: text("current_hash").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("continuity_tick_idx").on(table.tick),
+  index("continuity_obj_idx").on(table.objectId),
+  index("continuity_hash_idx").on(table.currentHash),
 ]);
 
 // --- Governance Decisions (FIC, Amanah, Guardian audit trail) ---
@@ -718,3 +777,22 @@ export const gpsEvents = mysqlTable("gps_events", {
   index("gps_recorded_idx").on(table.recordedAt),
 ]);
 
+// --- Phase C3a: Platform → Intelligence event inbox (bridge ingest) ---
+export const onxPlatformEventInbox = mysqlTable("onx_platform_event_inbox", {
+  id: serial("id").primaryKey(),
+  source: varchar("source", { length: 100 }).notNull(),
+  eventId: bigint("event_id", { mode: "number" }).notNull(),
+  eventType: varchar("event_type", { length: 200 }).notNull(),
+  aggregateType: varchar("aggregate_type", { length: 200 }).notNull(),
+  aggregateId: varchar("aggregate_id", { length: 200 }).notNull(),
+  occurredAt: timestamp("occurred_at").notNull(),
+  payload: json("payload"),
+  receivedAt: timestamp("received_at").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("inbox_source_event_idx").on(table.source, table.eventId),
+  index("inbox_event_type_idx").on(table.eventType),
+  index("inbox_aggregate_idx").on(table.aggregateType, table.aggregateId),
+]);
+
+export type PlatformEventInbox = typeof onxPlatformEventInbox.$inferSelect;
+export type InsertPlatformEventInbox = typeof onxPlatformEventInbox.$inferInsert;
