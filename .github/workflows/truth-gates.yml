@@ -18,7 +18,7 @@ on:
     branches:
       - "onxos-ste01-**"
   pull_request:
-    branches: [main]
+    branches: [main, onxos-ste01-deploy-readiness]
   workflow_dispatch:
 
 jobs:
