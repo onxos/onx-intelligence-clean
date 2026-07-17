@@ -19,6 +19,7 @@ import { replaceIurgObjectsByIdPrefix, saveIucSnapshot } from "../api/lib/iurg-s
 import { computeIUC } from "../api/iuc-engine";
 import { buildCorpusObjects, summarizeCorpus, type CorpusSeed } from "../api/lib/corpus";
 import { CURATED_VET_CORPUS } from "../api/lib/corpus-data";
+import { CURATED_ONX_CANON } from "../api/lib/corpus-onx-canon";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const seedFileName = "knowledge-seed-15k.json";
@@ -153,6 +154,18 @@ function buildSyntheticSeeds(): CorpusSeed[] {
 }
 
 async function loadSeeds(): Promise<{ source: string; seeds: CorpusSeed[] }> {
+  // Founder/operator override: point CORPUS_SEED_FILE at any provenance-bearing
+  // JSON dataset (array, or { records|items|data|entries|knowledge: [...] }) and
+  // it is ingested as INGESTED records cited to that file. This is the honest,
+  // ready path for a licensed bulk source — no fabrication, provenance preserved.
+  const override = process.env.CORPUS_SEED_FILE?.trim();
+  if (override) {
+    const abs = path.isAbsolute(override) ? override : path.resolve(repoRoot, override);
+    const raw = await readFile(abs, "utf8");
+    const relPath = path.relative(repoRoot, abs) || abs;
+    return { source: `CORPUS_SEED_FILE=${relPath}`, seeds: ingestExternal(pickArray(JSON.parse(raw)), relPath) };
+  }
+
   const filePath = await findSeedFile(repoRoot);
   if (filePath) {
     const raw = await readFile(filePath, "utf8");
@@ -160,8 +173,8 @@ async function loadSeeds(): Promise<{ source: string; seeds: CorpusSeed[] }> {
     return { source: relPath, seeds: ingestExternal(pickArray(JSON.parse(raw)), relPath) };
   }
   return {
-    source: "curated authored veterinary corpus + labeled synthetic scaffold",
-    seeds: [...CURATED_VET_CORPUS, ...buildSyntheticSeeds()],
+    source: "curated authored veterinary corpus + ONX constitutional canon + labeled synthetic scaffold",
+    seeds: [...CURATED_VET_CORPUS, ...CURATED_ONX_CANON, ...buildSyntheticSeeds()],
   };
 }
 
