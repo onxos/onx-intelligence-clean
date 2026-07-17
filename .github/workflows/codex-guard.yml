@@ -5,9 +5,9 @@ name: Codex Guard (B1)
 # gated — and runs the B0/B1 governance test suites.
 on:
   pull_request:
-    branches: [main]
+    branches: [main, onxos-ste01-deploy-readiness]
   push:
-    branches: [main]
+    branches: [main, onxos-ste01-deploy-readiness]
   workflow_dispatch:
 
 jobs:
@@ -84,6 +84,12 @@ jobs:
         run: |
           npx vitest run api/__tests__/methods-library.test.ts -t "anti-self-certification"
           npx vitest run api/__tests__/orchestrator.test.ts -t "K4"
+
+      # G6 evidence: mind-tick living cycle — inbox(B8 replay)→B5→B7 is
+      # propose-only (<=A1, autoExecutable=false), fail-closed with durable
+      # quarantine before cursor advance, lease-guarded, idempotent replay.
+      - name: Mind Tick test suite (G6)
+        run: npx vitest run api/__tests__/mind-tick.test.ts
 
       - name: Deep Research test suite (K1)
         run: npx vitest run api/__tests__/deep-research.test.ts
