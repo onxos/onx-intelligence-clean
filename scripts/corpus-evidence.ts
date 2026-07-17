@@ -21,6 +21,7 @@ import { indexSearchCorpus, buildInvertedIndex, indexStats } from "../api/lib/co
 import { corpusPersistenceProof } from "../api/lib/corpus-health";
 import { hybridSearch } from "../api/lib/corpus-hybrid";
 import { auditCorpus } from "../api/lib/corpus-quality";
+import { exportCorpusManifest, verifyManifest } from "../api/lib/corpus-export";
 import { CURATED_VET_CORPUS } from "../api/lib/corpus-data";
 
 function synthetic(contentText: string): CorpusSeed {
@@ -205,6 +206,25 @@ async function main() {
     flagCounts: audit.flagCounts,
     flaggedCount: audit.flaggedCount,
     cleanCount: audit.cleanCount,
+  }, null, 2));
+
+  // Provenance export evidence: deterministic manifest + self-verification.
+  const manifest = exportCorpusManifest(persisted);
+  const verification = verifyManifest(persisted, manifest);
+  const reordered = exportCorpusManifest([...persisted].reverse());
+  console.log("\n=== PROVENANCE EXPORT (deterministic audit manifest) ===");
+  console.log(JSON.stringify({
+    version: manifest.version,
+    total: manifest.total,
+    provenanceValidCount: manifest.provenanceValidCount,
+    manifestHash: manifest.manifestHash,
+    orderIndependentHashMatch: reordered.manifestHash === manifest.manifestHash,
+    selfVerify: { valid: verification.valid, mismatches: verification.mismatches.length },
+    sampleRecord: manifest.records[0] && {
+      id: manifest.records[0].id,
+      contentHash: `${manifest.records[0].contentHash.slice(0, 16)}…`,
+      citation: manifest.records[0].citation,
+    },
   }, null, 2));
 
   // Durable-pg proof: report whether the corpus adapter REALLY persists to

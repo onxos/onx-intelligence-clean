@@ -49,6 +49,7 @@ import { buildInvertedIndex, indexStats, bm25Search } from "./lib/corpus-index";
 import { corpusPersistenceProof } from "./lib/corpus-health";
 import { hybridSearch, DEFAULT_HYBRID_WEIGHTS, type HybridWeights } from "./lib/corpus-hybrid";
 import { auditCorpus } from "./lib/corpus-quality";
+import { exportCorpusManifest } from "./lib/corpus-export";
 
 const zType = z.enum(IURG_TYPES as unknown as [IurgObjectType, ...IurgObjectType[]]);
 const zVerification = z.enum(["UNVERIFIED", "POSSIBLE", "PROBABLE", "CONFIRMED", "PROVEN"]);
@@ -448,6 +449,35 @@ export const iucRouter = createRouter({
         corpusSize: persistedObjects.length,
         accessible: cleared.length,
         ...audit,
+      };
+    }),
+
+  // --- Provenance export: deterministic, audit-grade manifest of the corpus
+  //     (per-record content hash + citation + quality + a stable manifestHash
+  //     anchor). Independently verifiable + re-ingestible; no inflation.
+  //     Clearance-enforced. `includeRecords=false` returns just the summary +
+  //     hash for a lightweight integrity check. ---
+  corpusManifest: publicQuery
+    .input(z.object({
+      includeRecords: z.boolean().default(true),
+      clearance: zClearance,
+    }).optional())
+    .query(async ({ input }) => {
+      const persistedObjects = await getIurgObjects();
+      const cleared = filterByClearance(persistedObjects, input?.clearance ?? "PUBLIC");
+      const manifest = exportCorpusManifest(cleared);
+      const includeRecords = input?.includeRecords ?? true;
+      return {
+        clearance: input?.clearance ?? "PUBLIC",
+        corpusSize: persistedObjects.length,
+        accessible: cleared.length,
+        version: manifest.version,
+        generatedAt: manifest.generatedAt,
+        total: manifest.total,
+        provenanceValidCount: manifest.provenanceValidCount,
+        countByProvenance: manifest.countByProvenance,
+        manifestHash: manifest.manifestHash,
+        records: includeRecords ? manifest.records : undefined,
       };
     }),
 
