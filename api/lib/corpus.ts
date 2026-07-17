@@ -223,6 +223,28 @@ function tokenize(text: string): string[] {
     .filter((token) => token.length > 1);
 }
 
+// Common English + clinical filler words that carry no discriminative signal for
+// graph term-edges. Kept small and deterministic (no external NLP dependency).
+const STOP_WORDS = new Set([
+  "the", "and", "for", "are", "with", "that", "this", "from", "should", "based",
+  "into", "per", "not", "but", "its", "their", "them", "they", "which", "when",
+  "was", "were", "has", "have", "had", "can", "may", "will", "must", "each",
+  "all", "any", "such", "than", "then", "over", "under", "within", "about",
+  "after", "before", "during", "every", "including", "plus", "also", "using",
+  "used", "use", "given", "these", "those", "there", "where", "while",
+]);
+
+/** Deterministic significant-term set for graph term-edges (stopword-filtered). */
+export function significantTerms(text: string): Set<string> {
+  const terms = new Set<string>();
+  for (const token of tokenize(text)) {
+    if (token.length < 4) continue;
+    if (STOP_WORDS.has(token)) continue;
+    terms.add(token);
+  }
+  return terms;
+}
+
 /**
  * Lexical retrieval that returns CITED hits. Scoring rewards phrase/term
  * overlap in content, citation and domain, then boosts by corpus quality so

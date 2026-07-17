@@ -40,6 +40,7 @@ import {
 } from "./lib/iurg-store";
 import { getIucRuntimeStatus } from "./lib/iuc-runtime";
 import { searchCorpus, summarizeCorpus } from "./lib/corpus";
+import { buildCorpusGraph, relatedByQuery } from "./lib/corpus-graph";
 
 const zType = z.enum(IURG_TYPES as unknown as [IurgObjectType, ...IurgObjectType[]]);
 const zVerification = z.enum(["UNVERIFIED", "POSSIBLE", "PROBABLE", "CONFIRMED", "PROVEN"]);
@@ -282,6 +283,34 @@ export const iucRouter = createRouter({
         returned: hits.length,
         results: hits,
       };
+    }),
+
+  // --- Corpus knowledge graph: deterministic graph (records / authorities /
+  //     domains) built from real provenance metadata. Returns stats only by
+  //     default; include nodes/edges when explicitly requested. ---
+  corpusGraph: publicQuery
+    .input(z.object({ includeElements: z.boolean().default(false) }).optional())
+    .query(async ({ input }) => {
+      const persistedObjects = await getIurgObjects();
+      const graph = buildCorpusGraph(persistedObjects);
+      return {
+        stats: graph.stats,
+        ...(input?.includeElements ? { nodes: graph.nodes, edges: graph.edges } : {}),
+      };
+    }),
+
+  // --- Graph-augmented cited retrieval: lexically pick a seed record for the
+  //     query, then return its cited graph neighbours (shared authority / terms
+  //     / domain). Traversal stays verifiable — every neighbour carries a
+  //     citation. ---
+  corpusRelated: publicQuery
+    .input(z.object({
+      query: z.string().min(1).max(200),
+      limit: z.number().int().min(1).max(25).default(5),
+    }))
+    .query(async ({ input }) => {
+      const persistedObjects = await getIurgObjects();
+      return relatedByQuery(persistedObjects, input.query, input.limit);
     }),
 
   // --- Live health for IUC + Living Loop scheduler ---

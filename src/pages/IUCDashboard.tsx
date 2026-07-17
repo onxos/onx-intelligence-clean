@@ -73,6 +73,7 @@ function getLivingLoopStatus(cronStatus: "active" | "paused", lastTickAt: Date |
 export default function IUCDashboard() {
   const snapshotQ = trpc.iuc.snapshot.useQuery()
   const corpusQ = trpc.iuc.corpusStatus.useQuery()
+  const corpusGraphQ = trpc.iuc.corpusGraph.useQuery()
   const healthQ = trpc.iuc.health.useQuery(undefined, { refetchInterval: 30_000 })
   const ficSummaryQ = trpc.fic.summary.useQuery(undefined, { refetchInterval: 30_000 })
   const typesQ = trpc.iuc.objectTypes.useQuery()
@@ -83,7 +84,7 @@ export default function IUCDashboard() {
   const measurementQ = trpc.measurement.snapshot.useQuery()
 
   const refetchAll = () => {
-    snapshotQ.refetch(); corpusQ.refetch(); healthQ.refetch(); ficSummaryQ.refetch(); graphQ.refetch(); statsQ.refetch(); pendingQ.refetch(); measurementQ.refetch()
+    snapshotQ.refetch(); corpusQ.refetch(); corpusGraphQ.refetch(); healthQ.refetch(); ficSummaryQ.refetch(); graphQ.refetch(); statsQ.refetch(); pendingQ.refetch(); measurementQ.refetch()
   }
 
   const commitMut = trpc.iuc.commit.useMutation({ onSuccess: refetchAll })
@@ -141,6 +142,11 @@ export default function IUCDashboard() {
               <div className="text-[11px] text-emerald-400 mt-2 leading-6">
                 موثّق المصدر: {corpusQ.data.provenanceValidCount} / {corpusQ.data.totalObjects} · جودة {corpusQ.data.avgQuality.toFixed(3)}
               </div>
+              {corpusGraphQ.data && (
+                <div className="text-[11px] text-cyan-500 mt-1 leading-6">
+                  رسم المعرفة: {corpusGraphQ.data.stats.authorityNodes} مرجع · {corpusGraphQ.data.stats.domainNodes} مجال · {corpusGraphQ.data.stats.edges} رابط
+                </div>
+              )}
             </div>
             <div className="bg-gray-900 border border-gray-700 rounded-xl p-4">
               <div className="text-gray-400 text-xs">آخر لقطة محفوظة</div>

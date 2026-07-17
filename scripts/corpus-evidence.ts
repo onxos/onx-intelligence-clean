@@ -13,6 +13,7 @@
 // ============================================================
 import { getIurgObjects, replaceIurgObjects } from "../api/lib/iurg-store";
 import { buildCorpusObjects, searchCorpus, summarizeCorpus, type CorpusSeed } from "../api/lib/corpus";
+import { buildCorpusGraph, relatedByQuery } from "../api/lib/corpus-graph";
 import { CURATED_VET_CORPUS } from "../api/lib/corpus-data";
 
 function synthetic(contentText: string): CorpusSeed {
@@ -67,6 +68,35 @@ async function main() {
       console.log("(no hit)");
     }
   }
+
+  // Graph-augmented retrieval evidence: deterministic knowledge graph over the
+  // SAME persisted objects, plus a query-driven cited-neighbour traversal (what
+  // iuc.corpusGraph / iuc.corpusRelated return).
+  const graph = buildCorpusGraph(persisted);
+  console.log("\n=== MEASURED corpus graph (deterministic, over persisted objects) ===");
+  console.log(JSON.stringify({
+    recordNodes: graph.stats.recordNodes,
+    authorityNodes: graph.stats.authorityNodes,
+    domainNodes: graph.stats.domainNodes,
+    edges: graph.stats.edges,
+    byEdgeType: graph.stats.byEdgeType,
+    topAuthorities: graph.stats.topAuthorities.slice(0, 5),
+  }, null, 2));
+
+  const graphQuery = "parvovirus";
+  const related = relatedByQuery(persisted, graphQuery, 3);
+  console.log(`\n=== GRAPH cited neighbours: "${graphQuery}" ===`);
+  console.log(JSON.stringify({
+    seed: related.seed,
+    related: related.related.map((r) => ({
+      relation: r.relation,
+      sharedAuthority: r.sharedAuthority,
+      sharedTerms: r.sharedTerms,
+      sourceAuthority: r.sourceAuthority,
+      citation: r.citation,
+      excerpt: r.excerpt.slice(0, 100),
+    })),
+  }, null, 2));
 }
 
 main().catch((error) => {
