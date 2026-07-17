@@ -246,6 +246,21 @@ export function significantTerms(text: string): Set<string> {
 }
 
 /**
+ * Deterministic lexical token stream (stopword-filtered, length >= 3, duplicates
+ * PRESERVED) used as the term basis for the TF-IDF vector-space model. Keeping
+ * duplicates is what lets the vector model weight term frequency.
+ */
+export function lexicalTokens(text: string): string[] {
+  const tokens: string[] = [];
+  for (const token of tokenize(text)) {
+    if (token.length < 3) continue;
+    if (STOP_WORDS.has(token)) continue;
+    tokens.push(token);
+  }
+  return tokens;
+}
+
+/**
  * Lexical retrieval that returns CITED hits. Scoring rewards phrase/term
  * overlap in content, citation and domain, then boosts by corpus quality so
  * provenance-valid records surface above synthetic scaffold. Deterministic.

@@ -14,6 +14,7 @@
 import { getIurgObjects, replaceIurgObjects } from "../api/lib/iurg-store";
 import { buildCorpusObjects, searchCorpus, summarizeCorpus, type CorpusSeed } from "../api/lib/corpus";
 import { buildCorpusGraph, relatedByQuery } from "../api/lib/corpus-graph";
+import { vectorSearchCorpus } from "../api/lib/corpus-vector";
 import { CURATED_VET_CORPUS } from "../api/lib/corpus-data";
 
 function synthetic(contentText: string): CorpusSeed {
@@ -97,6 +98,20 @@ async function main() {
       excerpt: r.excerpt.slice(0, 100),
     })),
   }, null, 2));
+
+  // Vector retrieval evidence: TF-IDF cosine over the SAME persisted objects
+  // (what iuc.corpusVectorSearch returns). Honestly labelled — not embeddings.
+  for (const query of ["canine parvovirus", "chronic kidney disease staging"]) {
+    const hits = vectorSearchCorpus(persisted, query, 2);
+    console.log(`\n=== VECTOR (tf-idf cosine) retrieval: "${query}" ===`);
+    console.log(JSON.stringify(hits.map((h) => ({
+      similarity: h.similarity,
+      matchedTerms: h.matchedTerms,
+      sourceAuthority: h.sourceAuthority,
+      citation: h.citation,
+      excerpt: h.excerpt.slice(0, 100),
+    })), null, 2));
+  }
 }
 
 main().catch((error) => {

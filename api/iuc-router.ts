@@ -41,6 +41,7 @@ import {
 import { getIucRuntimeStatus } from "./lib/iuc-runtime";
 import { searchCorpus, summarizeCorpus } from "./lib/corpus";
 import { buildCorpusGraph, relatedByQuery } from "./lib/corpus-graph";
+import { vectorSearchCorpus } from "./lib/corpus-vector";
 
 const zType = z.enum(IURG_TYPES as unknown as [IurgObjectType, ...IurgObjectType[]]);
 const zVerification = z.enum(["UNVERIFIED", "POSSIBLE", "PROBABLE", "CONFIRMED", "PROVEN"]);
@@ -311,6 +312,31 @@ export const iucRouter = createRouter({
     .query(async ({ input }) => {
       const persistedObjects = await getIurgObjects();
       return relatedByQuery(persistedObjects, input.query, input.limit);
+    }),
+
+  // --- Vector retrieval: classic TF-IDF vector-space model (cosine similarity)
+  //     over persisted objects. Honestly labelled — real term weights, NOT
+  //     neural embeddings. Each hit stays CITED + explainable (matchedTerms). ---
+  corpusVectorSearch: publicQuery
+    .input(z.object({
+      query: z.string().min(1).max(200),
+      limit: z.number().int().min(1).max(50).default(10),
+      provenanceValidOnly: z.boolean().default(false),
+    }))
+    .query(async ({ input }) => {
+      const persistedObjects = await getIurgObjects();
+      const pool = input.provenanceValidOnly
+        ? persistedObjects.filter((o) => o.provenance && o.provenance.type !== "SYNTHETIC" && !!o.provenance.citation)
+        : persistedObjects;
+      const results = vectorSearchCorpus(pool, input.query, input.limit);
+      return {
+        query: input.query,
+        model: "tf-idf-cosine",
+        corpusSize: persistedObjects.length,
+        searched: pool.length,
+        returned: results.length,
+        results,
+      };
     }),
 
   // --- Live health for IUC + Living Loop scheduler ---
