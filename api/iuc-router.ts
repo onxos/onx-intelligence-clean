@@ -39,6 +39,7 @@ import {
   saveIurgObject,
 } from "./lib/iurg-store";
 import { getIucRuntimeStatus } from "./lib/iuc-runtime";
+import { searchCorpus, summarizeCorpus } from "./lib/corpus";
 
 const zType = z.enum(IURG_TYPES as unknown as [IurgObjectType, ...IurgObjectType[]]);
 const zVerification = z.enum(["UNVERIFIED", "POSSIBLE", "PROBABLE", "CONFIRMED", "PROVEN"]);
@@ -230,7 +231,7 @@ export const iucRouter = createRouter({
     };
   }),
 
-  // --- Persisted corpus status: grouped core counts + current corpus metrics ---
+  // --- Persisted corpus status: grouped core counts + provenance/quality ---
   corpusStatus: publicQuery.query(async () => {
     const [counts, persistedObjects, latest] = await Promise.all([
       getIurgObjectCounts(),
@@ -239,18 +240,49 @@ export const iucRouter = createRouter({
     ]);
 
     const computed = computeIUC(persistedObjects);
+    const corpus = summarizeCorpus(persistedObjects);
 
     return {
       perceptionCount: counts.PERCEPTION ?? 0,
       patternCount: counts.PATTERN ?? 0,
       understandingCount: counts.UNDERSTANDING ?? 0,
       totalObjects: persistedObjects.length,
+      // --- provenance & quality (honest, measured — no inflation) ---
+      provenanceValidCount: corpus.provenanceValidCount,
+      authoredCount: corpus.authoredCount,
+      ingestedCount: corpus.ingestedCount,
+      syntheticCount: corpus.syntheticCount,
+      avgQuality: corpus.avgQuality,
+      avgProvenanceValidQuality: corpus.avgProvenanceValidQuality,
       tuc: computed.tuc,
       ksr: indicatorValue(computed, "UC"),
       krr: indicatorValue(computed, "UVR"),
       latestSnapshotAt: latest?.timestamp ?? null,
     };
   }),
+
+  // --- Cited corpus retrieval: lexical search over persisted objects that
+  //     returns each hit WITH its provenance citation + quality score. ---
+  corpusSearch: publicQuery
+    .input(z.object({
+      query: z.string().min(1).max(200),
+      limit: z.number().int().min(1).max(50).default(10),
+      provenanceValidOnly: z.boolean().default(false),
+    }))
+    .query(async ({ input }) => {
+      const persistedObjects = await getIurgObjects();
+      const pool = input.provenanceValidOnly
+        ? persistedObjects.filter((o) => o.provenance && o.provenance.type !== "SYNTHETIC" && !!o.provenance.citation)
+        : persistedObjects;
+      const hits = searchCorpus(pool, input.query, input.limit);
+      return {
+        query: input.query,
+        corpusSize: persistedObjects.length,
+        searched: pool.length,
+        returned: hits.length,
+        results: hits,
+      };
+    }),
 
   // --- Live health for IUC + Living Loop scheduler ---
   health: publicQuery.query(async () => {

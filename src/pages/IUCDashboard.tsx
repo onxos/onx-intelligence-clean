@@ -138,6 +138,9 @@ export default function IUCDashboard() {
               <div className="text-xs text-gray-500 mt-2 leading-6">
                 PERCEPTION: {corpusQ.data.perceptionCount} · PATTERN: {corpusQ.data.patternCount} · UNDERSTANDING: {corpusQ.data.understandingCount}
               </div>
+              <div className="text-[11px] text-emerald-400 mt-2 leading-6">
+                موثّق المصدر: {corpusQ.data.provenanceValidCount} / {corpusQ.data.totalObjects} · جودة {corpusQ.data.avgQuality.toFixed(3)}
+              </div>
             </div>
             <div className="bg-gray-900 border border-gray-700 rounded-xl p-4">
               <div className="text-gray-400 text-xs">آخر لقطة محفوظة</div>
