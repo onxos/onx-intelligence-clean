@@ -47,6 +47,7 @@ import { planRetention, applyRetention } from "./lib/corpus-retention";
 import { filterByClearance, accessBreakdown } from "./lib/corpus-access";
 import { buildInvertedIndex, indexStats, bm25Search } from "./lib/corpus-index";
 import { corpusPersistenceProof } from "./lib/corpus-health";
+import { hybridSearch, DEFAULT_HYBRID_WEIGHTS, type HybridWeights } from "./lib/corpus-hybrid";
 
 const zType = z.enum(IURG_TYPES as unknown as [IurgObjectType, ...IurgObjectType[]]);
 const zVerification = z.enum(["UNVERIFIED", "POSSIBLE", "PROBABLE", "CONFIRMED", "PROVEN"]);
@@ -383,6 +384,43 @@ export const iucRouter = createRouter({
       const persistedObjects = await getIurgObjects();
       const cleared = filterByClearance(persistedObjects, input?.clearance ?? "PUBLIC");
       return indexStats(buildInvertedIndex(cleared));
+    }),
+
+  // --- Hybrid retrieval: deterministic weighted fusion of BM25 + TF-IDF cosine
+  //     + provenance-graph proximity into one explainable, CITED ranking. Each
+  //     hit carries its per-signal normalised components. Clearance-enforced. ---
+  corpusHybridSearch: publicQuery
+    .input(z.object({
+      query: z.string().min(1).max(200),
+      limit: z.number().int().min(1).max(50).default(10),
+      provenanceValidOnly: z.boolean().default(false),
+      clearance: zClearance,
+      weights: z.object({
+        bm25: z.number().min(0).max(1),
+        vector: z.number().min(0).max(1),
+        graph: z.number().min(0).max(1),
+      }).optional(),
+    }))
+    .query(async ({ input }) => {
+      const persistedObjects = await getIurgObjects();
+      const cleared = filterByClearance(persistedObjects, input.clearance);
+      const pool = input.provenanceValidOnly
+        ? cleared.filter((o) => o.provenance && o.provenance.type !== "SYNTHETIC" && !!o.provenance.citation)
+        : cleared;
+      const weights: HybridWeights = input.weights ?? DEFAULT_HYBRID_WEIGHTS;
+      const result = hybridSearch(pool, input.query, input.limit, weights);
+      return {
+        query: input.query,
+        model: result.model,
+        weights: result.weights,
+        clearance: input.clearance,
+        corpusSize: persistedObjects.length,
+        accessible: cleared.length,
+        searched: pool.length,
+        signalReach: result.signalReach,
+        returned: result.returned,
+        results: result.hits,
+      };
     }),
 
   // --- Durable-pg proof: run a LIVE read-after-write against the corpus pg

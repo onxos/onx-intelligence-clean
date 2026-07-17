@@ -19,6 +19,7 @@ import { planRetention } from "../api/lib/corpus-retention";
 import { accessBreakdown, filterByClearance } from "../api/lib/corpus-access";
 import { indexSearchCorpus, buildInvertedIndex, indexStats } from "../api/lib/corpus-index";
 import { corpusPersistenceProof } from "../api/lib/corpus-health";
+import { hybridSearch } from "../api/lib/corpus-hybrid";
 import { CURATED_VET_CORPUS } from "../api/lib/corpus-data";
 
 function synthetic(contentText: string): CorpusSeed {
@@ -173,6 +174,23 @@ async function main() {
     restrictedViewer: { visible: filterByClearance(withRestricted, "RESTRICTED").length },
     publicCanReadRestrictedRecord: filterByClearance(withRestricted, "PUBLIC").some((o) => o.id === restrictedDemo.id),
     restrictedCanReadRestrictedRecord: filterByClearance(withRestricted, "RESTRICTED").some((o) => o.id === restrictedDemo.id),
+  }, null, 2));
+
+  // Hybrid retrieval evidence: fuse BM25 + TF-IDF + graph into one CITED ranking.
+  const hybrid = hybridSearch(persisted, "canine parvovirus vaccination", 3);
+  console.log("\n=== HYBRID RETRIEVAL (BM25 + TF-IDF + graph, weighted fusion) ===");
+  console.log(JSON.stringify({
+    query: hybrid.query,
+    model: hybrid.model,
+    weights: hybrid.weights,
+    signalReach: hybrid.signalReach,
+    topHit: hybrid.hits[0] && {
+      fusedScore: hybrid.hits[0].fusedScore,
+      components: hybrid.hits[0].components,
+      signals: hybrid.hits[0].signals,
+      sourceAuthority: hybrid.hits[0].sourceAuthority,
+      citation: hybrid.hits[0].citation,
+    },
   }, null, 2));
 
   // Durable-pg proof: report whether the corpus adapter REALLY persists to
