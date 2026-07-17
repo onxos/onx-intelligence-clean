@@ -14,6 +14,7 @@ import { runLivingLoopTick } from "./lib/runtime-loop-tick";
 import { markIucTick, setIucCronStatus } from "./lib/iuc-runtime";
 import { runPerceptionSyncTick } from "./lib/perception-adapter";
 import { runReflectionTick } from "./lib/reflection-cycle";
+import { runMindTick, recordMindTickCronFailure } from "./lib/mind-tick";
 import { maybeRecordTruthSnapshot } from "./lib/truth-snapshot-cron";
 import { hydratePersistedIurgGraph } from "./iuc-router";
 
@@ -101,6 +102,15 @@ if (env.isProduction) {
         await runReflectionTick();
       } catch (err) {
         console.error("[reflection-cycle] tick failed (non-fatal):", err);
+      }
+      // G6: living mind cycle — inbox → B5 contradictions → B7 proposals.
+      // runMindTick never throws by design; a catch here is itself a
+      // countable failure: structured error + cronFailures metric +
+      // lastCronError readiness evidence — never a silent non-fatal.
+      try {
+        await runMindTick();
+      } catch (err) {
+        recordMindTickCronFailure(err);
       }
       // STE-K-14: capture a truth-ledger snapshot from the LIVE web
       // cron (closes the K-13 gap where the ledger was empty because
