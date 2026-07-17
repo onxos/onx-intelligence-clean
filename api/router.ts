@@ -61,6 +61,7 @@ import { realityEngineRouter } from "./reality-engine-router";
 import { zeroInputRouter } from "./zero-input-router";
 import { evaluationLearningRouter } from "./evaluation-learning-router";
 import { deepResearchRouter } from "./deep-research-router";
+import { d11FeedingRouter } from "./d11-feeding-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -173,6 +174,8 @@ export const appRouter = createRouter({
   operatorAssistant: operatorAssistantRouter,
   // Phase P — Analyst Assistant operational substrate (durable+tool+memory+auth+eval+feedback)
   analystAssistant: analystAssistantRouter,
+  // Phase P — D11 Feeding Runtime substrate (durable+tool+memory+auth+eval+feedback)
+  d11Feeding: d11FeedingRouter,
 });
 
 export type AppRouter = typeof appRouter;
