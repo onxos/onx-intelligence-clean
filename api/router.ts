@@ -34,6 +34,7 @@ import { onxRouter } from "./onx-router";
 import { askRouter } from "./ask-router";
 import { titanDecisionRouter } from "./titan-decision-router";
 import { clinicAssistantRouter } from "./clinic-assistant-router";
+import { founderCompanionRouter } from "./founder-companion-router";
 import { iucRouter } from "./iuc-router";
 import { measurementRouter } from "./measurement-router";
 import { ficRouter } from "./fic-router";
@@ -158,6 +159,8 @@ export const appRouter = createRouter({
   titanDecision: titanDecisionRouter,
   // Phase P — Clinic Assistant operational substrate (durable+tool+memory+auth+eval+feedback)
   clinicAssistant: clinicAssistantRouter,
+  // Phase P — Founder Companion operational substrate (durable+tool+memory+auth+eval+feedback)
+  founderCompanion: founderCompanionRouter,
 });
 
 export type AppRouter = typeof appRouter;
