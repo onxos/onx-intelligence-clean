@@ -62,6 +62,7 @@ import { zeroInputRouter } from "./zero-input-router";
 import { evaluationLearningRouter } from "./evaluation-learning-router";
 import { deepResearchRouter } from "./deep-research-router";
 import { d11FeedingRouter } from "./d11-feeding-router";
+import { d12LearningRouter } from "./d12-learning-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -176,6 +177,8 @@ export const appRouter = createRouter({
   analystAssistant: analystAssistantRouter,
   // Phase P — D11 Feeding Runtime substrate (durable+tool+memory+auth+eval+feedback)
   d11Feeding: d11FeedingRouter,
+  // Phase P — D12 Learning Runtime substrate (durable+tool+memory+auth+eval+feedback)
+  d12Learning: d12LearningRouter,
 });
 
 export type AppRouter = typeof appRouter;
