@@ -63,6 +63,7 @@ import { evaluationLearningRouter } from "./evaluation-learning-router";
 import { deepResearchRouter } from "./deep-research-router";
 import { d11FeedingRouter } from "./d11-feeding-router";
 import { d12LearningRouter } from "./d12-learning-router";
+import { d13CapitalRouter } from "./d13-capital-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -179,6 +180,8 @@ export const appRouter = createRouter({
   d11Feeding: d11FeedingRouter,
   // Phase P — D12 Learning Runtime substrate (durable+tool+memory+auth+eval+feedback)
   d12Learning: d12LearningRouter,
+  // Phase P — D13 Capital Runtime substrate (durable+tool+memory+auth+eval+feedback)
+  d13Capital: d13CapitalRouter,
 });
 
 export type AppRouter = typeof appRouter;
