@@ -804,6 +804,43 @@ export function checkRateDisclosure(
   };
 }
 
+// STE-P-296: providers cross-surface identity. The provider tri-state
+// {id,status} set is served on TWO public surfaces from the SAME
+// process-level getProviderStates(): providers.status.providers
+// (providers-router.ts:21) and selfVerify.providers (self-verify.ts:89,
+// which also feeds the fingerprint). Because they share one source they
+// MUST be byte-identical on {id,status}. Until P296 the providers.status
+// contract checked ONLY the rate-limit disclosure and ignored the
+// provider list, so a deploy serving a divergent provider trust-state on
+// one surface (e.g. openai=VALIDATED on providers.status but
+// CONFIGURED_UNPROBED on selfVerify) passed unnoticed — a
+// security-relevant measured lie. This compares the ordered {id,status}
+// lists (order is identical since both come from one getProviderStates())
+// and returns a mismatch string or null. keyPrefix is intentionally not
+// compared: it is an extra field only providers.status carries, and never
+// a full key. Tolerant when the selfVerify list is absent (standalone
+// evaluator use).
+export function checkProvidersCrossSurface(
+  statusProviders: Array<{ id?: string; status?: string }> | undefined,
+  selfVerifyProviders: Array<{ id?: string; status?: string }> | undefined,
+): string | null {
+  if (!selfVerifyProviders) return null;
+  const status = statusProviders ?? [];
+  if (status.length === 0)
+    return "providers.status carries no providers array (selfVerify serves one from the same source)";
+  if (status.length !== selfVerifyProviders.length)
+    return `providers cross-surface drift: providers.status has ${status.length} entries but selfVerify has ${selfVerifyProviders.length}`;
+  for (let i = 0; i < status.length; i++) {
+    const a = status[i];
+    const b = selfVerifyProviders[i];
+    if (String(a?.id) !== String(b?.id))
+      return `providers cross-surface drift at #${i}: providers.status id=${String(a?.id)} but selfVerify id=${String(b?.id)}`;
+    if (String(a?.status) !== String(b?.status))
+      return `providers cross-surface drift for ${String(a?.id)}: providers.status status=${String(a?.status)} but selfVerify status=${String(b?.status)}`;
+  }
+  return null;
+}
+
 // STE-P-294: cross-surface identity for the ask.onx disclosures. Both
 // ask surfaces embed a rateLimit disclosure served by the SAME limiter
 // that backs providers.status (rate-limiter.ts), and a truthDisclosure
@@ -1720,6 +1757,11 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
   // process-global source as /commit and bridgeRuntime.commitSha), fed to
   // the selfVerify contract for commitSha cross-surface identity.
   let deployedCommitFromHealth: string | undefined = undefined;
+  // STE-P-296: the provider {id,status} list captured from selfVerify
+  // (contract 2) and fed to the providers.status contract for the
+  // cross-surface identity check — no extra fetch (both surfaces already
+  // fetched).
+  let providersFromSelfVerify: Array<{ id?: string; status?: string }> | undefined = undefined;
 
   function mergeParity(contract: ContractResult, mismatch: string | null): ContractResult {
     if (!mismatch || !contract.passed) return contract;
@@ -1856,6 +1898,12 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
     truthLedgerTotalCountFromSummary = selfVerifyData?.truthLedgerSummary?.count;
     truthLedgerSummaryFromSelfVerify = selfVerifyData?.truthLedgerSummary;
     bridgeRuntimeFromSelfVerify = selfVerifyData?.bridgeRuntime;
+    {
+      const sp = (selfVerifyData as { providers?: unknown }).providers;
+      providersFromSelfVerify = Array.isArray(sp)
+        ? (sp as Array<{ id?: string; status?: string }>)
+        : undefined;
+    }
     const leak = assertNoKeyLeak(raw);
     if (leak) leaks.push(`selfVerify:${leak}`);
   }
@@ -1867,10 +1915,23 @@ export async function runSmoke(baseUrl: string, opts: SmokeOptions): Promise<Smo
   {
     const { status, body, raw } = await getJson(fetchImpl, trpcGetUrl(base, "providers.status"));
     const u = unwrapTrpc(body);
-    contracts.push(checkRateDisclosure(status, (u.data ?? {}) as never, expectedRatePersistence ?? undefined));
     const served = (u.data ?? {}) as {
       rateLimit?: { persistence?: string; limit?: number; category?: string };
+      providers?: Array<{ id?: string; status?: string }>;
     };
+    let contract = checkRateDisclosure(status, (u.data ?? {}) as never, expectedRatePersistence ?? undefined);
+    // STE-P-296: fold the providers cross-surface identity check into this
+    // existing contract (deepening, not addition — count stays 10). The
+    // provider {id,status} list here must match selfVerify.providers
+    // (same process getProviderStates()).
+    contract = mergeDetail(
+      contract,
+      checkProvidersCrossSurface(served.providers, providersFromSelfVerify),
+      providersFromSelfVerify
+        ? `; providers[${served.providers?.length ?? 0}] cross-surface identity vs selfVerify.providers verified`
+        : "",
+    );
+    contracts.push(contract);
     if (served.rateLimit) rateLimitFromProviders = served.rateLimit;
     const leak = assertNoKeyLeak(raw);
     if (leak) leaks.push(`providers.status:${leak}`);

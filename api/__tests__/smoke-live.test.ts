@@ -12,6 +12,7 @@ import {
   checkCommitCrossSurface,
   checkSelfVerify,
   checkRateDisclosure,
+  checkProvidersCrossSurface,
   checkAskRefusal,
   checkAskCited,
   extractCorpusCountFromDisclosure,
@@ -561,6 +562,56 @@ describe("smoke-live contract evaluators", () => {
     expect(checkRateDisclosure(200, LIVE_PROVIDERS, "POSTGRES_PERSISTED").passed).toBe(false);
     // …and a match passes.
     expect(checkRateDisclosure(200, pgSurface, "POSTGRES_PERSISTED").passed).toBe(true);
+  });
+
+  // STE-P-296: providers cross-surface identity direct-evaluator tests.
+  it("providers cross-surface identity: matching {id,status} lists pass (STE-P-296)", () => {
+    const status = [
+      { id: "openai", status: "CONFIGURED_UNPROBED", keyPrefix: "sk-p" },
+      { id: "anthropic", status: "MISSING_KEY" },
+    ];
+    const selfVerify = [
+      { id: "openai", status: "CONFIGURED_UNPROBED" },
+      { id: "anthropic", status: "MISSING_KEY" },
+    ];
+    expect(checkProvidersCrossSurface(status, selfVerify)).toBeNull();
+  });
+
+  it("providers cross-surface identity: tolerant when selfVerify list absent (STE-P-296)", () => {
+    expect(checkProvidersCrossSurface([{ id: "openai", status: "MISSING_KEY" }], undefined)).toBeNull();
+  });
+
+  it("providers cross-surface identity: status drift on a provider is named (STE-P-296)", () => {
+    const status = [{ id: "openai", status: "VALIDATED", keyPrefix: "sk-p" }];
+    const selfVerify = [{ id: "openai", status: "CONFIGURED_UNPROBED" }];
+    const m = checkProvidersCrossSurface(status, selfVerify);
+    expect(m).toMatch(/providers cross-surface drift for openai/);
+    expect(m).toMatch(/VALIDATED/);
+    expect(m).toMatch(/CONFIGURED_UNPROBED/);
+  });
+
+  it("providers cross-surface identity: length/id drift and empty status are named (STE-P-296)", () => {
+    // length mismatch
+    expect(
+      checkProvidersCrossSurface(
+        [{ id: "openai", status: "MISSING_KEY" }],
+        [
+          { id: "openai", status: "MISSING_KEY" },
+          { id: "anthropic", status: "MISSING_KEY" },
+        ],
+      ),
+    ).toMatch(/has 1 entries but selfVerify has 2/);
+    // id mismatch at position
+    expect(
+      checkProvidersCrossSurface(
+        [{ id: "anthropic", status: "MISSING_KEY" }],
+        [{ id: "openai", status: "MISSING_KEY" }],
+      ),
+    ).toMatch(/drift at #0/);
+    // providers.status serves no providers but selfVerify does
+    expect(checkProvidersCrossSurface([], [{ id: "openai", status: "MISSING_KEY" }])).toMatch(
+      /carries no providers array/,
+    );
   });
 
   it("ask refusal passes on honest INSUFFICIENT_EVIDENCE + DEMO + no citations", () => {
@@ -1154,6 +1205,36 @@ describe("runSmoke orchestration (mocked fetch)", () => {
 
   it("probes distinct in/out-of-corpus questions", () => {
     expect(OUT_OF_CORPUS_QUESTION).not.toEqual(IN_CORPUS_QUESTION);
+  });
+
+  // ---- STE-P-296: providers cross-surface identity (folded into rate_limit_disclosure) ----
+  it("rate_limit_disclosure passes and proves providers cross-surface identity on honest live shapes (STE-P-296)", async () => {
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch(),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    const c = report.contracts.find((x) => x.name === "rate_limit_disclosure");
+    expect(c?.passed).toBe(true);
+    expect(c?.detail).toMatch(/cross-surface identity vs selfVerify\.providers verified/);
+  });
+
+  it("rate_limit_disclosure FAILS when providers.status trust-state diverges from selfVerify.providers (STE-P-296)", async () => {
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({
+        // providers.status forges a stronger trust state than selfVerify serves
+        providers: trpcOk({
+          ...LIVE_PROVIDERS,
+          providers: [{ id: "openai", status: "VALIDATED", keyPrefix: "sk-p" }],
+        }),
+      }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    expect(report.passed).toBe(false);
+    const c = report.contracts.find((x) => x.name === "rate_limit_disclosure");
+    expect(c?.passed).toBe(false);
+    expect(c?.detail).toMatch(/providers cross-surface drift for openai/);
   });
 
   // ---- STE-P-289: bridge_surfaces_read (10th contract) ----
