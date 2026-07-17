@@ -61,6 +61,11 @@ export const ACCUM = { alpha: 1.0, beta: 0.3, gamma: 0.05, delta: 0.8 } as const
 // (memory / mysql / pg all serialize the whole object). ---
 export type ProvenanceType = "AUTHORED" | "INGESTED" | "SYNTHETIC";
 
+// Access-control clearance tier for a corpus record. Ordered least→most
+// sensitive; a viewer may read a record only when their clearance >= the
+// record's tier. Pure data (computeIUC ignores it); round-trips through the store.
+export type AccessTier = "PUBLIC" | "INTERNAL" | "RESTRICTED";
+
 export interface Provenance {
   type: ProvenanceType;
   citation: string;         // human-checkable citation, e.g. "AAHA Canine Vaccination Guidelines"
@@ -92,6 +97,7 @@ export interface IurgObjectInput {
   quality?: number;          // deterministic corpus quality score ∈ [0,1]
   contentHash?: string;      // sha256 content identity (dedupe key)
   domainTag?: string;        // knowledge domain, e.g. "MEDICINE"
+  accessTier?: AccessTier;   // clearance tier (default PUBLIC when absent)
 }
 
 interface NormalizedObject {

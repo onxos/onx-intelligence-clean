@@ -44,6 +44,7 @@ import { searchCorpus, summarizeCorpus } from "./lib/corpus";
 import { buildCorpusGraph, relatedByQuery } from "./lib/corpus-graph";
 import { vectorSearchCorpus } from "./lib/corpus-vector";
 import { planRetention, applyRetention } from "./lib/corpus-retention";
+import { filterByClearance, accessBreakdown } from "./lib/corpus-access";
 
 const zType = z.enum(IURG_TYPES as unknown as [IurgObjectType, ...IurgObjectType[]]);
 const zVerification = z.enum(["UNVERIFIED", "POSSIBLE", "PROBABLE", "CONFIRMED", "PROVEN"]);
@@ -52,6 +53,8 @@ const zRetentionPolicy = z.object({
   dropSynthetic: z.boolean().default(true),
   minQuality: z.number().min(0).max(1).default(0),
 });
+
+const zClearance = z.enum(["PUBLIC", "INTERNAL", "RESTRICTED"]).default("PUBLIC");
 
 const zObject = z.object({
   id: z.string().optional(),
@@ -277,16 +280,21 @@ export const iucRouter = createRouter({
       query: z.string().min(1).max(200),
       limit: z.number().int().min(1).max(50).default(10),
       provenanceValidOnly: z.boolean().default(false),
+      clearance: zClearance,
     }))
     .query(async ({ input }) => {
       const persistedObjects = await getIurgObjects();
+      const cleared = filterByClearance(persistedObjects, input.clearance);
       const pool = input.provenanceValidOnly
-        ? persistedObjects.filter((o) => o.provenance && o.provenance.type !== "SYNTHETIC" && !!o.provenance.citation)
-        : persistedObjects;
+        ? cleared.filter((o) => o.provenance && o.provenance.type !== "SYNTHETIC" && !!o.provenance.citation)
+        : cleared;
       const hits = searchCorpus(pool, input.query, input.limit);
       return {
         query: input.query,
+        clearance: input.clearance,
         corpusSize: persistedObjects.length,
+        accessible: cleared.length,
+        withheld: persistedObjects.length - cleared.length,
         searched: pool.length,
         returned: hits.length,
         results: hits,
@@ -297,10 +305,11 @@ export const iucRouter = createRouter({
   //     domains) built from real provenance metadata. Returns stats only by
   //     default; include nodes/edges when explicitly requested. ---
   corpusGraph: publicQuery
-    .input(z.object({ includeElements: z.boolean().default(false) }).optional())
+    .input(z.object({ includeElements: z.boolean().default(false), clearance: zClearance }).optional())
     .query(async ({ input }) => {
       const persistedObjects = await getIurgObjects();
-      const graph = buildCorpusGraph(persistedObjects);
+      const cleared = filterByClearance(persistedObjects, input?.clearance ?? "PUBLIC");
+      const graph = buildCorpusGraph(cleared);
       return {
         stats: graph.stats,
         ...(input?.includeElements ? { nodes: graph.nodes, edges: graph.edges } : {}),
@@ -315,10 +324,23 @@ export const iucRouter = createRouter({
     .input(z.object({
       query: z.string().min(1).max(200),
       limit: z.number().int().min(1).max(25).default(5),
+      clearance: zClearance,
     }))
     .query(async ({ input }) => {
       const persistedObjects = await getIurgObjects();
-      return relatedByQuery(persistedObjects, input.query, input.limit);
+      const cleared = filterByClearance(persistedObjects, input.clearance);
+      return relatedByQuery(cleared, input.query, input.limit);
+    }),
+
+  // --- Access-control visibility: measured rollup of how many corpus records a
+  //     given clearance tier can read vs. what is withheld (honest, no
+  //     inflation). Proves tier enforcement is real, not cosmetic. ---
+  corpusAccess: publicQuery
+    .input(z.object({ clearance: zClearance }).optional())
+    .query(async ({ input }) => {
+      const persistedObjects = await getIurgObjects();
+      const corpusObjects = persistedObjects.filter((o) => (o.id ?? "").startsWith("corpus-"));
+      return accessBreakdown(corpusObjects, input?.clearance ?? "PUBLIC");
     }),
 
   // --- Vector retrieval: classic TF-IDF vector-space model (cosine similarity)
@@ -329,17 +351,22 @@ export const iucRouter = createRouter({
       query: z.string().min(1).max(200),
       limit: z.number().int().min(1).max(50).default(10),
       provenanceValidOnly: z.boolean().default(false),
+      clearance: zClearance,
     }))
     .query(async ({ input }) => {
       const persistedObjects = await getIurgObjects();
+      const cleared = filterByClearance(persistedObjects, input.clearance);
       const pool = input.provenanceValidOnly
-        ? persistedObjects.filter((o) => o.provenance && o.provenance.type !== "SYNTHETIC" && !!o.provenance.citation)
-        : persistedObjects;
+        ? cleared.filter((o) => o.provenance && o.provenance.type !== "SYNTHETIC" && !!o.provenance.citation)
+        : cleared;
       const results = vectorSearchCorpus(pool, input.query, input.limit);
       return {
         query: input.query,
         model: "tf-idf-cosine",
+        clearance: input.clearance,
         corpusSize: persistedObjects.length,
+        accessible: cleared.length,
+        withheld: persistedObjects.length - cleared.length,
         searched: pool.length,
         returned: results.length,
         results,

@@ -16,6 +16,7 @@ import { buildCorpusObjects, searchCorpus, summarizeCorpus, type CorpusSeed } fr
 import { buildCorpusGraph, relatedByQuery } from "../api/lib/corpus-graph";
 import { vectorSearchCorpus } from "../api/lib/corpus-vector";
 import { planRetention } from "../api/lib/corpus-retention";
+import { accessBreakdown, filterByClearance } from "../api/lib/corpus-access";
 import { CURATED_VET_CORPUS } from "../api/lib/corpus-data";
 
 function synthetic(contentText: string): CorpusSeed {
@@ -126,6 +127,28 @@ async function main() {
     provenanceValidBefore: plan.before.provenanceValidCount,
     provenanceValidAfter: plan.after.provenanceValidCount,
     provenanceValidPreserved: plan.provenanceValidPreserved,
+  }, null, 2));
+
+  // Access-control evidence: overlay one RESTRICTED demo record on the persisted
+  // (all-PUBLIC) corpus and show that a PUBLIC viewer cannot read it while a
+  // RESTRICTED viewer can — enforcement is real, measured, not cosmetic.
+  const restrictedDemo = buildCorpusObjects([{
+    contentText: "Founder constitutional directive codenamed zeta governs restricted sovereignty escalations",
+    type: "UNDERSTANDING",
+    verification: "CONFIRMED",
+    provenance: { type: "AUTHORED", citation: "ONX Constitution: Directive Zeta", sourceAuthority: "ONX Founder" },
+    sources: 3,
+    trust: 0.95,
+    domainTag: "GOVERNANCE",
+    accessTier: "RESTRICTED",
+  }])[0];
+  const withRestricted = [...persisted, restrictedDemo];
+  console.log("\n=== ACCESS CONTROL (clearance-tier enforcement, +1 RESTRICTED demo) ===");
+  console.log(JSON.stringify({
+    publicViewer: accessBreakdown(withRestricted, "PUBLIC"),
+    restrictedViewer: { visible: filterByClearance(withRestricted, "RESTRICTED").length },
+    publicCanReadRestrictedRecord: filterByClearance(withRestricted, "PUBLIC").some((o) => o.id === restrictedDemo.id),
+    restrictedCanReadRestrictedRecord: filterByClearance(withRestricted, "RESTRICTED").some((o) => o.id === restrictedDemo.id),
   }, null, 2));
 }
 

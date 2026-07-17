@@ -16,6 +16,7 @@
 import { createHash } from "node:crypto";
 import {
   VERIFICATION_VALUE,
+  type AccessTier,
   type IurgObjectInput,
   type IurgObjectType,
   type Provenance,
@@ -105,6 +106,7 @@ export interface CorpusSeed {
   sources?: number;
   trust?: number;
   domainTag?: string;
+  accessTier?: AccessTier;
 }
 
 function inferVerification(seed: CorpusSeed): VerificationLevel {
@@ -153,6 +155,7 @@ export function buildCorpusObjects(seeds: CorpusSeed[]): IurgObjectInput[] {
       quality,
       contentHash: hash,
       domainTag: seed.domainTag,
+      accessTier: seed.accessTier,
     });
   }
 
