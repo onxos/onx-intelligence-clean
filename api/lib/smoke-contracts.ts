@@ -424,6 +424,33 @@ export function checkSelfVerify(
       passed: false,
       detail: `bridgeRuntime.providerCounts total ${providerTotal} mismatches provider items (${providerItems.length})`,
     };
+  // STE-P-297: per-bucket provider trust-distribution identity. The total
+  // check above proves the buckets SUM to the provider count, but a deploy
+  // could still fabricate the distribution (e.g. providers=[openai
+  // CONFIGURED_UNPROBED] served with providerCounts={validated:1,
+  // configuredUnprobed:0, missingKey:0} — total still 1, passes). Both the
+  // itemized provider verdicts and bridgeRuntime.providerCounts derive from
+  // ONE getProviderStates() (bridge-runtime-proof.ts:42-44 tallies the same
+  // list self-verify.ts:123-137 itemizes), so each bucket MUST equal the
+  // tally of provider items by verdict. This closes a security-relevant
+  // measured-lie vector: a forged "validated" count claiming provider
+  // connectivity that was never proven. Both fields are fingerprint-frozen,
+  // so this is a served-value recompute — no extra fetch.
+  if (providerItems.length > 0) {
+    const verdictTally = {
+      validated: providerItems.filter((i) => String(i.verdict) === "IMPLEMENTED_PROVEN").length,
+      configuredUnprobed: providerItems.filter((i) => String(i.verdict) === "PARTIAL").length,
+      missingKey: providerItems.filter((i) => String(i.verdict) === "MISSING").length,
+    } as const;
+    for (const k of ["validated", "configuredUnprobed", "missingKey"] as const) {
+      if (Number(bridgeRuntime.providerCounts[k]) !== verdictTally[k])
+        return {
+          name,
+          passed: false,
+          detail: `bridgeRuntime.providerCounts.${k}=${Number(bridgeRuntime.providerCounts[k])} contradicts provider items tally (${verdictTally[k]}) — fabricated provider trust distribution`,
+        };
+    }
+  }
   if (bridgeRuntime.memoryMode !== "pg" && bridgeRuntime.memoryMode !== "memory")
     return { name, passed: false, detail: `bridgeRuntime.memoryMode invalid (${String(bridgeRuntime.memoryMode)})` };
   if (bridgeRuntime.compatibility !== "BRIDGE_READY" && bridgeRuntime.compatibility !== "BRIDGE_GUARDED")
@@ -765,7 +792,7 @@ export function checkSelfVerify(
   return {
     name,
     passed: true,
-    detail: `${items.length} items, measured=${measuredCount} asserted=${assertedCount}, truthLedgerSummary.count=${total}; fingerprint RECOMPUTED from served sections and verified${
+    detail: `${items.length} items, measured=${measuredCount} asserted=${assertedCount}, truthLedgerSummary.count=${total}; fingerprint RECOMPUTED from served sections and verified; providerCounts per-bucket tally == provider items${
       typeof crossSurface?.deployedCommit === "string" &&
       /^[0-9a-f]{7,40}$/i.test(crossSurface.deployedCommit) &&
       bridgeRuntime.commitSha !== null

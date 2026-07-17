@@ -308,7 +308,7 @@ const LIVE_SELFVERIFY_ITEMS = [
   { area: "health", name: "Database", verdict: "IMPLEMENTED_PROVEN", measured: true },
   { area: "health", name: "Scheduler", verdict: "IMPLEMENTED_PROVEN", measured: true, detail: "2/5 rhythms active, 0 failing; IUC cron active, last tick 2026-01-01T00:00:00.000Z" },
   { area: "corpus", name: "Corpus", verdict: "DEMO", measured: true },
-  { area: "providers", name: "openai", verdict: "DOCUMENTED_ONLY", measured: true },
+  { area: "providers", name: "openai", verdict: "PARTIAL", measured: true, detail: "status=CONFIGURED_UNPROBED keyPrefix=sk-p" },
   { area: "runtime", name: "Titan Bridge Proof Surface", verdict: "IMPLEMENTED_PROVEN", measured: true },
 ];
 // STE-P-293: the fingerprint sections served alongside items in the
@@ -498,6 +498,37 @@ describe("smoke-live contract evaluators", () => {
         bridgeRuntime: { ...LIVE_SELFVERIFY.bridgeRuntime, providerCounts: { validated: -1, configuredUnprobed: 1, missingKey: 0 } },
       }).passed,
     ).toBe(false);
+  });
+
+  // STE-P-297: provider trust-distribution per-bucket identity.
+  it("selfVerify PASSES and proves providerCounts per-bucket tally == provider items (STE-P-297)", () => {
+    const r = checkSelfVerify(200, LIVE_SELFVERIFY);
+    expect(r.passed).toBe(true);
+    expect(r.detail).toMatch(/providerCounts per-bucket tally == provider items/);
+  });
+
+  it("selfVerify FAILS on a fabricated provider trust distribution that still sums correctly (STE-P-297)", () => {
+    // openai is CONFIGURED_UNPROBED (item verdict PARTIAL). A deploy forges
+    // providerCounts={validated:1,...} — total (1) still matches the single
+    // provider item, so the pre-P297 total-only check passed. Recompute the
+    // fingerprint so the forgery reaches the per-bucket check, not the
+    // fingerprint gate.
+    const forged: Record<string, any> = JSON.parse(JSON.stringify(LIVE_SELFVERIFY));
+    forged.bridgeRuntime.providerCounts = { validated: 1, configuredUnprobed: 0, missingKey: 0 };
+    forged.fingerprint = computeSelfVerifyFingerprint({
+      items: forged.items,
+      health: forged.health,
+      corpus: forged.corpus,
+      providers: forged.providers,
+      bridges: forged.bridges,
+      bridgeRuntime: forged.bridgeRuntime,
+      claimsMeasured: forged.claimsMeasured,
+      claimsAsserted: forged.claimsAsserted,
+    });
+    const r = checkSelfVerify(200, forged as never);
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/providerCounts\.validated=1 contradicts provider items tally \(0\)/);
+    expect(r.detail).toMatch(/fabricated provider trust distribution/);
   });
 
   it("selfVerify fails on forged truthLedgerSummary derived coherence", () => {
@@ -1322,6 +1353,24 @@ describe("runSmoke orchestration (mocked fetch)", () => {
     const c = report.contracts.find((x) => x.name === "bridge_surfaces_read");
     expect(c?.passed).toBe(false);
     expect(c?.detail).toMatch(/cross-surface drift: titanBridge\.providerCounts\.validated/);
+  });
+
+  // STE-P-297: end-to-end — a forged provider trust distribution that still
+  // sums correctly is caught by honest_status_selfverify (per-bucket tally).
+  it("honest_status_selfverify fails end-to-end on a fabricated provider trust distribution (STE-P-297)", async () => {
+    const drifted = internallyHonestSelfVerifyDrift((sv) => {
+      // total stays 1 (matches the single provider item) but the bucket lies
+      sv.bridgeRuntime.providerCounts = { validated: 1, configuredUnprobed: 0, missingKey: 0 };
+    });
+    const report = await runSmoke("https://x.dev", {
+      fetchImpl: liveFetch({ selfVerify: trpcOk(drifted) }),
+      expectedSha: null,
+      committedManifest: COMMITTED_MANIFEST,
+    });
+    expect(report.passed).toBe(false);
+    const c = report.contracts.find((x) => x.name === "honest_status_selfverify");
+    expect(c?.passed).toBe(false);
+    expect(c?.detail).toMatch(/fabricated provider trust distribution/);
   });
 
   it("bridge_surfaces_read fails when memoryMode disagrees across surfaces", async () => {
