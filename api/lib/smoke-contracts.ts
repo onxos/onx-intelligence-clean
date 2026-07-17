@@ -575,6 +575,29 @@ export function checkSelfVerify(
     typeof corpusSection.persistence !== "string"
   )
     return { name, passed: false, detail: "corpus section malformed (rawTotal/uniqueByTitleBody/duplicates/persistence)" };
+  // STE-P-299: DB-configuration cross-surface identity. Two INDEPENDENT
+  // code paths measure whether the production Postgres is configured, both
+  // reading DATABASE_URL but through entirely different logic:
+  //   - health "Database" status: regex /^postgres/i + a live SELECT 1 ping
+  //     (health-router.ts:57-88) → UNAVAILABLE when not a postgres URL,
+  //     HEALTHY/UNHEALTHY when it is.
+  //   - corpus.persistence: string DATABASE_URL.startsWith("postgres")
+  //     (knowledge-router.ts:212) → POSTGRES / UNPERSISTED.
+  // They must agree: a deploy serving Database=HEALTHY with corpus=UNPERSISTED
+  // (or Database=UNAVAILABLE with corpus=POSTGRES) is a measured contradiction
+  // about whether the DB is actually configured. Both values live in the same
+  // selfVerify body — served-value cross-check, no extra fetch.
+  const dbSection = healthSection.find((h) => String(h.name) === "Database");
+  if (dbSection) {
+    const dbConfigured = String(dbSection.status) !== "UNAVAILABLE";
+    const expectedCorpusPersistence = dbConfigured ? "POSTGRES" : "UNPERSISTED";
+    if (String(corpusSection.persistence) !== expectedCorpusPersistence)
+      return {
+        name,
+        passed: false,
+        detail: `DB-config cross-surface drift: health Database status=${String(dbSection.status)} implies corpus persistence=${expectedCorpusPersistence} but served=${String(corpusSection.persistence)} — contradictory DB-configuration claim`,
+      };
+  }
   const recomputedFingerprint = computeSelfVerifyFingerprint({
     items: items.map((i) => ({
       area: String(i.area),
@@ -838,7 +861,7 @@ export function checkSelfVerify(
   return {
     name,
     passed: true,
-    detail: `${items.length} items, measured=${measuredCount} asserted=${assertedCount}, truthLedgerSummary.count=${total}; fingerprint RECOMPUTED from served sections and verified; providerCounts per-bucket tally == provider items; health item verdicts == health section status${
+    detail: `${items.length} items, measured=${measuredCount} asserted=${assertedCount}, truthLedgerSummary.count=${total}; fingerprint RECOMPUTED from served sections and verified; providerCounts per-bucket tally == provider items; health item verdicts == health section status; DB-config identity: corpus persistence == health Database status${
       typeof crossSurface?.deployedCommit === "string" &&
       /^[0-9a-f]{7,40}$/i.test(crossSurface.deployedCommit) &&
       bridgeRuntime.commitSha !== null

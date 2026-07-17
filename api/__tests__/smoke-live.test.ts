@@ -319,7 +319,7 @@ const LIVE_SELFVERIFY_HEALTH = [
   { name: "Database", status: "HEALTHY" },
   { name: "Scheduler", status: "HEALTHY" },
 ];
-const LIVE_SELFVERIFY_CORPUS = { rawTotal: 22500, uniqueByTitleBody: 22500, duplicates: 0, persistence: "UNPERSISTED" };
+const LIVE_SELFVERIFY_CORPUS = { rawTotal: 22500, uniqueByTitleBody: 22500, duplicates: 0, persistence: "POSTGRES" };
 const LIVE_SELFVERIFY_PROVIDERS = [{ id: "openai", status: "CONFIGURED_UNPROBED" }];
 const LIVE_SELFVERIFY_BRIDGES = ["corpusQuery", "intentEngine", "titanBridge"].map((id) => ({
   id,
@@ -585,6 +585,92 @@ describe("smoke-live contract evaluators", () => {
     expect(r.passed).toBe(false);
     expect(r.detail).toMatch(/health items \(1\) != health section entries \(2\)/);
   });
+
+  // STE-P-299: DB-configuration cross-surface identity — corpus persistence
+  // (DATABASE_URL.startsWith check) must agree with the health Database status
+  // (regex + live ping), two independent DB-config measurements in one body.
+  it("selfVerify PASSES and proves corpus persistence == health Database status (STE-P-299)", () => {
+    const r = checkSelfVerify(200, LIVE_SELFVERIFY);
+    expect(r.passed).toBe(true);
+    expect(r.detail).toMatch(/DB-config identity: corpus persistence == health Database status/);
+  });
+
+  it("selfVerify FAILS when Database HEALTHY but corpus claims UNPERSISTED (STE-P-299)", () => {
+    // Database HEALTHY (postgres reachable) → corpus MUST be POSTGRES.
+    // Serving UNPERSISTED contradicts the DB-config claim. Recompute the
+    // fingerprint so the forgery reaches the DB-config check, not the gate.
+    const forged: Record<string, any> = JSON.parse(JSON.stringify(LIVE_SELFVERIFY));
+    forged.corpus = { ...forged.corpus, persistence: "UNPERSISTED" };
+    forged.fingerprint = computeSelfVerifyFingerprint({
+      items: forged.items,
+      health: forged.health,
+      corpus: forged.corpus,
+      providers: forged.providers,
+      bridges: forged.bridges,
+      bridgeRuntime: forged.bridgeRuntime,
+      claimsMeasured: forged.claimsMeasured,
+      claimsAsserted: forged.claimsAsserted,
+    });
+    const r = checkSelfVerify(200, forged as never);
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/DB-config cross-surface drift/);
+    expect(r.detail).toMatch(/contradictory DB-configuration claim/);
+  });
+
+  it("selfVerify FAILS when Database UNAVAILABLE but corpus claims POSTGRES (STE-P-299)", () => {
+    // Database UNAVAILABLE (not a postgres URL) → corpus MUST be UNPERSISTED.
+    // Serving POSTGRES is a fabricated DB-config claim. Keep the health item
+    // verdict consistent with the section (UNAVAILABLE→MISSING) so we reach
+    // the DB-config check rather than the P298 verdict gate; recompute fp.
+    const forged: Record<string, any> = JSON.parse(JSON.stringify(LIVE_SELFVERIFY));
+    forged.health = forged.health.map((h: any) =>
+      h.name === "Database" ? { ...h, status: "UNAVAILABLE" } : h,
+    );
+    forged.items = forged.items.map((it: any) =>
+      it.area === "health" && it.name === "Database" ? { ...it, verdict: "MISSING" } : it,
+    );
+    // corpus stays POSTGRES (the contradiction under test)
+    forged.fingerprint = computeSelfVerifyFingerprint({
+      items: forged.items,
+      health: forged.health,
+      corpus: forged.corpus,
+      providers: forged.providers,
+      bridges: forged.bridges,
+      bridgeRuntime: forged.bridgeRuntime,
+      claimsMeasured: forged.claimsMeasured,
+      claimsAsserted: forged.claimsAsserted,
+    });
+    const r = checkSelfVerify(200, forged as never);
+    expect(r.passed).toBe(false);
+    expect(r.detail).toMatch(/DB-config cross-surface drift/);
+    expect(r.detail).toMatch(/status=UNAVAILABLE implies corpus persistence=UNPERSISTED/);
+  });
+
+  it("selfVerify PASSES for an honest all-UNPERSISTED deploy (Database UNAVAILABLE + corpus UNPERSISTED) (STE-P-299)", () => {
+    // A DB-less deploy is honest as long as BOTH surfaces agree.
+    const honest: Record<string, any> = JSON.parse(JSON.stringify(LIVE_SELFVERIFY));
+    honest.health = honest.health.map((h: any) =>
+      h.name === "Database" ? { ...h, status: "UNAVAILABLE" } : h,
+    );
+    honest.items = honest.items.map((it: any) =>
+      it.area === "health" && it.name === "Database" ? { ...it, verdict: "MISSING" } : it,
+    );
+    honest.corpus = { ...honest.corpus, persistence: "UNPERSISTED" };
+    honest.fingerprint = computeSelfVerifyFingerprint({
+      items: honest.items,
+      health: honest.health,
+      corpus: honest.corpus,
+      providers: honest.providers,
+      bridges: honest.bridges,
+      bridgeRuntime: honest.bridgeRuntime,
+      claimsMeasured: honest.claimsMeasured,
+      claimsAsserted: honest.claimsAsserted,
+    });
+    const r = checkSelfVerify(200, honest as never);
+    expect(r.passed).toBe(true);
+    expect(r.detail).toMatch(/DB-config identity: corpus persistence == health Database status/);
+  });
+
 
   it("selfVerify fails on forged truthLedgerSummary derived coherence", () => {
     expect(
