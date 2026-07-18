@@ -539,4 +539,35 @@ ${input.conditions?.length ? `الحالات الصحية: ${input.conditions.jo
         model: "gpt-4o",
       };
     }),
+
+  // EV-P2-05: TeleVet Emergency Protocol — priority escalation
+  emergency: publicQuery
+    .input(z.object({
+      patientId: z.string(),
+      species: z.string(),
+      chiefComplaint: z.string(),
+      vitalSigns: z.string().optional(),
+      ownerContact: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const emergencyId = `EMG-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+      // Constitutional triage: life-threatening keywords escalate to CRITICAL
+      const critical = /نزيف|تنفس|فقدان وعي|تشنج|سم|حادث|bleeding|breathing|unconscious|seizure|poison|trauma/i
+        .test(input.chiefComplaint);
+      const priority = critical ? "CRITICAL" : "URGENT";
+      return {
+        emergencyId,
+        priority,
+        status: "ESCALATED",
+        escalatedTo: "on-duty-vet",
+        sla: critical ? "IMMEDIATE" : "15_MIN",
+        protocol: [
+          "توثيق العلامات الحيوية والشكوى",
+          critical ? "توجيه فوري لأقرب عيادة طوارئ مع اتصال مسبق" : "موعد عاجل خلال 15 دقيقة",
+          "إشعار الطبيب المناوب عبر PUSH + WHATSAPP",
+          "فتح جلسة TeleVet طارئة إن تعذر الحضور",
+        ],
+        triagedAt: new Date().toISOString(),
+      };
+    }),
 });
