@@ -1,5 +1,8 @@
 name: Render Repoint Intel to main
 on:
+  push:
+    branches:
+      - onxos-chore-render-repoint-intel-main
   workflow_dispatch:
 jobs:
   repoint:
