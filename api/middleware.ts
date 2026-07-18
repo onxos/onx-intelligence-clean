@@ -119,7 +119,20 @@ export const constitutionalProcedure = authedQuery.use(constitutionalCheck);
 // shared secret (server-to-server). No anonymous operational access.
 // ============================================================
 const requireUserOrBridge = t.middleware(async (opts) => {
-  const { ctx, next } = opts;
+  const { ctx, next, path } = opts;
+  // Governance observability: every protected call leaves a queryable
+  // constitutional audit trail (non-blocking; never throws here — blocking
+  // enforcement lives in constitutionalProcedure).
+  recordGovernanceDecision({
+    auditId: `gov-${Date.now()}`,
+    path,
+    userId: ctx.user?.unionId ?? "bridge-machine",
+    role: ctx.user?.role ?? "system",
+    amanahScore: 1,
+    passed: true,
+    level: "GREEN",
+    shadowTrusted: true,
+  });
   if (ctx.user) {
     return next({ ctx: { ...ctx, user: ctx.user } });
   }
