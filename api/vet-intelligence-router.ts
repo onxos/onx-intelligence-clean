@@ -356,6 +356,89 @@ ${input.vitals ? `- العلامات الحيوية: حرارة ${input.vitals.t
       };
     }),
 
+  // VI-09B: preparePatientFile — AI patient file preparation (EV-P0-05)
+  // يحوّل بيانات الزيارة الخام إلى ملف مريض منظم جاهز للاعتماد السريري
+  preparePatientFile: publicQuery
+    .input(z.object({
+      patientName: z.string(),
+      species: z.string(),
+      breed: z.string().optional(),
+      age: z.number().optional(),
+      weight: z.number().optional(),
+      sex: z.string().optional(),
+      ownerName: z.string().optional(),
+      ownerPhone: z.string().optional(),
+      visitNotes: z.string(), // ملاحظات الزيارة الخام كما كتبها الطبيب أو المساعد
+      vitals: z.object({
+        temperature: z.number().optional(),
+        heartRate: z.number().optional(),
+        respiratoryRate: z.number().optional(),
+        weight: z.number().optional(),
+      }).optional(),
+      previousConditions: z.array(z.string()).default([]),
+      currentMedications: z.array(z.string()).default([]),
+      allergies: z.array(z.string()).default([]),
+      vaccinationStatus: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const ai = getOpenAI();
+      const fileId = `pf_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+
+      const prompt = `أنت مساعد طبي بيطري متخصص في توثيق ملفات المرضى. حوّل بيانات الزيارة التالية إلى ملف مريض منظم وجاهز للاعتماد السريري.
+
+بيانات الهوية:
+- الاسم: ${input.patientName} | النوع: ${input.species} | السلالة: ${input.breed || "غير محددة"}
+- العمر: ${input.age ?? "غير محدد"} سنة | الوزن: ${input.weight ?? "غير محدد"} كجم | الجنس: ${input.sex || "غير محدد"}
+- المالك: ${input.ownerName || "غير محدد"} ${input.ownerPhone ? `(${input.ownerPhone})` : ""}
+
+التاريخ الطبي:
+- حالات سابقة: ${input.previousConditions.join("، ") || "لا يوجد"}
+- أدوية حالية: ${input.currentMedications.join("، ") || "لا يوجد"}
+- حساسية معروفة: ${input.allergies.join("، ") || "لا يوجد"}
+- حالة التطعيم: ${input.vaccinationStatus || "غير محددة"}
+
+العلامات الحيوية: ${input.vitals ? JSON.stringify(input.vitals) : "لم تُسجل"}
+
+ملاحظات الزيارة الخام:
+${input.visitNotes}
+
+أعد الملف بالتنسيق التالي تماماً (بالعربية، بأسلوب سريري موجز):
+## 1. بيانات الهوية والتعريف (Signalment)
+## 2. الشكوى الرئيسية والتاريخ (History)
+## 3. الفحص السريري والعلامات الحيوية (Objective)
+## 4. التقييم والتشخيص التفاضلي (Assessment)
+## 5. خطة العلاج والأدوية بالجرعات (Plan)
+## 6. التحاليل أو الفحوصات المطلوبة
+## 7. تعليمات المالك والمتابعة
+## 8. تنبيهات سلامة (حساسية/تداخلات/ملاحظات حرجة)`;
+
+      const completion = await ai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 2000,
+        temperature: 0.2,
+      });
+
+      const patientFile = completion.choices[0]?.message.content || "تعذر توليد الملف";
+
+      return {
+        fileId,
+        patientName: input.patientName,
+        species: input.species,
+        ownerName: input.ownerName,
+        patientFile,
+        safetyFlags: {
+          allergies: input.allergies,
+          currentMedications: input.currentMedications,
+          requiresVetReview: true,
+        },
+        model: "gpt-4o",
+        tokensUsed: completion.usage?.total_tokens ?? 0,
+        status: "DRAFT_PENDING_VET_REVIEW",
+        createdAt: new Date().toISOString(),
+      };
+    }),
+
   // VI-10: checkDrugInteractions — Drug interaction check (P0-10)
   checkDrugInteractions: publicQuery
     .input(z.object({
