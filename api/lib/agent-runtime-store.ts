@@ -128,3 +128,68 @@ export async function taskStats(): Promise<unknown> {
     `SELECT status, count(*)::int AS n FROM onx_agent_tasks GROUP BY status`);
   return Object.fromEntries(rows.map((r) => [r.status, r.n]));
 }
+
+/** Built-in task handlers — real work against the live system. */
+async function executeTask(kind: string, payload: unknown): Promise<unknown> {
+  const p = getPool();
+  try {
+    switch (kind) {
+      case "health.snapshot": {
+        const { rows } = await p.query(`SELECT count(*)::int AS corpus FROM onx_knowledge_corpus`);
+        return { corpusRecords: rows[0].corpus, at: new Date().toISOString() };
+      }
+      case "governance.digest": {
+        const { rows } = await p.query(
+          `SELECT count(*)::int AS decisions, count(*) FILTER (WHERE NOT passed)::int AS blocked
+             FROM onx_governance_decisions WHERE "createdAt" > now() - interval '1 hour'`);
+        return rows[0];
+      }
+      case "corpus.embed.check": {
+        const { rows } = await p.query(
+          `SELECT count(*)::int AS total, count(embedding)::int AS embedded FROM onx_knowledge_corpus`);
+        return rows[0];
+      }
+      default:
+        return { echo: payload, note: "no built-in handler — echoed" };
+    }
+  } catch {
+    return { deferred: true };
+  }
+}
+
+/**
+ * The agents' standing work loop — called by every consciousness-rhythm
+ * execution (scheduler) and by agentRuntime.tick. All ACTIVE agents beat,
+ * then up to maxTasks queued tasks are claimed and processed.
+ */
+export async function agentTick(rhythm: string, maxTasks = 2): Promise<{ agentsBeat: number; tasksProcessed: number }> {
+  try {
+    await ensureAgentSchema();
+    const p = getPool();
+    let agentsBeat = 0;
+    try {
+      const { rows } = await p.query(`SELECT id FROM agents WHERE status='ACTIVE'`);
+      for (const a of rows) {
+        await beat(a.id as string, rhythm, 0);
+        agentsBeat++;
+      }
+    } catch {
+      /* registry unavailable — tasks may still process */
+    }
+    let processed = 0;
+    for (let i = 0; i < maxTasks; i++) {
+      const task = await claimTask();
+      if (!task) break;
+      try {
+        const result = await executeTask(task.kind, task.payload);
+        await completeTask(task.taskId, result, true);
+      } catch (e) {
+        await completeTask(task.taskId, { error: String(e).slice(0, 200) }, false);
+      }
+      processed++;
+    }
+    return { agentsBeat, tasksProcessed: processed };
+  } catch {
+    return { agentsBeat: 0, tasksProcessed: 0 };
+  }
+}
