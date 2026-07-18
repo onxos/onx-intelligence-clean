@@ -17,8 +17,8 @@
     "corpus:manifest": "tsx --tsconfig tsconfig.server.json scripts/corpus-dedup-manifest.ts",
     "verify:corpus": "tsx --tsconfig tsconfig.server.json scripts/verify-corpus.ts",
     "verify:self": "tsx --tsconfig tsconfig.server.json scripts/self-verify.ts",
-    "eval:golden":  "tsx --tsconfig tsconfig.server.json scripts/eval-golden.ts",
-    "smoke:live":   "tsx --tsconfig tsconfig.server.json scripts/smoke-live.ts",
+    "eval:golden": "tsx --tsconfig tsconfig.server.json scripts/eval-golden.ts",
+    "smoke:live": "tsx --tsconfig tsconfig.server.json scripts/smoke-live.ts",
     "ingest:corpus": "tsx --tsconfig tsconfig.server.json scripts/ingest-corpus.ts",
     "corpus:evidence": "tsx scripts/corpus-evidence.ts",
     "db:generate": "drizzle-kit generate",
@@ -26,7 +26,7 @@
     "db:push": "drizzle-kit push"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.965.0",
+    "@aws-sdk/client-s3": "^3.600.0",
     "@aws-sdk/s3-request-presigner": "^3.965.0",
     "@hono/node-server": "^1.14.3",
     "@hookform/resolvers": "^5.2.2",
@@ -96,7 +96,8 @@
     "typescript": "~5.9.3",
     "vaul": "^1.1.2",
     "vite": "^7.2.4",
-    "zod": "^4.3.5"
+    "zod": "^4.3.5",
+    "@sentry/node": "^8.30.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

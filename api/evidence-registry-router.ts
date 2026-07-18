@@ -152,7 +152,7 @@ export const evidenceRegistryRouter = createRouter({
     }).optional())
     .query(async ({ input }) => {
       try {
-        let rows: Array<Record<string, unknown>> = await listEvidence();
+        let rows: Array<Record<string, unknown>> = (await listEvidence()) as unknown as Array<Record<string, unknown>>;
         if (input?.category) rows = rows.filter(r => r.category === input.category);
         if (input?.status) rows = rows.filter(r => r.status === input.status);
         if (input?.layer) rows = rows.filter(r => r.layer === input.layer);

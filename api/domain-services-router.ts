@@ -9,7 +9,10 @@
 import { z } from "zod";
 import { Pool } from "pg";
 import OpenAI from "openai";
-import { createRouter, publicQuery } from "./middleware";
+import { createRouter, protectedQuery } from "./middleware";
+
+// EV-SEC-01: all domain procedures require a user session or the bridge key
+const publicQuery = protectedQuery;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PG STORE (lazy pool + schema bootstrap)
@@ -97,6 +100,14 @@ async function ensureSchema(): Promise<void> {
 
 function rid2(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+}
+
+// EV-SEC-02 (branch isolation): when the caller carries a branch scope
+// (x-onx-branch-id header, set by the gateway from the user's branch claim),
+// list/summary queries are restricted to that branch. Machine/bridge calls
+// without the header see all branches (back-office behaviour).
+function scopedBranch(ctx: { req: Request }): string | null {
+  return ctx.req.headers.get("x-onx-branch-id");
 }
 
 let openaiClient: OpenAI | null = null;
@@ -431,6 +442,20 @@ const branchesRouter = createRouter({
 // D18: Notifications — 5 channels: EMAIL, SMS, WHATSAPP, PUSH, IN_APP
 // ─────────────────────────────────────────────────────────────────────────────
 const CHANNELS = ["EMAIL", "SMS", "WHATSAPP", "PUSH", "IN_APP"] as const;
+// EV-NTF-01 (honesty): IN_APP is genuinely delivered (DB record the app reads).
+// External channels are only marked SENT when a real provider is configured;
+// otherwise they stay honestly QUEUED with providerConfigured=false.
+const PROVIDER_ENV: Record<(typeof CHANNELS)[number], string | undefined> = {
+  EMAIL: process.env.EMAIL_PROVIDER_TOKEN,
+  SMS: process.env.SMS_PROVIDER_TOKEN,
+  WHATSAPP: process.env.WHATSAPP_PROVIDER_TOKEN,
+  PUSH: process.env.PUSH_PROVIDER_TOKEN,
+  IN_APP: "builtin",
+};
+function channelStatus(channel: (typeof CHANNELS)[number]): { status: string; providerConfigured: boolean } {
+  const configured = Boolean(PROVIDER_ENV[channel]);
+  return { status: configured ? "SENT" : "QUEUED", providerConfigured: configured };
+}
 const notificationsRouter = createRouter({
   send: publicQuery
     .input(z.object({
@@ -442,11 +467,13 @@ const notificationsRouter = createRouter({
     .mutation(async ({ input }) => {
       await ensureSchema();
       const notificationId = rid2("NTF");
+      const { status, providerConfigured } = channelStatus(input.channel);
       await getPool().query(
-        `INSERT INTO dom_notifications ("notificationId","recipientId",channel,title,body,status,"sentAt")
-         VALUES ($1,$2,$3,$4,$5,'SENT',now())`,
-        [notificationId, input.recipientId, input.channel, input.title, input.body]);
-      return { notificationId, channel: input.channel, status: "SENT" };
+        status === "SENT"
+          ? `INSERT INTO dom_notifications ("notificationId","recipientId",channel,title,body,status,"sentAt") VALUES ($1,$2,$3,$4,$5,$6,now())`
+          : `INSERT INTO dom_notifications ("notificationId","recipientId",channel,title,body,status) VALUES ($1,$2,$3,$4,$5,$6)`,
+        [notificationId, input.recipientId, input.channel, input.title, input.body, status]);
+      return { notificationId, channel: input.channel, status, providerConfigured };
     }),
 
   broadcast: publicQuery
@@ -457,13 +484,20 @@ const notificationsRouter = createRouter({
       const ids: string[] = [];
       for (const channel of CHANNELS) {
         const notificationId = rid2("NTF");
+        const { status } = channelStatus(channel);
         await p.query(
-          `INSERT INTO dom_notifications ("notificationId","recipientId",channel,title,body,status,"sentAt")
-           VALUES ($1,$2,$3,$4,$5,'SENT',now())`,
+          status === "SENT"
+            ? `INSERT INTO dom_notifications ("notificationId","recipientId",channel,title,body,status,"sentAt") VALUES ($1,$2,$3,$4,$5,'SENT',now())`
+            : `INSERT INTO dom_notifications ("notificationId","recipientId",channel,title,body,status) VALUES ($1,$2,$3,$4,$5,'QUEUED')`,
           [notificationId, input.recipientId, channel, input.title, input.body]);
         ids.push(notificationId);
       }
-      return { sent: ids.length, channels: CHANNELS, notificationIds: ids };
+      return {
+        sent: ids.length,
+        channels: CHANNELS,
+        notificationIds: ids,
+        providerStatus: Object.fromEntries(CHANNELS.map((c) => [c, channelStatus(c)])),
+      };
     }),
 
   list: publicQuery
@@ -571,12 +605,13 @@ const hrRouter = createRouter({
 
   list: publicQuery
     .input(z.object({ role: z.string().optional(), branchId: z.string().optional() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       await ensureSchema();
+      const branch = scopedBranch(ctx) ?? input.branchId ?? null;
       const res = await getPool().query(
         `SELECT * FROM dom_hr_staff WHERE ($1::text IS NULL OR role=$1) AND ($2::text IS NULL OR "branchId"=$2)
          ORDER BY "createdAt" ASC`,
-        [input.role ?? null, input.branchId ?? null]);
+        [input.role ?? null, branch]);
       return res.rows;
     }),
 
@@ -622,23 +657,63 @@ const financeRouter = createRouter({
 
   list: publicQuery
     .input(z.object({ status: z.string().optional(), limit: z.number().default(30) }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       await ensureSchema();
+      const branch = scopedBranch(ctx);
       const res = await getPool().query(
-        `SELECT * FROM dom_invoices WHERE ($1::text IS NULL OR status=$1) ORDER BY "createdAt" DESC LIMIT $2`,
-        [input.status ?? null, input.limit]);
+        `SELECT * FROM dom_invoices WHERE ($1::text IS NULL OR status=$1)
+           AND ($3::text IS NULL OR "branchId"=$3) ORDER BY "createdAt" DESC LIMIT $2`,
+        [input.status ?? null, input.limit, branch]);
       return res.rows;
     }),
 
-  summary: publicQuery.query(async () => {
+  summary: publicQuery.query(async ({ ctx }) => {
     await ensureSchema();
+    const branch = scopedBranch(ctx);
     const { rows } = await getPool().query(
       `SELECT count(*)::int AS invoices, COALESCE(sum(total),0)::float AS "totalRevenue",
               COALESCE(sum(vat),0)::float AS "totalVat",
               COALESCE(sum(total) FILTER (WHERE status='PAID'),0)::float AS "paidRevenue"
-         FROM dom_invoices`);
+         FROM dom_invoices WHERE ($1::text IS NULL OR "branchId"=$1)`, [branch]);
     return rows[0];
   }),
+
+  // EV-PAY-01: Moyasar payment adapter — honest when unconfigured
+  createPayment: publicQuery
+    .input(z.object({
+      invoiceId: z.string(),
+      callbackUrl: z.string().url().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      await ensureSchema();
+      const p = getPool();
+      const { rows } = await p.query(`SELECT "invoiceId", total, status FROM dom_invoices WHERE "invoiceId"=$1`, [input.invoiceId]);
+      if (!rows[0]) throw new Error("INVOICE_NOT_FOUND");
+      const key = process.env.MOYASAR_SECRET_KEY;
+      if (!key) {
+        return {
+          supported: false,
+          reason: "MOYASAR_SECRET_KEY not configured — payment gateway not linked yet",
+          invoiceId: input.invoiceId,
+          paymentStatus: "UNPAID",
+          provider: "moyasar",
+        };
+      }
+      const resp = await fetch("https://api.moyasar.com/v1/invoices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Basic ${Buffer.from(key + ":").toString("base64")}` },
+        body: JSON.stringify({
+          amount: Math.round(Number(rows[0].total) * 100),
+          currency: "SAR",
+          description: `ONX Vet invoice ${input.invoiceId}`,
+          callback_url: input.callbackUrl,
+        }),
+      });
+      if (!resp.ok) throw new Error(`MOYASAR_ERROR_${resp.status}`);
+      const pay = (await resp.json()) as { id: string; url?: string };
+      await p.query(`UPDATE dom_invoices SET status='PAYMENT_PENDING' WHERE "invoiceId"=$1`, [input.invoiceId]);
+      return { supported: true, provider: "moyasar", paymentId: pay.id, paymentUrl: pay.url ?? null, invoiceId: input.invoiceId };
+    }),
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -690,10 +765,14 @@ const televetRouter = createRouter({
         [sessionRef, input.patientId, input.ownerName, input.mode, input.priority,
          emergency ? "ESCALATED" : "LIVE", emergency ? "on-duty-vet" : null, input.notes ?? null]);
       if (emergency) {
-        await p.query(
-          `INSERT INTO dom_notifications ("notificationId","recipientId",channel,title,body,status,"sentAt")
-           VALUES ($1,'on-duty-vet','PUSH',$2,$3,'SENT',now()),($4,'on-duty-vet','WHATSAPP',$2,$3,'SENT',now())`,
-          [rid2("NTF"), "حالة طارئة — TeleVet", `جلسة طارئة ${sessionRef} للمريض ${input.patientId} (${input.ownerName}). تدخل فوري مطلوب.`, rid2("NTF")]);
+        for (const ch of ["PUSH", "WHATSAPP"] as const) {
+          const { status } = channelStatus(ch);
+          await p.query(
+            status === "SENT"
+              ? `INSERT INTO dom_notifications ("notificationId","recipientId",channel,title,body,status,"sentAt") VALUES ($1,'on-duty-vet',$2,$3,$4,'SENT',now())`
+              : `INSERT INTO dom_notifications ("notificationId","recipientId",channel,title,body,status) VALUES ($1,'on-duty-vet',$2,$3,$4,'QUEUED')`,
+            [rid2("NTF"), ch, "حالة طارئة — TeleVet", `جلسة طارئة ${sessionRef} للمريض ${input.patientId} (${input.ownerName}). تدخل فوري مطلوب.`]);
+        }
       }
       return { sessionRef, status: emergency ? "ESCALATED" : "LIVE", mode: input.mode, escalated: emergency };
     }),

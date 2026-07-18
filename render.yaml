@@ -194,3 +194,24 @@ services:
           name: onx-intelligence-clean
           envVarKey: OPENAI_API_KEY
     autoDeploy: false
+
+  # ---- Daily PostgreSQL backup (DR-01; RPO 24h) ----
+  - type: cron
+    name: onx-pg-backup
+    runtime: node
+    plan: starter
+    region: frankfurt
+    schedule: "0 3 * * *"
+    buildCommand: npm ci
+    startCommand: node scripts/backup-pg.mjs
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_REGION
+        value: auto

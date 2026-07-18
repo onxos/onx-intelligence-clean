@@ -3,6 +3,8 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
 import { Guardian, USFIPv2Engine } from "@onx/intelligence-runtime";
+import { env } from "./lib/env";
+import { recordGovernanceDecision } from "./lib/governance-log-store";
 
 // Shared runtime instances
 export const guardian = new Guardian();
@@ -47,6 +49,16 @@ const constitutionalCheck = t.middleware(async (opts) => {
   const amanahResult = guardian.checkAmanah(audit.score);
 
   // Log governance decision (non-blocking — best effort)
+  recordGovernanceDecision({
+    auditId: `gov-${Date.now()}`,
+    path,
+    userId: ctx.user?.unionId ?? "anonymous",
+    role: ctx.user?.role ?? "user",
+    amanahScore: audit.score,
+    passed: amanahResult.passed,
+    level: amanahResult.passed ? "GREEN" : "RED",
+    shadowTrusted: true,
+  });
   if (!amanahResult.passed) {
     process.stderr.write(
       `[Guardian] BLOCKED ${path} — Amanah: ${audit.score} < 0.5 (user: ${ctx.user?.unionId ?? "anon"})\n`
@@ -99,3 +111,26 @@ export const adminQuery = authedQuery.use(requireRole("admin"));
 // Protected + Constitutional — all sensitive procedures use this
 export const constitutionalProcedure = authedQuery.use(constitutionalCheck);
 
+
+
+// ============================================================
+// PROTECTED DOMAIN GUARD (EV-SEC-01)
+// Operational domain surfaces accept a user session OR the bridge
+// shared secret (server-to-server). No anonymous operational access.
+// ============================================================
+const requireUserOrBridge = t.middleware(async (opts) => {
+  const { ctx, next } = opts;
+  if (ctx.user) {
+    return next({ ctx: { ...ctx, user: ctx.user } });
+  }
+  const key = ctx.req.headers.get("x-onx-bridge-key");
+  if (env.bridgeSharedSecret && key && key === env.bridgeSharedSecret) {
+    return next({ ctx: { ...ctx, bridgeMachine: true as const } });
+  }
+  throw new TRPCError({
+    code: "UNAUTHORIZED",
+    message: ErrorMessages.unauthenticated,
+  });
+});
+
+export const protectedQuery = t.procedure.use(requireUserOrBridge);
