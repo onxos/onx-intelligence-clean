@@ -1,0 +1,165 @@
+// ============================================================
+// GOLDEN SET (STE-K-06) — the institutional quality ratchet's
+// measured ground truth. 89 deterministic cases across Arabic +
+// English covering all seven intents, deliberate honest-refusal
+// cases (out-of-corpus questions: weather / politics / cooking),
+// and retrieval cases (unique English topic terms that DO hit a
+// known domain). Diacritized and Gulf-colloquial phrasings are
+// included so the normalizer is exercised end to end.
+//
+// Fields:
+//   expectedIntent    — the intent classifyIntent must return.
+//   expectRefusal     — true when composeAnswer SHOULD refuse
+//                       (INSUFFICIENT_EVIDENCE). Vet questions refuse
+//                       today because the corpus is templated (DEMO)
+//                       and holds no veterinary content; the pure
+//                       out-of-domain questions refuse for the same
+//                       honest reason.
+//   expectedTopDomain — (retrieval cases only) the domain the top
+//                       citation must belong to.
+// ============================================================
+import type { IntentId } from "../lib/intent-engine";
+
+export interface GoldenCase {
+  id: string;
+  question: string;
+  expectedIntent: string;
+  expectRefusal?: boolean;
+  expectedTopDomain?: string;
+  note?: string;
+}
+
+export const GOLDEN_SET: GoldenCase[] = [
+  // ---- EMERGENCY (ar + en, diacritized, colloquial, phrase) ----
+  { id: "em-ar-1", question: "كلبي ينزف بشدة وأحتاج مساعدة", expectedIntent: "EMERGENCY", expectRefusal: true },
+  { id: "em-ar-2", question: "قطتي فيها تسمم شديد الحقوه", expectedIntent: "EMERGENCY", expectRefusal: true },
+  { id: "em-ar-3", question: "حيواني تعرض لحادث دهس في الشارع", expectedIntent: "EMERGENCY", expectRefusal: true },
+  { id: "em-ar-4", question: "كَلبي يَنزِف بِشِدّة الآن", expectedIntent: "EMERGENCY", expectRefusal: true, note: "diacritized" },
+  { id: "em-ar-5", question: "الكلب ابتلع سم وصار تعبان", expectedIntent: "EMERGENCY", expectRefusal: true, note: "phrase + gulf" },
+  { id: "em-en-1", question: "my dog is bleeding badly please help", expectedIntent: "EMERGENCY", expectRefusal: true },
+  { id: "em-en-2", question: "cat poisoned emergency what do I do", expectedIntent: "EMERGENCY", expectRefusal: true },
+  { id: "em-en-3", question: "my dog collapsed and had a seizure", expectedIntent: "EMERGENCY", expectRefusal: false, note: "keywords: collapsed+seizure (retrieval-evidenced)" },
+  { id: "em-en-4", question: "my puppy is choking right now", expectedIntent: "EMERGENCY", expectRefusal: true, note: "keyword edge: choking" },
+
+  // ---- BOOKING (incl. Gulf colloquial) ----
+  { id: "bk-ar-1", question: "ابغى موعد بكرة للعيادة", expectedIntent: "BOOKING", expectRefusal: true, note: "gulf" },
+  { id: "bk-ar-2", question: "أريد حجز موعد للقطة", expectedIntent: "BOOKING", expectRefusal: true },
+  { id: "bk-ar-3", question: "ابي احجز موعد فحص", expectedIntent: "BOOKING", expectRefusal: true, note: "gulf" },
+  { id: "bk-en-1", question: "book an appointment tomorrow", expectedIntent: "BOOKING", expectRefusal: true },
+  { id: "bk-en-2", question: "reschedule my visit please", expectedIntent: "BOOKING", expectRefusal: true },
+  { id: "bk-en-3", question: "book appointment tomorrow if weather is cloudy", expectedIntent: "BOOKING", expectRefusal: true, note: "booking cues must survive weather negatives" },
+  { id: "bk-en-4", question: "make an appointment for my dog next week", expectedIntent: "BOOKING", expectRefusal: true, note: "phrase edge: make an appointment" },
+
+  // ---- PRICING ----
+  { id: "pr-ar-1", question: "كم سعر تطعيم القطط", expectedIntent: "PRICING", expectRefusal: true },
+  { id: "pr-ar-2", question: "بكم تكلفة الفحص الشامل", expectedIntent: "PRICING", expectRefusal: true },
+  { id: "pr-ar-3", question: "كَم سِعر الكَشف عندكم", expectedIntent: "PRICING", expectRefusal: true, note: "diacritized" },
+  { id: "pr-en-1", question: "how much does vaccination cost", expectedIntent: "PRICING", expectRefusal: true },
+  { id: "pr-en-2", question: "what is the price of the surgery", expectedIntent: "PRICING", expectRefusal: true },
+  { id: "pr-en-3", question: "what does it cost for the checkup", expectedIntent: "PRICING", expectRefusal: true, note: "pricing phrase edge" },
+  { id: "pr-ar-4", question: "كم يكلف تنظيف أسنان القط", expectedIntent: "PRICING", expectRefusal: true, note: "phrase edge: كم يكلف" },
+
+  // ---- COMPLAINT ----
+  { id: "co-ar-1", question: "أريد تقديم شكوى عاجلة", expectedIntent: "COMPLAINT", expectRefusal: true },
+  { id: "co-ar-2", question: "خدمة سيئة جدا وأنا مستاء", expectedIntent: "COMPLAINT", expectRefusal: true, note: "phrase" },
+  { id: "co-en-1", question: "I want to file a complaint bad service", expectedIntent: "COMPLAINT", expectRefusal: true },
+  { id: "co-en-2", question: "I am disappointed this is terrible service", expectedIntent: "COMPLAINT", expectRefusal: true, note: "complaint keyword edge" },
+  { id: "co-en-3", question: "I want to complain because I am unhappy with the service", expectedIntent: "COMPLAINT", expectRefusal: true, note: "complain+unhappy edge" },
+
+  // ---- RESULTS ----
+  { id: "re-ar-1", question: "متى تظهر نتائج التحليل", expectedIntent: "RESULTS", expectRefusal: true, note: "phrase" },
+  { id: "re-ar-2", question: "أريد نتيجة الأشعة", expectedIntent: "RESULTS", expectRefusal: true },
+  { id: "re-en-1", question: "when are the lab results ready", expectedIntent: "RESULTS", expectRefusal: true },
+  { id: "re-en-2", question: "when is my bloodwork scan result available", expectedIntent: "RESULTS", expectRefusal: true, note: "results keyword edge" },
+  { id: "re-en-3", question: "are the xray analysis labs available", expectedIntent: "RESULTS", expectRefusal: true, note: "xray+analysis+labs edge" },
+
+  // ---- REFILL ----
+  { id: "rf-ar-1", question: "أحتاج إعادة صرف دواء", expectedIntent: "REFILL", expectRefusal: true, note: "phrase" },
+  { id: "rf-ar-2", question: "خلص الدواء أريد علاج جديد", expectedIntent: "REFILL", expectRefusal: true, note: "phrase" },
+  { id: "rf-en-1", question: "refill prescription please", expectedIntent: "REFILL", expectRefusal: true },
+  { id: "rf-en-2", question: "ran out of medication renew it", expectedIntent: "REFILL", expectRefusal: true, note: "phrase" },
+  { id: "rf-en-3", question: "renew prescription medicine please", expectedIntent: "REFILL", expectRefusal: true, note: "refill keyword edge" },
+
+  // ---- INFO (general clinic info) ----
+  { id: "in-ar-1", question: "ما هي ساعات العمل", expectedIntent: "INFO", expectRefusal: true, note: "phrase" },
+  { id: "in-ar-2", question: "أين موقع العيادة", expectedIntent: "INFO", expectRefusal: true },
+  { id: "in-en-1", question: "what are your opening hours", expectedIntent: "INFO", expectRefusal: true },
+  { id: "in-en-2", question: "where is your address", expectedIntent: "INFO", expectRefusal: true },
+  { id: "in-en-3", question: "I have a question about your location", expectedIntent: "INFO", expectRefusal: false, note: "info keyword edge (retrieval-evidenced)" },
+  { id: "in-en-4", question: "what are your working hours", expectedIntent: "INFO", expectRefusal: true, note: "phrase edge: working hours" },
+
+  // ---- Deliberate out-of-corpus REFUSALS (weather/politics/cooking):
+  //      no intent keywords → INFO fallback; no evidence → refuse. ----
+  { id: "rj-weather-ar", question: "كيف حالة الطقس غدا في الرياض", expectedIntent: "INFO", expectRefusal: true, note: "weather" },
+  { id: "rj-weather-en", question: "will it rain tomorrow afternoon", expectedIntent: "INFO", expectRefusal: true, note: "weather" },
+  { id: "rj-politics-ar", question: "من سيفوز في الانتخابات القادمة", expectedIntent: "INFO", expectRefusal: true, note: "politics" },
+  { id: "rj-politics-en", question: "who will win the presidential election", expectedIntent: "INFO", expectRefusal: true, note: "politics" },
+  { id: "rj-cooking-ar", question: "كيف أطبخ كبسة لحم لذيذة", expectedIntent: "INFO", expectRefusal: true, note: "cooking" },
+  { id: "rj-cooking-en", question: "best recipe for chocolate cake", expectedIntent: "INFO", expectRefusal: true, note: "cooking" },
+
+  // ---- ANTI-OVERFIT: real bookings that DO contain "tomorrow/غدا"
+  //      must still classify BOOKING (the weather negative-signal fix
+  //      must not blunt genuine booking cues). expectRefusal:true —
+  //      operational intent, no clinic corpus (honest refusal). ----
+  { id: "ao-book-ar-1", question: "ابغى احجز موعد بكرة الساعة خمسة", expectedIntent: "BOOKING", expectRefusal: true, note: "anti-overfit gulf" },
+  { id: "ao-book-ar-2", question: "أريد حجز موعد غدا للكشف", expectedIntent: "BOOKING", expectRefusal: true, note: "anti-overfit tomorrow" },
+  { id: "ao-book-en-1", question: "book an appointment tomorrow morning", expectedIntent: "BOOKING", expectRefusal: true, note: "anti-overfit tomorrow" },
+  { id: "ao-book-en-2", question: "schedule a visit for tomorrow please", expectedIntent: "BOOKING", expectRefusal: true, note: "anti-overfit tomorrow" },
+
+  // ---- RETRIEVAL cases: unique English topic terms → real domain
+  //      hit. No intent keywords → INFO fallback; corpus HAS evidence
+  //      so these must ANSWER (expectRefusal:false). ----
+  { id: "rt-tech", question: "neural networks transformer edge computing", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "TECHNOLOGY" },
+  { id: "rt-energy", question: "solar wind battery storage smart grid", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "ENERGY" },
+  { id: "rt-econ", question: "islamic banking marginal utility moral hazard", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "ECONOMICS" },
+  { id: "rt-sci", question: "natural selection entropy thermodynamics laws", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "SCIENCE" },
+  { id: "rt-hist", question: "abbasid ottoman mamluk caliphate expansion", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "HISTORY" },
+  { id: "rt-islamic", question: "usul fiqh hadith authentication ijma qiyas", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "ISLAMIC" },
+  { id: "rt-mfg", question: "six sigma lean production digital twin", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "MANUFACTURING" },
+  { id: "rt-eng", question: "control systems signal processing load balancing", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "ENGINEERING" },
+  { id: "rt-legal", question: "contract law tort liability jurisprudence precedent", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "LEGAL" },
+  { id: "rt-med", question: "oncology diagnosis epidemiology cardiology treatment", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "MEDICINE" },
+  { id: "rt-edu", question: "curriculum pedagogy formative assessment classroom", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "EDUCATION" },
+  { id: "rt-fin", question: "portfolio diversification derivatives hedging yield curve", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "FINANCE" },
+  { id: "rt-env", question: "biodiversity conservation watershed reforestation emissions", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "ENVIRONMENT" },
+  { id: "rt-transport", question: "transportation multimodal transit railway aviation maritime", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "TRANSPORTATION" },
+
+  // ---- Additional out-of-corpus honest refusals (deterministic INFO→refuse) ----
+  { id: "rj-sports-ar", question: "من سيفوز بكأس العالم القادم", expectedIntent: "INFO", expectRefusal: true, note: "sports" },
+  { id: "rj-sports-en", question: "who will win the next world cup", expectedIntent: "INFO", expectRefusal: true, note: "sports" },
+
+  // ---- Additional out-of-corpus honest refusals (ar/en) ----
+  { id: "rj-space-ar", question: "ما اسم أقرب مجرة إلى درب التبانة", expectedIntent: "INFO", expectRefusal: true, note: "astronomy" },
+  { id: "rj-space-en", question: "what is the nearest galaxy to the milky way", expectedIntent: "INFO", expectRefusal: true, note: "astronomy" },
+  { id: "rj-markets-ar", question: "ما توقعات سوق الأسهم الشهر القادم", expectedIntent: "INFO", expectRefusal: true, note: "markets" },
+  { id: "rj-private-en", question: "what is my wifi password", expectedIntent: "INFO", expectRefusal: true, note: "private-data/no-fabrication" },
+  { id: "rj-unknown-symbols", question: "؟؟؟ ### @@ !!", expectedIntent: "INFO", expectRefusal: true, note: "unknown/no-fabrication" },
+
+  // ---- Precedence edges: EMERGENCY must outrank BOOKING/PRICING cues ----
+  { id: "px-em-book-ar", question: "أريد حجز موعد لكن القطة تنزف الآن", expectedIntent: "EMERGENCY", expectRefusal: true, note: "emergency priority over booking" },
+  { id: "px-em-book-en", question: "book an appointment tomorrow my cat is bleeding now", expectedIntent: "EMERGENCY", expectRefusal: true, note: "emergency priority over booking" },
+  { id: "px-em-price-ar", question: "كم سعر الكشف لكن الكلب يختنق الآن", expectedIntent: "EMERGENCY", expectRefusal: true, note: "emergency priority over pricing" },
+  { id: "px-em-results-en", question: "when are lab results ready my dog is not breathing", expectedIntent: "EMERGENCY", expectRefusal: true, note: "emergency priority over results" },
+  { id: "px-em-case-en", question: "BOOK AN APPOINTMENT NOW MY DOG IS BLEEDING", expectedIntent: "EMERGENCY", expectRefusal: true, note: "uppercase emergency precedence" },
+  { id: "px-em-book-en-2", question: "schedule a visit now my cat has fracture and cannot breathe", expectedIntent: "EMERGENCY", expectRefusal: false, note: "emergency phrase+keyword precedence over booking (retrieval-evidenced)" },
+  { id: "px-em-rf-en", question: "refill the prescription but my dog is unconscious", expectedIntent: "EMERGENCY", expectRefusal: true, note: "emergency priority over refill" },
+  { id: "px-em-co-en", question: "I want to complain but my cat is choking", expectedIntent: "EMERGENCY", expectRefusal: true, note: "emergency priority over complaint" },
+
+  // ---- Retrieval expansion (DEMO-derived, deterministic, no external provider) ----
+  { id: "rt-strategy", question: "blue ocean strategic foresight game theory balanced scorecard", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "STRATEGY" },
+  { id: "rt-agri", question: "hydroponics crop rotation soil science vertical farming", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "AGRICULTURE" },
+  { id: "rt-media", question: "programmatic advertising audience analytics ott platforms podcasting", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "MEDIA" },
+  { id: "rt-defense", question: "electronic warfare cyber threat intelligence border security", expectedIntent: "INFO", expectRefusal: false, expectedTopDomain: "DEFENSE" },
+
+  // ---- Additional diacritized clinic intents (normalizer sensitivity) ----
+  { id: "co-ar-dia-1", question: "أُريدُ تَقدِيمَ شَكوى على الخدمة", expectedIntent: "COMPLAINT", expectRefusal: true, note: "diacritized complaint" },
+  { id: "re-ar-dia-1", question: "مَتى نَتائِجُ التَّحليل؟", expectedIntent: "RESULTS", expectRefusal: true, note: "diacritized results" },
+];
+
+// The seven canonical intents the set must fully cover.
+export const ALL_INTENTS: IntentId[] = [
+  "EMERGENCY", "BOOKING", "PRICING", "COMPLAINT", "RESULTS", "REFILL", "INFO",
+];
+
+// Re-export for typed consumers that want the union.
+export type { IntentId };

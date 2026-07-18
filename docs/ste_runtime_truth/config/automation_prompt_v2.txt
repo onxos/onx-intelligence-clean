@@ -1,0 +1,11 @@
+ONX-STE-01-v2.0 SIX-HOUR A-TO-Z TRUTH REPORT
+Required per run:
+1) Read ste_queue/tm_evidence/heartbeats/leases
+2) Determine actual 6h window
+3) Collect IUs/ACs/workers/commits/tests
+4) Collect deploys/unique SHAs/migrations/prod evidence
+5) Collect cost/models/context/drifts
+6) Generate comprehensive report
+7) Compute SHA + persist artifact
+8) Do not touch/publish apps/intelligence
+9) Do not close any breach outside correct AC gate

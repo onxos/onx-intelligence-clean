@@ -3,12 +3,18 @@
 // System status, dependencies, readiness, liveness probes
 // ============================================================
 import { z } from "zod";
+import { Pool } from "pg";
 import { createRouter, publicQuery } from "./middleware";
 import { getBridgeState } from "./bridge-guard";
 import { countEvents } from "./lib/platform-inbox-store";
 import { getPerceptionAdapterStatus } from "./lib/perception-adapter";
 import { getPersistenceStatus } from "./lib/iurg-store";
 import { getReflectionStatus } from "./lib/reflection-cycle";
+import { getIucRuntimeStatus } from "./lib/iuc-runtime";
+import { env } from "./lib/env";
+import { getKnowledgeHealthSnapshot } from "./knowledge-router";
+import { getRhythmHealthSnapshot } from "./scheduler-router";
+import { getConstitutionHealthSnapshot } from "./constitution-router";
 import {
   getInsightsServedTotal,
   listPublicInsights,
@@ -17,22 +23,146 @@ import {
 import { getInsightAckCounters } from "./lib/insight-ack";
 
 // --- Component Health ---
-interface ComponentHealth {
+// STE-01 W2 honesty contract: every component check below is computed
+// live at query time. No hardcoded "connected"/"indexed" claims — a
+// missing resource reports UNAVAILABLE, a broken one UNHEALTHY.
+export interface ComponentHealth {
   name: string;
-  status: "HEALTHY" | "DEGRADED" | "UNHEALTHY";
+  status: "HEALTHY" | "DEGRADED" | "UNHEALTHY" | "UNAVAILABLE";
   latency: number;
   lastCheck: Date;
   message: string;
 }
 
-const components: Map<string, ComponentHealth> = new Map([
-  ["database", { name: "Database", status: "HEALTHY", latency: 15, lastCheck: new Date(), message: "SQLite connected" }],
-  ["runtime", { name: "ONX Runtime", status: "HEALTHY", latency: 5, lastCheck: new Date(), message: "18 engines loaded" }],
-  ["titan_bridge", { name: "Titan Bridge", status: "HEALTHY", latency: 800, lastCheck: new Date(), message: "GPT-4o connected" }],
-  ["knowledge", { name: "Knowledge Base", status: "HEALTHY", latency: 45, lastCheck: new Date(), message: "25K records indexed" }],
-  ["scheduler", { name: "Consciousness Scheduler", status: "HEALTHY", latency: 12, lastCheck: new Date(), message: "5 rhythms active" }],
-  ["constitution", { name: "Constitutional Engine", status: "HEALTHY", latency: 8, lastCheck: new Date(), message: "7 principles enforced" }],
-]);
+let healthPool: Pool | null = null;
+
+function getHealthPool(connectionString: string): Pool {
+  if (!healthPool) {
+    const isExternalHost = connectionString.includes("render.com");
+    healthPool = new Pool({
+      connectionString,
+      max: 2,
+      connectionTimeoutMillis: 3000,
+      ...(isExternalHost ? { ssl: { rejectUnauthorized: false } } : {}),
+    });
+  }
+  return healthPool;
+}
+
+function truncate(message: string, max = 160): string {
+  return message.length > max ? `${message.slice(0, max)}…` : message;
+}
+
+// Live DB ping: real SELECT 1 round-trip against the production Postgres.
+async function checkDatabase(): Promise<ComponentHealth> {
+  const started = Date.now();
+  const url = process.env.DATABASE_URL ?? "";
+  if (!/^postgres/i.test(url)) {
+    return {
+      name: "Database",
+      status: "UNAVAILABLE",
+      latency: 0,
+      lastCheck: new Date(),
+      message: url
+        ? "DATABASE_URL is not a postgres URL — live stores (pg) are unreachable"
+        : "DATABASE_URL not set — live ping skipped",
+    };
+  }
+  try {
+    await getHealthPool(url).query("SELECT 1");
+    return {
+      name: "Database",
+      status: "HEALTHY",
+      latency: Date.now() - started,
+      lastCheck: new Date(),
+      message: "Postgres ping OK (SELECT 1)",
+    };
+  } catch (error) {
+    return {
+      name: "Database",
+      status: "UNHEALTHY",
+      latency: Date.now() - started,
+      lastCheck: new Date(),
+      message: truncate(`Postgres ping failed: ${(error as Error).message}`),
+    };
+  }
+}
+
+function checkRuntime(): ComponentHealth {
+  const started = Date.now();
+  const mem = process.memoryUsage();
+  return {
+    name: "ONX Runtime",
+    status: "HEALTHY",
+    latency: Date.now() - started,
+    lastCheck: new Date(),
+    message: `Node ${process.version}, uptime ${Math.round(process.uptime())}s, rss ${Math.round(mem.rss / 1024 / 1024)}MB`,
+  };
+}
+
+// Provider status is based on actual key presence — no connectivity claim.
+function checkTitanBridge(): ComponentHealth {
+  const started = Date.now();
+  const hasKey = !!(env.openAiApiKey || process.env.OPENAI_API_KEY);
+  return {
+    name: "Titan Bridge",
+    status: hasKey ? "HEALTHY" : "UNAVAILABLE",
+    latency: Date.now() - started,
+    lastCheck: new Date(),
+    message: hasKey
+      ? "OPENAI_API_KEY configured (connectivity not probed)"
+      : "OPENAI_API_KEY not set — Titan calls will fail until configured",
+  };
+}
+
+function checkKnowledge(): ComponentHealth {
+  const started = Date.now();
+  const snap = getKnowledgeHealthSnapshot();
+  return {
+    name: "Knowledge Base",
+    status: snap.records > 0 ? "HEALTHY" : "UNAVAILABLE",
+    latency: Date.now() - started,
+    lastCheck: new Date(),
+    message: `${snap.records} records across ${snap.domains} domains (in-memory, counted live, ${(process.env.DATABASE_URL ?? "").startsWith("postgres") ? "corpus persistence configured" : "UNPERSISTED — regenerated each boot"})`,
+  };
+}
+
+function checkScheduler(): ComponentHealth {
+  const started = Date.now();
+  const snap = getRhythmHealthSnapshot();
+  const iuc = getIucRuntimeStatus();
+  return {
+    name: "Scheduler",
+    status: snap.failing > 0 ? "DEGRADED" : "HEALTHY",
+    latency: Date.now() - started,
+    lastCheck: new Date(),
+    message: `${snap.active}/${snap.total} rhythms active, ${snap.failing} failing; IUC cron ${iuc.cronStatus}${iuc.lastTickAt ? `, last tick ${iuc.lastTickAt}` : ""}`,
+  };
+}
+
+function checkConstitution(): ComponentHealth {
+  const started = Date.now();
+  const snap = getConstitutionHealthSnapshot();
+  return {
+    name: "Constitutional Engine",
+    status: snap.principles > 0 ? "HEALTHY" : "UNHEALTHY",
+    latency: Date.now() - started,
+    lastCheck: new Date(),
+    message: `${snap.principles} principles enforced (total weight ${snap.totalWeight})`,
+  };
+}
+
+// Exported for OSVA self-verification (STE-V-01, api/lib/self-verify.ts).
+export async function collectComponents(): Promise<ComponentHealth[]> {
+  return [
+    await checkDatabase(),
+    checkRuntime(),
+    checkTitanBridge(),
+    checkKnowledge(),
+    checkScheduler(),
+    checkConstitution(),
+  ];
+}
 
 // --- Request Metrics ---
 interface RequestMetric {
@@ -63,9 +193,11 @@ export const healthRouter = createRouter({
     pid: process.pid,
   })),
 
-  // HT-02: ready — Kubernetes readiness probe
-  ready: publicQuery.query(() => {
-    const all = Array.from(components.values());
+  // HT-02: ready — Kubernetes readiness probe.
+  // UNAVAILABLE (resource not configured) does not block readiness;
+  // UNHEALTHY (resource configured but broken) does.
+  ready: publicQuery.query(async () => {
+    const all = await collectComponents();
     const unhealthy = all.filter((c) => c.status === "UNHEALTHY");
     return {
       ready: unhealthy.length === 0,
@@ -75,10 +207,10 @@ export const healthRouter = createRouter({
     };
   }),
 
-  // HT-03: status — Full system status
-  status: publicQuery.query(() => {
-    const all = Array.from(components.values());
-    const statusCounts = { HEALTHY: 0, DEGRADED: 0, UNHEALTHY: 0 };
+  // HT-03: status — Full system status (all checks computed live)
+  status: publicQuery.query(async () => {
+    const all = await collectComponents();
+    const statusCounts = { HEALTHY: 0, DEGRADED: 0, UNHEALTHY: 0, UNAVAILABLE: 0 };
     for (const c of all) statusCounts[c.status]++;
 
     return {

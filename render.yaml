@@ -3,7 +3,7 @@
 # Civilization-Scale Intelligence Operating System v1.0
 # ============================================================================
 # This blueprint deploys ONX Universal on Render.com with:
-#   - SQLite database (persistent disk)
+#   - Postgres database (coordinator-ratified STE-01 W2; URL set in Dashboard)
 #   - Mock Email service (pilot mode)
 #   - Single Web Service (Node.js)
 #   - Auto-deploy from GitHub
@@ -31,10 +31,20 @@ services:
         value: production
       - key: PORT
         value: "10000"
+      # STE-01 W2 (coordinator-ratified): production DB = Postgres, matching
+      # the three live pg stores (platform-inbox-store, iurg-pg-store,
+      # persistent-memory). Set the real postgres:// URL in the Render
+      # Dashboard — never committed here. The old sqlite:// value was dead:
+      # no store could actually use it.
       - key: DATABASE_URL
-        value: sqlite:///app/db/onx-pilot.db
+        sync: false
+      # Optional split inbox DB; falls back to DATABASE_URL when unset
+      # (api/lib/platform-inbox-store.ts:13).
+      - key: PLATFORM_INBOX_DATABASE_URL
+        sync: false
+      # DOCUMENTED-ONLY: not read by code yet (no process.env.DATABASE_PROVIDER)
       - key: DATABASE_PROVIDER
-        value: sqlite
+        value: postgres
       - key: OPENAI_API_KEY
         sync: false
       - key: OWNER_UNION_ID
@@ -43,6 +53,7 @@ services:
         sync: false
       - key: APP_SECRET
         sync: false
+      # DOCUMENTED-ONLY: not read by code yet (sessions sign with APP_SECRET)
       - key: JWT_SECRET
         generateValue: true
       - key: APP_URL
@@ -55,24 +66,31 @@ services:
         value: https://auth.kimi.com
       - key: KIMI_OPEN_URL
         value: https://open.kimi.com
-      # Pilot: Mock Email (no SMTP needed)
+      # DOCUMENTED-ONLY: not read by code yet — Pilot: Mock Email (no SMTP needed)
       - key: EMAIL_PROVIDER
         value: mock
+      # DOCUMENTED-ONLY: not read by code yet
       - key: MOCK_EMAIL_ENABLED
         value: "true"
-      # AI Providers
+      # AI Providers — DOCUMENTED-ONLY: not read by code yet (provider is
+      # OpenAI-only via OPENAI_API_KEY)
       - key: AI_PRIMARY_PROVIDER
         value: openai
+      # DOCUMENTED-ONLY: not read by code yet
       - key: AI_FALLBACK_PROVIDERS
         value: openai
-      # Security
+      # Security — DOCUMENTED-ONLY: not read by code yet (rate limiting is
+      # in-process in advanced-engines-router)
       - key: RATE_LIMIT_WINDOW_MS
         value: "900000"
+      # DOCUMENTED-ONLY: not read by code yet
       - key: RATE_LIMIT_MAX_REQUESTS
         value: "100"
+      # DOCUMENTED-ONLY: not read by code yet
       - key: SESSION_MAX_AGE_MS
         value: "2592000000"
-      # Feature Flags
+      # Feature Flags — DOCUMENTED-ONLY: none of the FEATURE_* flags are read
+      # by code yet; kept (no scope reduction) to be wired in later waves.
       - key: FEATURE_TITAN_BRIDGE
         value: "true"
       - key: FEATURE_CONSTITUTION_GUARDIAN
@@ -87,6 +105,7 @@ services:
         value: "true"
       - key: FEATURE_KNOWLEDGE_BASE
         value: "true"
+      # DOCUMENTED-ONLY: not read by code yet
       - key: PRESERVE_DB_ON_DEPLOY
         value: "true"
       # Platform↔Intelligence Bridge (locked by default until V6 gate approval)
@@ -101,7 +120,9 @@ services:
     runtime: node
     plan: starter
     region: frankfurt
-    branch: onxos-fix-render-build-deps
+    # STE-01 W2: was onxos-fix-render-build-deps (stale merged branch); staging
+    # now tracks the default branch.
+    branch: main
     rootDir: .
     buildCommand: npm ci && npm run build
     startCommand: NODE_ENV=staging npm start
@@ -118,16 +139,21 @@ services:
         value: "10000"
       - key: STAGING
         value: "true"
+      # STE-01 W2 (coordinator-ratified): staging DB = Postgres too; the old
+      # sqlite:// value was unusable by the live pg stores. Set in Dashboard.
       - key: DATABASE_URL
-        value: sqlite:///app/db/onx-staging.db
+        sync: false
+      # DOCUMENTED-ONLY: not read by code yet
       - key: DATABASE_PROVIDER
-        value: sqlite
+        value: postgres
       - key: OPENAI_API_KEY
         sync: false
+      # DOCUMENTED-ONLY: not read by code yet (sessions sign with APP_SECRET)
       - key: JWT_SECRET
         generateValue: true
       - key: APP_URL
         value: https://onx-intelligence-staging.onrender.com
+      # Feature Flags — DOCUMENTED-ONLY: not read by code yet
       - key: FEATURE_TITAN_BRIDGE
         value: "true"
       - key: FEATURE_CONSTITUTION_GUARDIAN

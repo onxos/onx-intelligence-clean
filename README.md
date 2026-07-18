@@ -36,7 +36,7 @@ L0: Civilization Substrate  18 Engines, USFIPv2, Guardian, Continuity
 | Titan Personas | 5 (Prometheus, Athena, Zeus, Hermes, Apollo) |
 | Specialized Skills | 50 (Marketing, Content, Intelligence, Cloud, Personal) |
 | Knowledge Domains | 19 |
-| Knowledge Records | 25,000 |
+| Knowledge Records | 22,500 وحدة قالبية مولّدة (Demo) — الكوربوس الأصيل قيد الاسترداد (STE-REC-06)؛ القياس في docs/CORPUS_GAP_REPORT.md |
 | Constitutional Principles | 7 (Amanah, Ihsan, Adl, Rahmah, Hikmah, Itqan, Tawakkul) |
 | Civilizational Programs | 6 (CEP, OCPP, CEVP, CCOP, COS, UCR) |
 | Consciousness Rhythms | 5 (Pulse, Breath, Digest, Dream, Renew) |

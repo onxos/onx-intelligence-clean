@@ -27,7 +27,7 @@ ONX Intelligence v1.0 has been successfully designed, developed, and certified f
 | **tRPC Routers** | 31 | 32 | ✅ 97% |
 | **API Endpoints** | 240+ | 244 | ✅ 98% |
 | **Knowledge Domains** | 19 | 19 | ✅ 100% |
-| **Knowledge Records** | 25,000 | 25,000 | ✅ 100% |
+| **Knowledge Records** | 22,500 templated demo units (measured, STE-N-01) | 25,000 authentic | ⚠️ authentic corpus in recovery (STE-REC-06) |
 | **Specialized Skills** | 50 | 50 | ✅ 100% |
 | **Titan Personas** | 5 | 5 | ✅ 100% |
 | **AI Providers** | 5 | 5 | ✅ 100% |
@@ -58,7 +58,7 @@ ONX Intelligence v1.0 has been successfully designed, developed, and certified f
 - `/ask` chat interface
 
 ### Layer 2: Knowledge + Intelligence ✅
-- 25,000 records across 19 domains
+- 22,500 templated demo units across 19 domains (measured by STE-N-01; see docs/CORPUS_GAP_REPORT.md — authentic corpus in recovery, STE-REC-06)
 - Vector search with cosine similarity
 - 5 Titan Knowledge Bases (25 entries)
 - 50 Specialized Skills (5 categories)

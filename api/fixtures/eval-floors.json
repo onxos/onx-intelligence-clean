@@ -1,0 +1,6 @@
+{
+  "_note": "Ratchet pinned at 1.0x3 (never lowered). STE-K-33 and STE-K-42 expanded golden to 65; STE-K-56 expanded to 73; STE-K-64 expanded to 81; STE-K-66 expands to 89 with additional measured threshold, phrase, and precedence edges. Floors stay at the measured maximum and apply to the full updated set.",
+  "intentAccuracy": 1,
+  "refusalHonesty": 1,
+  "retrievalHitAtK": 1
+}

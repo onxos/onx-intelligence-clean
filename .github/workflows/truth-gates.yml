@@ -1,0 +1,78 @@
+# ============================================================
+# TRUTH GATES (STE-CI-02) — the platform's honesty charter, made
+# permanent. Turns this session's one-off truth proofs into a
+# structure that re-checks EVERY commit, forever.
+#
+# HONEST-BY-ARCHITECTURE: this workflow needs ZERO secrets. Every
+# gate runs fully offline/deterministic — no DATABASE_URL, no
+# provider keys, no bridge secret. That is a design feature, not a
+# gap: the corpus/ledger fall back to in-memory UNPERSISTED mode,
+# providers report MISSING_KEY honestly, and verify:self measures
+# only what is provably true right now. A gate that needs no secret
+# cannot be gamed by a secret.
+# ============================================================
+name: Truth Gates
+
+on:
+  push:
+    branches:
+      - "onxos-ste01-**"
+  pull_request:
+    branches: [main, onxos-ste01-deploy-readiness]
+  workflow_dispatch:
+
+jobs:
+  truth-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Gate 1 — types must compile (tsc -b).
+      - name: TypeScript build gate
+        run: npm run check
+
+      # Gate 2 — the full deterministic suite must pass (zero LLM,
+      # zero external DB; pg paths run against in-memory fallbacks).
+      - name: Full test suite gate
+        run: npm test
+
+      # Gate 3 — charter guard: ZERO NEW deviations allowed. Known
+      # legacy debt is tracked in docs/codex-guard-baseline.json and
+      # does not fail the build; any NEW violation does.
+      - name: Codex Guard — zero new deviations gate
+        run: npm run guard:scan
+
+      # Gate 4 — OSVA self-verification. verify:self runs with no
+      # keys (in-memory UNPERSISTED) and exits non-zero if ANY claim
+      # is asserted-but-unmeasured. The exit code IS the honest gate.
+      - name: OSVA self-verification gate
+        run: npm run verify:self
+
+      # Gate 5 — golden evaluation ratchet (STE-K-06). Runs the
+      # deterministic intelligence line over the golden set and gates
+      # measured quality (intentAccuracy / refusalHonesty /
+      # retrievalHitAtK) against committed floors in
+      # api/fixtures/eval-floors.json. Below any floor → exit 1. Like
+      # the other gates it needs NO secrets (DEMO corpus, in-memory).
+      - name: Golden evaluation ratchet gate
+        run: npm run eval:golden
+
+      # Gate 6 — corpus integrity + honesty (STE-K-10). Recomputes the
+      # corpus content manifest from the shipped seed and asserts it
+      # matches the committed contract corpus-manifest.json (sha256 /
+      # docCount / provenance / disclosure) plus a minimal-structure
+      # check. Any add/remove/relabel of a unit changes the sha256 →
+      # exit 1. Fully keyless/offline; the measured DEMO→REAL
+      # disclosure flips only when the authentic corpus lands.
+      - name: Corpus integrity + honesty gate
+        run: npm run verify:corpus

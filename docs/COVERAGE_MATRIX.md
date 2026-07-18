@@ -80,6 +80,7 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
 | G1+G4 | G1-INGEST-CONTRACT | ✅ VERIFIED (منفذ ومثبت) | إغلاق مسار الاستقبال الحي بعقود B8 — PR #62 مدموج (**merge sha `bbe0e7f`**، كل الفحوص SUCCESS، سجل خام مؤكد run 29183222064: خطوة «Bridge Ingest Contract test suite (G1+G4)» = 9/9): `admitLiveEvent` في `bridge-contracts.ts` تعيد استخدام `validateEvent` (B8) لا تكرّرها وتبذر المخططات idempotent وتحسب الرفض عبر `rejectedCount` نفسه؛ `ingestThroughBridgeContract` في `titan-bridge-router.ts` ترفض قبل الوصول للـstore (اختبارات تؤكد `store.calls.length === 0` على كل حالة رفض) وتُبقي شكل `{accepted,duplicate,id}`. تحقق مستقل سطري + دمج بعد مراجعة المنسق الأعلى (`ac-g1-ingest-contract`) |
 | K4 | K4-GOVERNED-METHODS | 🟡 PARTIAL (جزئي — على الفرع، لا يُوسم VERIFIED قبل الدمج) | ربط مناهج B2-β فعلياً بدورة الـOrchestrator (B2) — PR #64: `TaskSpec.methodId` اختياري لكن fail-closed مرتين: `planMandate` يستدعي `requireMethod` (منهج مجهول يفشل الخطة قبل أي تنفيذ) و`runTask` بعد `independentlyVerify` يشغّل `verifyMethodCompliance` على دليل يُجمَع من **مصدر مستقل** (`registerMethodEvidenceSource` — مصنوعات repo/CI/PR/runtime خارج المنفذ): `methodOutput` المرفق من المنفذ يُسجَّل كغير موثوق ويُتجاهَل (نفس فلسفة `claimedComplete` — لا شهادة ذاتية)؛ لا مصدر مسجّل أو دليل أجوف (`{}`/مجموعات فارغة) → REJECTED. منهجا `code-review` و`test-fixing` الجديدان يفرضان مطابقة per-ref مؤرّخة: كل MERGE يحتاج REVIEW مطابق الـref قبله/معه، كل FIX يحتاج RUN استنساخ قبله + دليل TEST، وغياب التاريخ = رفض. اختبارات: methods-library 60 (منها 7 anti-self-certification) + orchestrator 34 (منها 8 K4) + خطوة CI مخصصة «Governed Methods Enforcement (K4)» بفلاتر `-t` تثبت تشغيلها. معيار `ac-k4-governed-methods` — لا يُرقّى قبل دمج المنسق الأعلى |
 | K1 | K1-DEEP-RESEARCH | 🟡 PARTIAL (جزئي — على الفرع، لا يُوسم VERIFIED قبل الدمج) | حلقة البحث العميق المتكرر: `api/lib/deep-research.ts` قدرة بحثية حتمية بلا مفاتيح/شبكة بخمس حالات صريحة — **plan** (سؤال → قائمة استعلامات فرعية **مغلقة** عند التخطيط، لا توسع runtime؛ سؤال فارغ → `EMPTY_QUESTION` fail-closed) → **collect** (عبر **provider port** قابل للحقن `SourceProvider` **مملوك للخادم**؛ الراوتر لا يقبل fixtures من العميل — `makeUnavailableProvider`/`makeDemoProvider` حتميان، لا شبكة) → **validate** (fail-closed: اكتمال الحقول، اتساق التاريخ مقابل `now`، عتبة موثوقية موثقة؛ المصدر الناقص/الضعيف/المستقبلي يُستبعد ويُعدّ) → **contradict** (**إعادة استخدام B5** `runRealityPipeline`/`detectContradictions` — لا منطق تناقض جديد) → **report** (كل ادعاء مربوط بمعرفات مصادره؛ **الاستشهاد إلزامي**؛ التناقضات غير المحسومة تُعرض ولا تُخفى). حوكمة الخادم: الساعة مملوكة للخادم fail-closed بلا زمن افتراضي (`NO_CLOCK`، حُذف EPOCH)، سقف صلب للعمق `MAX_DEPTH_HARD_CAP` (3) وللمصادر `MAX_TOTAL_SOURCES` (500)، `sourceHash` SHA-256 لكل مصدر في التقرير، وحقل `providerStatus` صريح (`live`/`demo`/`unavailable`). `api/deep-research-router.ts` مسجّل تحت مفتاح `deepResearch` + `api/__tests__/deep-research.test.ts` (33 اختبار أخضر، مربوطة كخطوة CI صريحة «Deep Research test suite (K1)»). معيار `ac-k1-deep-research` — لا يُرقّى قبل دمج المنسق |
+| G6 | G6-MIND-TICK | 🟡 PARTIAL (جزئي — على الفرع، لا يُوسم VERIFIED قبل الدمج) | دورة العقل الحية: الطبقات العليا B5/B7 كانت جزراً معزولة تشغيلياً (محركات نقية تُغذّى عبر tRPC فقط، محولات B7 `signalFrom*` بلا مسار تشغيلي من أحداث الـinbox). `api/lib/mind-tick.ts` يغلق الفجوة **بإعادة استخدام حصرية بلا نسخ منطق**: قراءة دفعة محدودة (سقف 200/دورة) عبر `getEventsAfterId` بمؤشر مستقل تماماً عن مؤشر perception-adapter → **contract replay** عند القراءة عبر `seedInstitutionalSchemas`+`validateEvent` (B8) نفسيهما (صف بنوع مجهول/identity مكسور **لا يُفقد بصمت**: يُعزل في quarantine دائم بسبب الرفض + correlation id، والمؤشر يتقدم فقط بعد processed أو durably-quarantined) → `toMindInput` تحويل حتمي: ثلاثية صريحة `aggregateType#aggregateId --status-of--> آخر مقطع من eventType` بنطاق صلاحية **نقطي** عند لحظة الحدث (حالات لحظات مختلفة تتعايش؛ حالتان متضاربتان بنفس اللحظة = تناقض حقيقي) وprovenance حتمي من حقول الحدث (`source=platform-inbox، method=mind-tick، recordedAt=occurredAt، confidence=0.8` ثابتة موثقة) → `runRealityPipeline` (B5) بontology موسّعة بمسند `status-of` الوظيفي → التناقضات → `signalFromContradiction` + تكرار أنواع الأحداث (عتبة رصد 3/دفعة، عتبة بنيوية 10 موثقتان) → `signalFromEventPattern` → `ZeroInputEngine.generate` (B7): اقتراحات مصنفة عبر AuthorityGate الفعلي (B3)، السقف A1، `autoExecutable=false`، **لا مسار تنفيذ إطلاقاً**، `insufficientData` صريح عند غياب الإشارات. حتمية كاملة: لا Math.random، الساعة وسيط مُمرَّر لطوابع التشغيل فقط لا للمنطق القراري؛ idempotent correlation (المعرفات مشتقة من source+eventId)؛ **قفل lease يمنع overlapping ticks**؛ **إثبات idempotent cursor replay** باختبار حتمي؛ لا self-trigger loop (يقرأ الـinbox ولا يكتب أحداثاً فيه أبداً)؛ فشل cron ليس صامتاً: خطأ مهيكل + عداد `cronFailures` في الحالة. راوتر `mindTick` (status/last/tick) في `api/mind-tick-router.ts` + عدادات نمط `getPerceptionAdapterStatus` + ربط cron غير قاتل في boot.ts بنمط `runPerceptionSyncTick` نفسه + `api/__tests__/mind-tick.test.ts` (اختبارات بmock pg الحتمي: دورة كاملة inbox→اقتراحات، عدم تفسيد مؤشر perception-adapter، حدث مشوه → quarantine دائم قبل تقدم المؤشر، حتمية إعادة التشغيل، عدم وجود أي مسار تنفيذ، insufficient-data، ميزانية الدورة، lease لا-تداخل، idempotent replay) مربوطة كخطوة CI صريحة «Mind Tick test suite (G6)» بعد خطوة K4. معيار `ac-g6-mind-tick` — لا يُرقّى قبل دمج المنسق |
 
 > **قاعدة الميثاق:** «منفذ ومثبت / VERIFIED» = CI أخضر **+ مدموج في main**. B0/B1
 > حملا معيار `ac-b*-merged`، وبعد الدمج (squash sha `5028c3a`) سُجِّل دليل COMMIT
@@ -170,3 +171,221 @@ Source of truth: `caller.ocmbr.matrix()` (seeded from `api/lib/ocmbr-seed.ts`).
   `docs/codex-guard-baseline.json` + documented in `docs/CODEX_GUARD_BASELINE.md` as tracked debt.
   They stay **reported (never muted)** but do **not** fail CI; only NEW deviations fail. Closed in a later cleanup wave.
 - Test/doc files are exempt from pattern rules (regression-tested) — the guard names the labels on purpose.
+
+---
+
+# STE-01 Deploy-Readiness Wave Matrix (STE-K-01 … K-17)
+
+> Distinct series from the B/G/K civilizational ledger above. These are the
+> STE-01 deploy-readiness waves executed on branch `onxos-ste01-deploy-readiness`
+> (never main). Each row: wave → primary files → tests → CI gate/contract → live
+> proof. Every SHA is `git log`-verified on the branch; live proofs were captured
+> against the Render production deployment `https://onx-intelligence-clean.onrender.com`.
+> **Doctrine:** floors are pinned at the MEASURED truth, never the wished one; an
+> absent resource is reported honestly (UNAVAILABLE / EMPTY / DEMO), never faked.
+
+## Six permanent CI gates (`.github/workflows/truth-gates.yml`)
+| # | Gate | Command | Proves |
+|---|------|---------|--------|
+| 1 | TypeScript build | `npm run check` (`tsc -b`) | zero type errors across app + server |
+| 2 | Full test suite | `npm test` (`vitest run`) | 1088 passed / 5 skipped / 0 failed |
+| 3 | Codex Guard | `npm run guard:scan` | zero NEW charter deviations (15 legacy tracked) |
+| 4 | OSVA self-verify | `npm run verify:self` | honest self-audit fingerprint, measured≥asserted |
+| 5 | Golden eval ratchet | `npm run eval:golden` | intent/refusal/retrieval floors held at 1.0×3 |
+| 6 | Corpus integrity | `npm run verify:corpus` | committed manifest matches measured seed sha256 |
+
+## Wave rows
+| Wave | Commit | Primary files | Tests | Gate / contract | Live proof |
+|------|--------|---------------|-------|-----------------|------------|
+| STE-K-01 (W7) BM25 ranked retrieval | `1b1d259` | `api/lib/corpus-search.ts`, `api/corpus-query-router.ts` (rankedSearch) | `corpus-search` suite | (pre-gates) CI green | `corpusQuery.rankedSearch` live |
+| STE-K-02 (W9) no-key intent engine (SAFE) | `8f59747` | `api/lib/intent-engine.ts` | `intent-engine` suite | deterministic, keyless | `intentEngine` classify live |
+| STE-K-03 (W10) chronological truth ledger | `b697a5c` | `api/lib/truth-ledger.ts`, `api/onx-router.ts` | `truth-ledger` suite | drift detection | `onx.truthHistory` live |
+| STE-K-04 (W11) cited answer composer | `605e11d` | `api/lib/answer-composer.ts`, `api/ask-router.ts` | `answer-composer` suite | DEMO disclosure + citations | `ask.onx` live |
+| STE-CI-02 (W12) Truth Gates workflow | `2f7313e` | `.github/workflows/truth-gates.yml` | — | **the 5→6 gate charter** | CI runs on every push |
+| STE-K-05 (W13) rate-limit guard | `7f4e027` | `api/lib/rate-limiter.ts` + public-surface wiring | `rate-limiter` suite | 429 + PER_INSTANCE_UNPERSISTED disclosure | health/commit exempt, bridge untouched |
+| STE-K-06 (W14) golden eval harness | `e9d419b` | `api/fixtures/golden-set.ts`, `api/lib/eval-harness.ts`, `api/fixtures/eval-floors.json`, `scripts/eval-golden.ts` | `eval-harness` suite + coverage | **5th gate `eval:golden`** | run 29263025255 (5 gates) |
+| STE-K-07 (W15) close gaps + ratchet 1.0 | `810700e` | golden-set + intent lexicon (negative signals) | +anti-overfit cases | floors → 1.0/1.0/1.0 | run 29265169353 |
+| STE-K-08 (W16/16b) live smoke contract | `4b7e0ca`, `1345f8c` | `scripts/smoke-live.ts`, `api/lib/smoke-contracts.ts` | `smoke-live` suite (mocked fetch) | 7→8 contracts, NOT in CI (network) | 7/7 live vs production |
+| STE-K-09 (W17) EXPECTED_SHA alias | `8719257` | `scripts/smoke-live.ts` | smoke suite | commit freshness assertion | live 8/8 |
+| STE-K-10 (W18) corpus honesty upgrade path | `cae8cbb` | `api/lib/corpus-manifest.ts`, `scripts/verify-corpus.ts`, `corpus-manifest.json` | `corpus-content-manifest` suite | **6th gate `verify:corpus`** | run 29274311582 (6 gates) |
+| STE-K-11 (W19) live corpus-truth contract | `87c66e2` | `smoke-contracts.ts` (corpus_manifest_truth) | +injected-manifest tests | 8th contract | 8/8 live, sha match |
+| STE-K-12 (W20) operator consolidation + env scan | `91a4d2c` | `docs/OPERATIONS_RUNBOOK.md` | — (docs) | env truth scan | DATABASE_URL SELECT 1 → HEALTHY |
+| STE-K-13 (W21) truth-ledger ops audit | `c7a1800` | `smoke-contracts.ts` (truth_ledger_read), runbook | +ledger-read tests | 9th contract | empty-honest reported |
+| STE-K-14 (W22) live cron capture | `9be1e74` | `api/lib/truth-snapshot-cron.ts`, `api/boot.ts` | cron tests (non-fatal, cadence) | hourly capture | first prod snapshot id=1 fp=bb642469 |
+| STE-K-15 (W23) drift over time + surface | `bc009ef` | `truth-ledger.ts` (summarizeTruthLedger), `onx-router.ts`, `smoke-contracts.ts` | +drift-integrity tests | count≥2 chronology + drift integrity | count=2, truthLedgerSummary live |
+| STE-K-16 (W24) DEMO→REAL upgrade code | `efa1bf0` | `api/lib/corpus-upgrade.ts`, `scripts/ingest-corpus.ts` | `corpus-upgrade` (7 tests) | validate + measured flip | `ingest:corpus` preview → REAL standalone |
+| STE-K-17 (W25) public Truth page | `8080198` | `api/lib/truth-page-model.ts`, `src/pages/Truth.tsx`, `/truth` route | `truth-page-model` (10 tests) | no_key_leak extended to /truth (9th fetch) | GET /truth 200, 9/9 live, no leak |
+| STE-K-18 (W26) coverage matrix + status refresh | `b2bdcbc` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md`, `.env.example` | — (docs) | 6 gates green | run 29303273279 (6 gates) |
+| STE-K-19 (W27) rate-limit Postgres persistence | `82d713f` | `api/lib/rate-limiter.ts` (onx_rate_limit_buckets, postgresStore, decideRateLimit), `smoke-contracts.ts`, 5 callsites | `rate-limiter` (+6 injected-store tests) | rate_limit_disclosure accepts both modes + `EXPECT_RL_PERSISTENCE` | run 29304450986; live `POSTGRES_PERSISTED` measured |
+| STE-K-20 (W28) single-origin gateway smoke | `01c18a1` | `smoke-contracts.ts` (gatewayBaseUrl, DEFAULT_GATEWAY_ORIGIN, GATEWAY_APP_MOUNT), `scripts/smoke-live.ts` (GATEWAY_ORIGIN), runbook و.9 | `smoke-live` (+4 gateway tests) | deepening — same 9 contracts, 2nd origin | run 29305502934; 9/9 via `onx-gateway…/intelligence` |
+| STE-K-21 (W29) coverage matrix K-18…K-20 + status refresh | `7e083ff` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` و.8, `.env.example` | — (docs) | 6 gates green | run 29306118608 (6 gates) |
+| STE-K-22 (W30) bounded truth-ledger retention | `db9f5e5` | `api/lib/truth-ledger.ts` (LEDGER_RETENTION_KEEP=168, atomic prune tx, RetentionDisclosure, markPrunedEdge), `smoke-contracts.ts` | `truth-ledger` (+5), `smoke-live` (+6) | deepening — 9th contract validates retention + pruned-edge; total stays 9 | run 29307328642; live `retention keep=168 oldestRetainedId=1 (genesis retained)` |
+| STE-K-23 (W31) deepen /truth: retention + rate-limit persistence | `42d59d4` | `api/lib/truth-page-model.ts` (RetentionSection, buildRetention), `src/pages/Truth.tsx` (retention card, measured rate-limit badge; stale caption fix) | `truth-page-model` (+6) | no new contract — rides scanned selfVerify; total stays 9 | run 29308227314; /truth 200, retention+POSTGRES_PERSISTED cards live |
+| STE-K-24 (W32) coverage matrix K-21…K-23 + status refresh | `dfe4d21` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs) | 6 gates green | run 29308644836 (6 gates) |
+| STE-K-25 (W33) /truth render proof in no_key_leak | `f638194` | `api/lib/smoke-contracts.ts` (assertTruthPageRendered; folded into 9th contract), `api/__tests__/smoke-live.test.ts` (LIVE_TRUTH_HTML aligned to built shell), runbook pointer | `smoke-live` (+8: 3 runSmoke + 5 pure-fn) | deepening — same 9 contracts; no_key_leak now proves SPA root + built bundle | run 29309499837; live `RENDER_PROVEN=true`, 9/9 strict, detail `/truth render-proven` |
+| STE-K-26 (W34) unified docs wave K-24/K-25 | `8658d65` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs) | 6 gates green | run 29309943161 (6 gates) |
+| STE-K-27 (W35) /truth deploy-freshness card from /commit | `b5363f1` | `api/lib/truth-page-model.ts` (CommitData, FreshnessSection, buildFreshness), `src/pages/Truth.tsx` (commitSiblingUrl, freshness card), `api/__tests__/truth-page-model.test.ts` | `truth-page-model` (+4) | deepening — /truth + /commit already in 9 contracts; total stays 9 | run 29310913038; live commit `b5363f1`, /truth freshness card + 9/9 strict |
+| STE-K-28 (W36) unified docs wave K-26/K-27 | `cb9848c` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs) | 6 gates green | run 29311534451 (6 gates) |
+| STE-K-29 (W37) scheduled live truth watchdog | `c6e3026` | `.github/workflows/live-truth.yml`, `docs/OPERATIONS_RUNBOOK.md`, `docs/COVERAGE_MATRIX.md` | — (ops workflow + docs) | **IMPLEMENTED_BUT_INERT_ON_GOVERNED_BRANCH** — deepening only (same 9 contracts), no EXPECT_COMMIT in cron | truth-gates run 29312071048 green; watchdog mode measured 9/9 via `GATEWAY_ORIGIN` locally; actual workflow runs blocked until default-branch availability |
+| STE-K-30 (W38) watchdog constraint truth correction | `d722cb6` | `docs/OPERATIONS_RUNBOOK.md`, `docs/COVERAGE_MATRIX.md` | — (docs) | 6 gates green | run 29312565358 (6 gates) |
+| STE-K-31 (W39) /truth truth-ledger row table | `6e995f7` | `api/lib/truth-page-model.ts` (truthHistory rows model), `src/pages/Truth.tsx` (human-readable table + honest badges), `api/__tests__/truth-page-model.test.ts`, docs | `truth-page-model` (+6 injected row-state tests) | deepening — /truth already scanned, truthHistory already in 9 contracts; total stays 9 | run 29313702273; strict gateway 9/9 @ `EXPECT_COMMIT=6e995f7` |
+
+| STE-K-32 (W40) unified docs wave K-30/K-31 + measured refresh | `6dd0735` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs) | 6 gates green | run 29314403487 (6 gates) |
+| STE-K-33 (W41) golden eval expansion (DEMO-derived) | `7d6853a` | `api/fixtures/golden-set.ts` (+8 cases), `api/fixtures/eval-floors.json`, `docs/OPERATIONS_RUNBOOK.md`, `docs/COVERAGE_MATRIX.md` | `eval:golden` (49→57 cases, ratchet kept 1.0×3) | deepening — no new contract; same eval gate + same 9 smoke contracts | run 29316271117 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=7d6853a` |
+| STE-K-34 (W42) docs-only hardening + measured refresh | `cdce921` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; no logic, no new cases) | deepening — no new contracts; total remains 9 | pre-write live measure: `/commit=7d6853aa…`, truth-ledger `count=27 persistence=POSTGRES`; run 29318134048 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=cdce921` |
+| STE-K-35 (W43) /truth SPA render-guard architectural judgment | `055e6c2` | `docs/OPERATIONS_RUNBOOK.md`, `docs/COVERAGE_MATRIX.md` | — (docs+judgment only) | deepening — HTML-only guard for cards/tables is architecturally non-measurable on SPA; data-layer guards remain the truthful path; total stays 9 | measured raw `/truth` HTML: `len=400`, `root=true`, `module=true`, `freshnessText=false`, `ledgerText=false`; run 29319606159 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=055e6c2` |
+| STE-K-36 (W44) activate K-35 judgment via data-layer guard deepening | `425cc05` | `api/lib/smoke-contracts.ts`, `api/__tests__/smoke-live.test.ts`, `docs/OPERATIONS_RUNBOOK.md`, `docs/COVERAGE_MATRIX.md` | `smoke-live` (+4 deterministic truth_ledger_read row-schema tests; suite 1084→1088) | deepening — strengthened 9th contract (`truth_ledger_read`) for table-consumed fields; total stays 9 | run 29321877107 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=425cc05` |
+| STE-K-37 (W45) docs-only consolidation: SPA data-layer guard doctrine | `d7eba7e` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1088) | deepening documentation only — no new contracts; total stays 9 | pre-write live measure: `/health commit=425cc05d003a…`, `truth_ledger_read count=20 persistence=POSTGRES`; strict gateway 9/9 @ `EXPECT_COMMIT=425cc05`; run 29322658607 (6 gates) |
+| STE-K-38 (W46) measured judgment: truthHistory count semantics (C-41 mirror) | `1f7b2c9` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1088) | measured judgment + docs correction only — no new contracts; total stays 9 | run 29323493568 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=1f7b2c9`; measured `20/34/34` |
+| STE-K-39 (W47) activate K-38 via total-count coherence guard | `8169151` | `api/lib/smoke-contracts.ts`, `api/__tests__/smoke-live.test.ts`, `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `smoke-live` (+2 deterministic tests; suite 1088→1090) | deepening — same 9 contracts; enforce `truthLedgerSummary.count` presence + total≥window coherence | run 29325490217 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=8169151`; live guard detail proved total count=36 |
+| STE-K-40 (W48) docs-only measured refresh + milestone #124 reflection | `4d43ebe` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1090) | docs-only refresh — no new contracts; total remains 9 | run 29326419506 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=4d43ebe`; measured `window=20 / total=37` |
+| STE-K-41 (W49) measured judgment: drift cross-row coherence guard | `223be9b` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1090) | measured judgment — guard already enforced in existing 9th contract; total stays 9 | run 29327051165 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=223be9b` |
+| STE-K-42 (W50) golden eval expansion round 2 (DEMO-derived) | `b58ced1` | `api/fixtures/golden-set.ts` (+8 cases), `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `eval:golden` (57→65 cases, ratchet stays 1.0×3) | deepening — no new contract; same eval gate + same 9 smoke contracts | run 29327773343 (6 gates); pre-commit `eval:golden` FAIL كشف صياغة weak (`rt-strategy` hit RESULTS) ثم صياغة مصححة؛ final pre-commit PASS (`65/65`, retrieval `18/18`); strict gateway 9/9 @ `EXPECT_COMMIT=b58ced1` |
+| STE-K-43 (W51) docs-only freeze for golden round-2 | `9f82038` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1090) | docs-only freeze — no new contracts; total remains 9 | run 29328186171 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=9f82038`; pre-write live measure: `/health commit=b58ced1c174b…`; `selfVerify.truthLedgerSummary.count=39 (POSTGRES)` |
+| STE-K-44 (W52) measured judgment: fingerprint recomputation guard scope | `5a17cce` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1090) | measured judgment — no new contract; total stays 9 (non-measurable edge documented) | run 29328920794 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=5a17cce`; public `truthHistory` summary-only means full payload recomputation non-measurable on live surface |
+| STE-K-45 (W53) unit guard for K-44 non-measurable edge | `39529e5` | `api/__tests__/self-verify.test.ts`, `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `self-verify.test.ts` (+1 deterministic unit test; suite 1090→1091) | deepening in unit layer only — no new contract; total stays 9 | run 29329347856 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=39529e5`; independent in-test recomputation matches `report.fingerprint` |
+| STE-K-46 (W54) measured claims-coherence guard on selfVerify | `151ed03` | `api/lib/smoke-contracts.ts`, `api/__tests__/smoke-live.test.ts`, `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `smoke-live.test.ts` (suite 1091→1092) | deepening inside existing `honest_status_selfverify` contract only; total stays 9 | contract now enforces claims counters coherence with items array (measured/asserted derivation) + boolean measured flags; deterministic forged-counter failure injected; run 29329924346 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=151ed03` |
+| STE-K-47 (W55) docs-only freeze for K-46 claims-coherence activation | `ff9b67f` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1092) | docs-only freeze; no logic change, no new contracts; total remains 9 | run 29330469878 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=ff9b67f`; pre-write live measure captured on served K-46 commit (`/health commit=151ed03…`, `truthLedgerSummary.count=43`); doctrine K-44→K-45→K-46 consolidated |
+| STE-K-48 (W56) measured judgment: retention prune logic already unit-guarded | `6861b3b` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1092) | measured judgment only; no new contracts; total stays 9 | prune path already covered by deterministic unit contracts (atomic BEGIN/INSERT/DELETE/COMMIT, OFFSET keep=168, pruned edge naming, drift edge honesty); live prune remains non-measurable until count>168; run 29330927150 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=6861b3b` |
+| STE-K-49 (W57) measured freshness guard for latest truth snapshot | `bfbf4a4` | `api/lib/smoke-contracts.ts`, `api/__tests__/smoke-live.test.ts`, `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `smoke-live.test.ts` (suite 1092→1093) | deepening inside existing `truth_ledger_read` contract only; total stays 9 | cadence measured as hourly (`TRUTH_SNAPSHOT_INTERVAL_MS`); contract now fails honest on stale latest snapshot age (> 2× cadence + explicit margin); deterministic stale fixture added; run 29331683069 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=bfbf4a4` |
+| STE-K-50 (W58) docs-only freeze for K-48/K-49 measured doctrine | `337c079` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1093) | docs-only freeze; no logic change, no new contracts; total remains 9 | run 29332469979 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=337c079`; pre-write live measure on served K-49 commit: `/health=bfbf4a4`, `truthLedgerSummary.count=46`, latest `truthHistory.createdAt=2026-07-14T12:15:08.145Z` (age≈10m) |
+| STE-K-51 (W59) docs-only reflection block for milestones #127..#131 | `d7cd4f3` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1093) | docs-only reflection/freeze; no logic change, no new contracts; total remains 9 | run 29333327926 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=d7cd4f3`; pre-write live measure on served K-50 commit: `/health=337c079`, `truthLedgerSummary.count=47`, latest `truthHistory.createdAt=2026-07-14T12:30:09.183Z` (age≈7m); permanent tri-repo reflection block added |
+| STE-K-52 (W60) measured /health payload honesty guard deepening | `aaf8a22` | `api/lib/smoke-contracts.ts`, `api/__tests__/smoke-live.test.ts`, `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `smoke-live.test.ts` (suite 1093→1094) | deepening inside existing `health_live` contract only; total stays 9 | contract now enforces sha-like commit format, allowed env set, non-negative uptime, and parseable/non-future timestamp (skew-tolerant); deterministic negative tests added; run 29333973727 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=aaf8a22` |
+| STE-K-53 (W61) docs-only freeze for K-52 health-payload doctrine | `b7c219c` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1094) | docs-only freeze; no logic change, no new contracts; total remains 9 | run 29335260931 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=b7c219c`; pre-write live measure on served commit: `/health=b7c219c`, `status=ALIVE`, `env=production`, `truthLedgerSummary.count=50 (POSTGRES)`, latest `truthHistory.createdAt=2026-07-14T13:10:11.013Z` (age≈4m) |
+| STE-K-54 (W62) measured truthHistory row-structure coherence deepening | `6ece183` | `api/lib/smoke-contracts.ts`, `api/__tests__/smoke-live.test.ts`, `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `smoke-live.test.ts` (suite 1094→1095) | deepening inside existing `truth_ledger_read` contract only; total stays 9 | measured gap: contract validated row types/order but did not enforce requested page limit; activation now fails honest when returned rows exceed requested `limit`; deterministic failure test added; run 29336331282 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=6ece183` |
+| STE-K-55 (W63) docs-only freeze for K-54 row-structure doctrine | `7042a34` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1095) | docs-only freeze; no logic change, no new contracts; total remains 9 | run 29336981493 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=6ece183`; pre-write live measure on served K-54 commit: `/health=6ece183`, `status=ALIVE`, `env=production`, `truthLedgerSummary.count=52 (POSTGRES)`, latest `truthHistory.createdAt=2026-07-14T13:30:06.073Z` (age≈2m) |
+| STE-K-56 (W64) golden eval expansion round-3 (DEMO-derived) | `e942407` | `api/fixtures/golden-set.ts` (+8 cases), `api/fixtures/eval-floors.json`, `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `eval:golden` (65→73 cases, ratchet stays 1.0×3) | deepening — no new contract; same eval gate + same 9 smoke contracts | measured expansion focused on low-coverage edges: precedence (2→5), out-of-domain refusal (10→13), diacritized sensitivity (2→4), and complaint/results coverage (+1 each); weak phrasing corrected (`rj-movies-en`→`rj-private-en`) to keep refusal honesty truthful; run 29338009114 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=e942407` |
+| STE-K-57 (W65) docs-only freeze for golden round-3 | `e21fa8c` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; tests remain 1095) | docs-only freeze; no logic change, no new contracts; total remains 9 | run 29338799590 (6 gates); strict gateway 9/9 @ `EXPECT_COMMIT=e21fa8c`; pre-write live measure on served K-56 commit: `/health=e942407`, `status=ALIVE`, `env=production`, `truthLedgerSummary.count=54 (POSTGRES)`, latest `truthHistory.createdAt=2026-07-14T13:50:08.168Z` (age≈7m) |
+| STE-K-58 (W66) measured gateway/direct payload-parity guard deepening | `22d749d` | `api/lib/smoke-contracts.ts`, `scripts/smoke-live.ts`, `api/__tests__/smoke-live.test.ts`, `.env.example`, `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `smoke-live.test.ts` (suite remains 1095 passed) | deepening inside existing `health_live` + `honest_status_selfverify` + `truth_ledger_read` contracts only; total stays 9 | measured gap closed: strict smoke ran through gateway only without core-fact parity guard versus direct; activation adds optional `PARITY_BASE_URL` checks for commit/count/fingerprint parity with deterministic forged-mismatch failure test; run 29340324627 (6 gates); strict gateway+parity 9/9 @ `EXPECT_COMMIT=22d749d` |
+| STE-K-59 (W67) docs-only freeze for gateway parity doctrine | `02cad8f` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; suite remains 1095) | docs-only freeze; no logic change, no new contracts; total remains 9 | run 29341094913 (6 gates); strict gateway+parity 9/9 @ `EXPECT_COMMIT=22d749d`; pre-write live measure captured on served K-58 commit across direct+gateway `/health` parity (both `22d749d`, ALIVE, production) |
+| STE-K-60 (W68) measured derived-fields coherence deepening | `d648118` | `api/lib/smoke-contracts.ts`, `api/__tests__/smoke-live.test.ts`, `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `smoke-live.test.ts` (suite 1095→1100) | deepening inside existing `honest_status_selfverify` + `truth_ledger_read` contracts only; total stays 9 | measured gap closed: derived summary/retention coherence was partially type-guarded but not fully source-coherent; activation now fails forged derived payloads (summary state/latest fields/retention coherence + truthHistory↔summary consistency) with deterministic breach tests; run 29342643513 (6 gates); strict gateway+parity 9/9 @ `EXPECT_COMMIT=02cad8f` |
+| STE-K-61 (W69) docs-only freeze for derived-fields coherence doctrine + milestone #137 reflection | `1683ea7` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; suite remains 1100) | docs-only freeze; no logic change, no new contracts; total remains 9 | pre-write live measure on served K-60 commit across direct+gateway `/health` parity (both `d648118`, ALIVE, production), `truthLedgerSummary.count=58 (POSTGRES)`, latest `truthHistory.createdAt=2026-07-14T14:55:09.118Z` (age≈10m); milestone #137 certified (C-72 `526d35a` + S-71 `92e60aa` + K-60 `d648118`); run 29344333526 (6 gates) |
+| STE-K-62 (W70) measured scheduler/cron surface coherence deepening | `4b9db57` + `88b1ab1` | `api/lib/smoke-contracts.ts`, `api/__tests__/smoke-live.test.ts`, `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `smoke-live.test.ts` + full suite (1100→1102) | deepening inside existing `honest_status_selfverify` contract only; total stays 9 | measured scheduler metadata is public (`scheduler.status` + Scheduler selfVerify detail); activation enforces derived coherence (`active/total/failing` parity, `intervalHuman↔interval`, `nextRun/msUntilNext`, `active↔nextRun`, `runCount↔lastRun`) with deterministic forged-payload failures; truthful two-commit execution: `4b9db57` functional deepening then `88b1ab1` TypeScript narrowing fix (no behavioral change); run 29345725493 (6 gates) success; strict gateway+parity 9/9 @ `EXPECT_COMMIT=1683ea7` |
+| STE-K-63 (W71) docs-only freeze for scheduler coherence doctrine + milestone #138 reflection | `690ab2d` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; suite remains 1102) | docs-only freeze; no logic change, no new contracts; total remains 9 | pre-write live measure on served K-62 commit across direct+gateway `/health` parity (both `88b1ab1`, ALIVE, production), `truthLedgerSummary.count=60 (POSTGRES)`, latest `truthHistory.createdAt=2026-07-14T15:35:08.307Z` (age≈3m); milestone #138 certified (C-74 `d18ff6b` + S-73 `cea5819` + K-62 `88b1ab1`); run 29346319741 (6 gates) |
+| STE-K-64 (W72) golden eval expansion round-4 (DEMO-derived) | `f8cd2de` | `api/fixtures/golden-set.ts` (+8 cases), `api/fixtures/eval-floors.json`, `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `eval:golden` (73→81 cases, ratchet stays 1.0×3) | deepening — no new contract; same eval gate + same 9 smoke contracts | measured expansion targeted under-covered intent slices (`em/bk/pr/co/re/rf/in/px` each +1) from real rule edges (`intent-engine.ts` emergency/booking/pricing/complaint/results/refill/info lexicons + emergency precedence); three proposed refusal expectations were corrected to retrieval-evidenced answered cases (`em-en-3`, `in-en-3`, `px-em-book-en-2`) to keep honesty 1.0; pre-write live measure on served K-63 commit shows direct+gateway `/health` parity (`690ab2d`, ALIVE, production), `truthLedgerSummary.count=61 (POSTGRES)`, latest `truthHistory.createdAt=2026-07-14T15:45:10.204Z` (age≈17m); strict gateway 9/9 @ `EXPECT_COMMIT=690ab2d`; run 29348524377 (6 gates) |
+| STE-K-65 (W73) docs-only freeze for golden round-4 | `be3468c` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; suite remains 1102, golden remains 81) | docs-only freeze; no logic change, no new contracts; total remains 9 | pre-write live measure on served K-64 commit across direct+gateway `/health` parity (both `f8cd2de`, ALIVE, production), `truthLedgerSummary.count=64 (POSTGRES)`, latest `truthHistory.createdAt=2026-07-14T18:20:06.216Z` (age≈3m); scheduler sample `pulse`=`1m`/`runCount=132`/`HEALTHY`; round-4 tri-repo milestone #139 indicator = `57 + 81 + 66 = 204`; run 29358059930 (6 gates) |
+| STE-K-66 (W74) golden eval expansion round-5 (DEMO-derived) | `99a0db2` | `api/fixtures/golden-set.ts` (+8 cases), `api/fixtures/eval-floors.json`, `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | `eval:golden` (81→89 cases, ratchet stays 1.0×3) | deepening — no new contract; same eval gate + same 9 smoke contracts | measured expansion targeted uncovered rule edges: EMERGENCY keyword threshold (`choking`), BOOKING phrase (`make an appointment`), PRICING Arabic phrase (`كم يكلف`), COMPLAINT keyword mix (`complain` + `unhappy`), RESULTS phrase mix (`xray/analysis/labs`), INFO phrase (`working hours`), plus EMERGENCY precedence over REFILL and COMPLAINT; pre-write live measure on served K-65 commit shows direct+gateway `/health` parity (`be3468c`, ALIVE, production), `truthLedgerSummary.count=65 (POSTGRES)`, latest `truthHistory.createdAt=2026-07-14T18:35:07.508Z` (age≈2m); scheduler sample `pulse`=`1m`/`runCount=7`/`HEALTHY`; round-5 tri-repo total = `64 + 74 + 89 = 227`; strict gateway+parity 9/9 @ `EXPECT_COMMIT=be3468c`; run 29359021159 (6 gates) |
+| STE-K-67 (W75) docs-only freeze for round-5 + milestone #140 reflection + convergence certificate | `3809b11` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; suite remains 1102, golden remains 89) | docs-only freeze; no logic change, no new contracts; total remains 9 | pre-write live measure on served K-66 commit across direct+gateway `/health` parity (both `99a0db2`, ALIVE, production), `truthLedgerSummary.count=65 (POSTGRES)`, latest `truthHistory.createdAt=2026-07-14T18:35:07.508Z` (age≈15m); scheduler sample `pulse`=`1m`/`runCount=1`/`HEALTHY`; milestone #140 certified (`45ca561` + `905c250` + `99a0db2` = `227`) and convergence certificate refreshed; run 29359912611 (6 gates) |
+| STE-K-68 (W76) final post-convergence saturation judgment (docs-only) | `(this wave commit)` | `docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md` | — (docs-only; suite remains 1102, golden remains 89) | truthful saturation judgment — no new contract; remaining edges are already guarded, time-gated, or not safely live-measurable without inducing outage | pre-write live measure on served K-67 commit across direct+gateway `/health` parity (both `3809b11`, ALIVE, production), `truthLedgerSummary.count=67 (POSTGRES)`, latest `truthHistory.createdAt=2026-07-14T19:00:07.308Z` (age≈4m), scheduler sample `pulse`=`1m`/`runCount=7`/`HEALTHY`; saturation doctrine mirrored against platform C-88 and marketing S-80 |
+
+## Live measured status (as of W76 pre-write measurement / commit `3809b11`)
+- **/health (direct + gateway):** direct `/health` = `ALIVE`, `env=production`, `commit=3809b11…`; gateway `/intelligence/health` = `ALIVE`, `env=production`, `commit=3809b11…` (parity re-measured pre-write for K-68).
+- **Official single origin (STE-K-20):** `main` retired from live service; every surface is
+  reached through the gateway `https://onx-gateway.onrender.com`. MEASURED proxy map:
+
+  | Path via gateway | Measured | Upstream rewrite |
+  |---|---|---|
+  | `/api/intelligence/v1/health` | **404** | assumed path is wrong |
+  | `/api/intelligence/trpc/<proc>` | 200 | `/api/*` mount → upstream `/api/trpc/<proc>` (tRPC only) |
+  | `/intelligence/health` · `/commit` · `/truth` | **200** | full-app mount → app root (no rewrite) |
+  | `/intelligence/api/trpc/<proc>` | 200 | full-app → `/api/trpc/<proc>` |
+
+  The full-app mount `…/intelligence` is the ONE base serving all nine contracts; live 9/9
+  via the single origin.
+- **Truth ledger (STE-K-38/K-39 measured semantics):** `onx.truthHistory.count` is the **response window size**
+  (bounded by `limit`, default 20), not the global table total. Live measurement:
+  `truthHistory(limit=20) => count=20` and the independent total surface
+  `onx.selfVerify.truthLedgerSummary.count => 67`.
+- **Latest snapshot freshness (STE-K-49 live measure):**
+  latest `truthHistory.snapshots[0].createdAt = 2026-07-14T19:00:07.308Z` with
+  measured age `≈4` minutes at pre-write measurement time.
+- **Scheduler/cron public metadata (STE-K-62 live measure):** gateway `scheduler.status` returned
+  `total=5`, `active=2`, `failing=0`; sample `pulse` row showed
+  `interval=60000`, `intervalHuman=1m`, `lastRun=2026-07-14T19:04:01.059Z`,
+  `nextRun=2026-07-14T19:05:01.059Z`, `msUntilNext=40099`, `runCount=7`, `status=HEALTHY`.
+- **Gateway/direct core parity (STE-K-58):** strict smoke deepening remains **within the same 9 contracts**
+  and now supports an optional parity base (`PARITY_BASE_URL`) that fails honestly when gateway and direct
+  disagree on core facts: `/health.commit`, `onx.selfVerify.{fingerprint,truthLedgerSummary.count}`,
+  `onx.truthHistory.{count,latest snapshot fingerprint}`.
+- **Derived-fields coherence (STE-K-60):** no new contract added; existing guards now fail forged
+  derived fields where type-only checks were insufficient: `truthLedgerSummary.state` vs
+  `{count/latest*}` nullability, retention flags coherence (`oldestRetainedId ↔ oldestRetainedIsGenesis`),
+  and cross-surface consistency (`onx.selfVerify.truthLedgerSummary` ↔ `onx.truthHistory` latest/retention).
+  Because parity (K-58) replays these same contracts through gateway/direct, K-60 coherence guards
+  apply automatically on both paths.
+- **K-39 data-layer activation:** smoke deepening now enforces that `truthLedgerSummary.count`
+  is a present non-negative integer and that total ≥ returned window rows (`onx.truthHistory`).
+- **Truth-ledger retention (STE-K-22):** bounded at **keep=168** (7 days hourly), pruned
+  atomically at capture. MEASURED disclosure live on `onx.truthHistory` / `truthLedgerSummary`:
+  `{keep:168, oldestRetainedId:1, oldestRetainedIsGenesis:true}` — the 168 retention window is not yet
+  reached (total retained snapshots currently 60), so genesis is honestly retained; measured pruning begins past 168.
+- **K-41 drift coherence judgment (measured from code+tests):** cross-row `drift` semantics are already guarded
+  where measurable: for each visible predecessor pair, contract enforces `drift === (fp[i] !== fp[i+1])`;
+  the unmeasurable edge (oldest row with predecessor خارج النافذة/مُقلَّم) remains explicitly named via
+  `predecessorPruned` with `drift=false` (honest non-measurable edge).
+- **/truth page:** LIVE (HTTP 200), rendered entirely from honest surfaces, zero key leak.
+  Surfaces (STE-K-23) a bounded-retention card (keep / oldestRetainedId / genesis-retained
+  vs older-pruned edge) and a MEASURED rate-limit persistence badge — the stale hard-coded
+  "per-instance in-memory" caption that contradicted the K-19 measured store was removed.
+  Surfaces (STE-K-27) a deploy-freshness card measured from `/commit` (served commit + bootTime,
+  SourceOutcome OK/EMPTY/FETCH_FAILED with null-honest fields, no fabricated buildTime).
+  Surfaces (STE-K-31) a human-readable truth-ledger row table from `truthHistory` (id, capturedAt,
+  short fingerprint, drift, predecessorPruned, genesis) so row-level edge honesty is visible, not
+  hidden in API-only payloads.
+  **Render-proven (STE-K-25):** the 9th live check (`no_key_leak`) now also proves the served
+  page is the REAL built SPA shell — measured markers `id="root"` + `<script type="module"
+  src="/assets/…">`; a hollow 200 shell or non-200 fails honestly. Live `RENDER_PROVEN=true`;
+  contract detail reads `/truth render-proven (SPA root + built bundle)`.
+- **STE-K-35 architectural judgment (measured):** raw `/truth` HTML on production SPA carries
+  only shell markers (`id="root"` + module bundle) and **does not** carry card/table content text
+  (`freshness=false`, `ledger=false`). Therefore guarding freshness/ledger presence from raw HTML
+  is non-measurable in this architecture; truthful guarding remains at the data layer
+  (`truthHistory`/`truth-ledger` + `/commit`) through existing contracts (total stays 9).
+- **STE-K-36 practical activation:** contract `truth_ledger_read` now enforces row fields consumed
+  by the human table (`id/capturedAt/fingerprint/drift/predecessorPruned/genesis-edge` semantics)
+  directly from live API payloads. This operationalizes K-35's judgment without adding contracts
+  (still 9).
+- **Corpus:** `disclosure=DEMO` (measured) — 22500 templated seed docs, sha256
+  `6fc2bed87d86…`; awaits the founder REC-06 authentic archive (19,012 docs) to flip
+  to REAL **by measurement**, never by hand.
+- **Bridges:** fail-closed, 401 `BRIDGE_UNAUTHORIZED` on keyless ingest.
+- **Rate limit:** **`POSTGRES_PERSISTED`** measured live (STE-K-19) — bucket state in
+  `onx_rate_limit_buckets` via a `SELECT … FOR UPDATE` transaction, survives redeploy;
+  honest per-window fallback to `PER_INSTANCE_UNPERSISTED` (memory) if the DB is unreachable.
+  Surfaced as a measured badge on /truth (STE-K-23).
+- **Golden floors:** 1.0 / 1.0 / 1.0 (intentAccuracy / refusalHonesty / retrievalHit) over
+  **89 measured cases** (expanded 49→57 in STE-K-33 ثم 57→65 في STE-K-42 ثم 65→73 في STE-K-56 ثم 73→81 في STE-K-64 ثم 81→89 في STE-K-66) —
+  a ratchet, never lowered.
+- **Live watchdog (STE-K-29):** implemented, but **inert on the governed branch** because
+  GitHub Actions executes both `schedule` and `workflow_dispatch` for a workflow file only
+  when that file exists on the default branch. Semantics remain honest by design (`EXPECT_COMMIT`
+  intentionally unset; any contract breach would fail red), but activation requires one of:
+  founder-approved narrow main exception (#117), merge-to-default, or external scheduler.
+  This is operational deepening, not a new contract (total stays 9).
+- **Milestone #119 (single-origin API truth, tri-repo):** completed across the three repos.
+  Intelligence continues to prove all nine doctrine contracts through the gateway single origin;
+  marketing web remains architecturally excluded by #118.
+- **Milestone #136 certified (gateway parity tri-repo):** platform `C-70 @29641c1` + intelligence `K-58 @22d749d`
+  + marketing `S-69 @feaf891` approved.
+- **Milestone #137 certified (derived-object coherence tri-repo):** platform `C-72 @526d35a`
+  + marketing `S-71 @92e60aa` + intelligence `K-60 @d648118` approved.
+- **Milestone #138 certified (scheduler/cron coherence tri-repo):** platform `C-74 @d18ff6b`
+  (run 29344133101) + marketing `S-73 @cea5819` (run 29343556787) + intelligence `K-62 @88b1ab1`
+  (run 29345725493) approved.
+- **Milestone #139 candidate (golden round-4 tri-repo):** platform `C-76 @80dd3c0` (accepted),
+  intelligence `K-64 @f8cd2de` (accepted), marketing `S-74` (`66` cases accepted) — indicator total `57 + 81 + 66 = 204`.
+- **Milestone #140 certified (golden round-5 tri-repo):** platform `C-83 @45ca561` = `64`,
+  marketing `S-78 @905c250` = `74`, intelligence `K-66 @99a0db2` = `89` → total `227`.
+- **Post-convergence saturation judgment (mirror C-88 / S-80):** no new guardable live gap remained after K-67;
+  remaining edges were either already guarded in the existing 9 contracts, time-gated (`keep=168` retention prune),
+  or would require induced outage/503 to measure honestly on production.
+
+## Environment truth (post K-14…K-68, `.env.example`)
+All values MEASURED by `process.env` reads in code; none fabricated. See
+`docs/OPERATIONS_RUNBOOK.md` §و (environment truth scan) for the file:line inventory.
+No new **server-read** environment variable was introduced by K-14…K-68 — the cron capture,
+DEMO→REAL tooling, Truth page, rate-limit persistence, bounded retention, single-origin gateway
+proof, the /truth retention/rate-limit deepening, the /truth render proof, the /truth
+deploy-freshness card, the /truth truthHistory row table, and the STE-K-33 golden-set expansion all
+reuse existing surfaces and the existing `BRIDGE_SHARED_SECRET` / `DATABASE_URL` inputs. STE-K-29
+adds only a GitHub workflow env
+(`GATEWAY_ORIGIN`) consumed by the CI runner process for `npm run smoke:live`; it is NOT a new
+server-side env read.
+Three K-19/K-20/K-58 variables are **operator-tooling-only, NOT read by the running server** — all
+consumed solely by `scripts/smoke-live.ts`:
+- `GATEWAY_ORIGIN` (STE-K-20) — official gateway origin; derives the single-origin smoke base.
+- `EXPECT_RL_PERSISTENCE` (STE-K-19) — asserts the deployment's rate-limit backing store.
+- `PARITY_BASE_URL` (STE-K-58) — optional direct base used by smoke harness parity checks.
+- **STE-K-68 grep-verified (changed files only):** `process.env` ظهر في الملفات المعدلة
+  (`docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md`) كسياق توثيقي فقط؛ لا توجد
+  أي قراءة env تشغيلية جديدة في كود الخادم المنتج.

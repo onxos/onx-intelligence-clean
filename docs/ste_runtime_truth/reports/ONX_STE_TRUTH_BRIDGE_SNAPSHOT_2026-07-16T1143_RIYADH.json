@@ -1,0 +1,79 @@
+{
+  "snapshotId": "STE-TRUTH-BRIDGE-SNAPSHOT-2026-07-16T08:43:00Z",
+  "capturedAt": "2026-07-16T08:43:00Z",
+  "repository": "onxos/onx-intelligence-clean",
+  "branch": "onxos-ste01-deploy-readiness",
+  "truthBridgeMode": "SIGNED_SNAPSHOT_EXPORT_TO_GOVERNANCE_REPO",
+  "durableStorage": "GIT_VERSIONED_REPORT_ARTIFACT",
+  "tables": {
+    "ste_worker_leases": [
+      {
+        "worker_id": "worker-ste-deterministic-001",
+        "task_iu": "STE-P-233",
+        "lease_refreshed_at": "2026-07-16T08:42:44.758Z",
+        "lease_expires_at": "2026-07-16T09:02:44.758Z",
+        "state": "ACTIVE"
+      }
+    ],
+    "ste_worker_heartbeats": [
+      {
+        "id": "hb-20260716084244.761-ste233-w1",
+        "worker_id": "worker-ste-deterministic-001",
+        "task_iu": "STE-P-233",
+        "heartbeat_at": "2026-07-16T08:42:44.761Z",
+        "lease_expires_at": "2026-07-16T09:02:44.758Z",
+        "evidence_id": "EV-P233-WORKER-HB-001"
+      },
+      {
+        "id": "hb-20260716083545.901-ste232-w1",
+        "worker_id": "worker-ste-deterministic-001",
+        "task_iu": "STE-P-232",
+        "heartbeat_at": "2026-07-16T08:35:45.901Z",
+        "lease_expires_at": "2026-07-16T08:55:45.897Z",
+        "evidence_id": "EV-P232-WORKER-HB-001"
+      },
+      {
+        "id": "hb-20260716082858.318-ste231-w1",
+        "worker_id": "worker-ste-deterministic-001",
+        "task_iu": "STE-P-231",
+        "heartbeat_at": "2026-07-16T08:28:58.318Z",
+        "lease_expires_at": "2026-07-16T08:48:58.315Z",
+        "evidence_id": "EV-P231-WORKER-HB-001"
+      }
+    ],
+    "ste_worker_recovery_log": [
+      {
+        "id": "rcv-20260716083545.906-ste232-w1",
+        "worker_id": "worker-ste-deterministic-001",
+        "task_iu": "STE-P-232",
+        "action": "retarget_to_active_wave",
+        "action_at": "2026-07-16T08:35:45.906Z",
+        "evidence_id": "EV-P232-WORKER-RETARGET-001",
+        "state": "ACTIVE"
+      },
+      {
+        "id": "rcv-20260716082858.332-ste231-w1",
+        "worker_id": "worker-ste-deterministic-001",
+        "task_iu": "STE-P-231",
+        "action": "requeue_resume_checkpoint",
+        "action_at": "2026-07-16T08:28:58.332Z",
+        "evidence_id": "EV-P231-WORKER-RECOVERY-001",
+        "state": "RESUMED"
+      }
+    ],
+    "ste_queue": [],
+    "tm_evidence": [],
+    "ste_truth_records": [],
+    "tm_claims": [],
+    "ste_envelopes": [],
+    "ste_cost_governor": [],
+    "ste_worker_heartbeats_control_plane": [],
+    "leases_attempts_runs_discovered_tables": []
+  },
+  "sourceMinTimestamp": "2026-07-16T08:28:58.318Z",
+  "sourceMaxTimestamp": "2026-07-16T08:42:44.761Z",
+  "tableAvailabilityNotes": [
+    "ste_queue/tm_evidence/ste_truth_records/tm_claims/ste_envelopes/ste_cost_governor are not present in this session-local control plane.",
+    "Snapshot exported from available control-plane tables into durable git artifact to enable non-session readers."
+  ]
+}

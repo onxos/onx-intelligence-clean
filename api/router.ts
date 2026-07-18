@@ -29,6 +29,16 @@ import { revenueEngineRouter } from "./revenue-engine-router";
 import { domainServicesRouter } from "./domain-services-router";
 import { corpusQueryRouter } from "./corpus-query-router";
 import { intentEngineRouter } from "./intent-engine-router";
+import { providersRouter } from "./providers-router";
+import { onxRouter } from "./onx-router";
+import { askRouter } from "./ask-router";
+import { titanDecisionRouter } from "./titan-decision-router";
+import { clinicAssistantRouter } from "./clinic-assistant-router";
+import { founderCompanionRouter } from "./founder-companion-router";
+import { personalAssistantRouter } from "./personal-assistant-router";
+import { builderAssistantRouter } from "./builder-assistant-router";
+import { operatorAssistantRouter } from "./operator-assistant-router";
+import { analystAssistantRouter } from "./analyst-assistant-router";
 import { iucRouter } from "./iuc-router";
 import { measurementRouter } from "./measurement-router";
 import { ficRouter } from "./fic-router";
@@ -50,7 +60,13 @@ import { bridgeContractsRouter } from "./bridge-contracts-router";
 import { realityEngineRouter } from "./reality-engine-router";
 import { zeroInputRouter } from "./zero-input-router";
 import { evaluationLearningRouter } from "./evaluation-learning-router";
+import { mindTickRouter } from "./mind-tick-router";
 import { deepResearchRouter } from "./deep-research-router";
+import { d11FeedingRouter } from "./d11-feeding-router";
+import { d12LearningRouter } from "./d12-learning-router";
+import { d13CapitalRouter } from "./d13-capital-router";
+import { d14CoordinationRouter } from "./d14-coordination-router";
+import { d15ProofRouter } from "./d15-proof-router";
 import {
   rateLimitRouter,
   budgetRouter,
@@ -138,12 +154,43 @@ export const appRouter = createRouter({
   zeroInput: zeroInputRouter,
   // B6 — Evaluation & Learning: deterministic golden sets + fail-closed regression gates + OCMBR RUN evidence
   evaluationLearning: evaluationLearningRouter,
+  // G6 — Mind Tick: living cycle inbox→B5 contradictions→B7 proposals (propose-only, A1 ceiling, fail-closed)
+  mindTick: mindTickRouter,
   // K1 — Deep Research: plan→collect→validate→contradict→report loop (reuses B5 contradiction detection)
   deepResearch: deepResearchRouter,
   // Platform contract aliases
   bridge: titanBridgeRouter,
   corpusQuery: corpusQueryRouter,
   intentEngine: intentEngineRouter,
+  providers: providersRouter,
+  onx: onxRouter,
+  // K4 — ask.onx: deterministic cited answer (intent + BM25 fused)
+  ask: askRouter,
+  // Phase P — Titan Decision Engine: durable + tool-grounded + authority-gated
+  // + evaluated + outcome-feedback operational replacement for prompt-only titans
+  titanDecision: titanDecisionRouter,
+  // Phase P — Clinic Assistant operational substrate (durable+tool+memory+auth+eval+feedback)
+  clinicAssistant: clinicAssistantRouter,
+  // Phase P — Founder Companion operational substrate (durable+tool+memory+auth+eval+feedback)
+  founderCompanion: founderCompanionRouter,
+  // Phase P — Personal Assistant operational substrate (durable+tool+memory+auth+eval+feedback)
+  personalAssistant: personalAssistantRouter,
+  // Phase P — Builder Assistant operational substrate (durable+tool+memory+auth+eval+feedback)
+  builderAssistant: builderAssistantRouter,
+  // Phase P — Operator Assistant operational substrate (durable+tool+memory+auth+eval+feedback)
+  operatorAssistant: operatorAssistantRouter,
+  // Phase P — Analyst Assistant operational substrate (durable+tool+memory+auth+eval+feedback)
+  analystAssistant: analystAssistantRouter,
+  // Phase P — D11 Feeding Runtime substrate (durable+tool+memory+auth+eval+feedback)
+  d11Feeding: d11FeedingRouter,
+  // Phase P — D12 Learning Runtime substrate (durable+tool+memory+auth+eval+feedback)
+  d12Learning: d12LearningRouter,
+  // Phase P — D13 Capital Runtime substrate (durable+tool+memory+auth+eval+feedback)
+  d13Capital: d13CapitalRouter,
+  // Phase P — D14 Coordination Runtime substrate (durable+tool+memory+auth+eval+feedback)
+  d14Coordination: d14CoordinationRouter,
+  // Phase P — D15 Proof Runtime substrate (durable+tool+memory+auth+eval+feedback)
+  d15Proof: d15ProofRouter,
 });
 
 export type AppRouter = typeof appRouter;

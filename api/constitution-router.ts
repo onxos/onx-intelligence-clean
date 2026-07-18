@@ -130,6 +130,14 @@ const validationLog: Array<{
   principleScores: Record<string, number>;
 }> = [];
 
+// Honest health snapshot (HT-03): real principle count/weight, never a hardcoded claim.
+export function getConstitutionHealthSnapshot(): { principles: number; totalWeight: number } {
+  return {
+    principles: PRINCIPLES.length,
+    totalWeight: PRINCIPLES.reduce((s, p) => s + p.weight, 0),
+  };
+}
+
 export const constitutionRouter = createRouter({
   // CS-01: validate — Full 7-principle validation
   validate: publicQuery

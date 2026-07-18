@@ -1,0 +1,1989 @@
+# دليل مشغّل الذكاء وإجراءات الاسترداد — ONX Intelligence Operations Runbook
+
+> **STE-01 الموجة 8 (STE-P-03)** — دليل ثنائي اللغة (عربي أولاً) يمكّن المشغّل/المؤسس من تنفيذ
+> مهام الاسترداد المفتوحة بنفسه خطوة بخطوة، بلا معرفة مسبقة بالكود.
+>
+> **مبدأ الدليل — الصدق التشغيلي**: كل أمر هنا يستند إلى كود فعلي بمرجع `ملف:سطر`.
+> لا يَعِد هذا الدليل بأي قدرة غير موجودة في الكود.
+
+---
+
+## المحتويات
+
+- [أ) النشر على Render — مهمة الاسترداد REC-04](#أ-النشر-على-render--rec-04)
+- [ب) إدارة مفاتيح الجسر (Bridge)](#ب-إدارة-مفاتيح-الجسر-bridge)
+- [ج) تركيب مفاتيح المزودين والتحقق الحي — REC-03](#ج-تركيب-مفاتيح-المزودين--rec-03)
+- [د) استيعاب أرشيف 19,012 — REC-06](#د-استيعاب-أرشيف-19012--rec-06)
+- [هـ) verify:self وعدّة OSVA + كتيبات الطوارئ](#هـ-verifyself-وعدة-osva)
+- [English condensed mirror](#english-condensed-mirror)
+- [و) توطيد المشغّل + مسح حقيقة البيئة — STE-K-12](#و-توطيد-المشغل--مسح-حقيقة-البيئة--ste-k-12)
+
+> **ملاحظة تقنية عامة (تنطبق على كل أمثلة curl أدناه)**: واجهة tRPC تستخدم محوّل
+> `superjson` (`api/middleware.ts:12`) على المسار `/api/trpc` (`api/boot.ts:59`)، لذا:
+> - **الاستعلامات (query)** = طلب GET مع `?input={"json":{...}}` (مرمّز URL).
+> - **الطفرات (mutation)** = طلب POST بجسم `{"json":{...}}`.
+
+---
+
+## أ) النشر على Render — REC-04
+
+المخطط الكامل في `render.yaml` (جذر المستودع). ثلاث خدمات معرّفة:
+
+### 1. الخدمة الرئيسية `onx-intelligence-clean` — `render.yaml:14-115`
+
+| البند | القيمة | المرجع |
+|---|---|---|
+| النوع/التشغيل | `web` / Node.js | `render.yaml:14-16` |
+| الخطة/المنطقة | `standard` / `frankfurt` | `render.yaml:17-18` |
+| الفرع | `main` (نشر تلقائي من GitHub) | `render.yaml:19` |
+| أمر البناء | `npm ci && npm run build` | `render.yaml:21` |
+| أمر التشغيل | `NODE_ENV=production npm start` | `render.yaml:22` |
+| فحص الصحة | `/api/trpc/health.ping` | `render.yaml:24` |
+| قرص دائم | `onx-data` على `/app/db` بحجم 5GB | `render.yaml:25-28` |
+
+### 2. خدمة staging `onx-intelligence-staging` — `render.yaml:118-171`
+
+نفس البناء على خطة `starter`، فرعها `main` (أُصلح المؤشر القديم في الموجة 2 — `render.yaml:123-125`).
+
+### 3. العامل الخلفي `onx-scheduler` — `render.yaml:174-196`
+
+worker يشغّل `node dist/scheduler-worker.js`، يرث `DATABASE_URL` و`OPENAI_API_KEY` من
+الخدمة الرئيسية عبر `fromService` (`render.yaml:186-195`)، و`autoDeploy: false` — تشغيله
+اليدوي قرارك.
+
+### خطوات النشر خطوة بخطوة
+
+1. من لوحة Render: **New → Blueprint** ثم اختر مستودع `onxos/onx-intelligence-clean`.
+   Render يقرأ `render.yaml` وينشئ الخدمات الثلاث.
+2. **قاعدة البيانات**: أنشئ Render Postgres (قرار المنسق المصدّق: الإنتاج = Postgres —
+   `render.yaml:34-38`) وانسخ Internal URL بصيغة `postgres://...`.
+3. **أدخل المتغيرات اليدوية** (المعلنة `sync: false` — لا تُخزن في الريبو أبداً):
+
+   | المتغير | إلزامي؟ | من يقرؤه فعلاً | المرجع |
+   |---|---|---|---|
+   | `DATABASE_URL` | نعم | مخازن pg الثلاثة + كوربوس pg | `render.yaml:39-40`، `api/lib/corpus-pg-store.ts:17` |
+   | `PLATFORM_INBOX_DATABASE_URL` | اختياري (يسقط إلى DATABASE_URL) | صندوق وارد المنصة | `render.yaml:43-44` |
+   | `OPENAI_API_KEY` | لقدرات LLM فقط | مزود openai | `render.yaml:48-49`، `api/lib/provider-registry.ts:42` |
+   | `OWNER_UNION_ID` / `APP_ID` / `APP_SECRET` / `VITE_APP_ID` | للمصادقة | طبقة الجلسات | `render.yaml:50-62` |
+   | `BRIDGE_SHARED_SECRET` | فقط عند تفعيل الجسر | حارس الجسر | `render.yaml:114-115`، القسم (ب) |
+
+   إدخالها: صفحة الخدمة → **Environment** → **Add Environment Variable** → أدخل الاسم
+   والقيمة → **Save Changes** (يعيد النشر تلقائياً).
+4. **تنبيه صدق**: كل متغير معلَّم في `render.yaml` بـ`# DOCUMENTED-ONLY: not read by code yet`
+   (مثل `JWT_SECRET`، `EMAIL_PROVIDER`، أعلام `FEATURE_*` — `render.yaml:45-110`) **لا يقرؤه
+   الكود بعد** — أُبقي بقرار منع تقليص النطاق وسيُربط في موجات لاحقة. لا تتوقع منه أثراً الآن.
+
+### التحقق بعد النشر (إلزامي)
+
+```bash
+# 1) نبض الحياة — api/boot.ts:38
+curl -s https://onx-intelligence-clean.onrender.com/health
+# متوقع: {"status":"ok",...}
+
+# 2) إثبات النسخة المنشورة — api/boot.ts:48
+curl -s https://onx-intelligence-clean.onrender.com/commit
+# متوقع: sha الـcommit — طابقه مع git ls-remote origin main
+
+# 3) الفحوصات الحية الصادقة (db/knowledge/scheduler/constitution/titan/runtime)
+curl -s https://onx-intelligence-clean.onrender.com/api/trpc/health.status
+# fail-honest: مورد غائب يظهر UNAVAILABLE — لا ادعاء (الموجة 2، api/health-router.ts:211)
+
+# 4) التحقق الذاتي OSVA الكامل — api/onx-router.ts (عام، بلا أسرار)
+curl -s https://onx-intelligence-clean.onrender.com/api/trpc/onx.selfVerify
+# متوقع: claimsAsserted=0 — انظر القسم (هـ)
+```
+
+محلياً قبل النشر: `npm run verify:self` (رمز خروج 0 = كل الادعاءات مقاسة — `scripts/self-verify.ts`).
+
+---
+
+## ب) إدارة مفاتيح الجسر (Bridge)
+
+الجسر Platform↔Intelligence **مقفل افتراضياً (fail-closed)**. الحارس في
+`api/bridge-guard.ts:4-16` يفرض ثلاثة شروط معاً:
+
+1. `BRIDGE_ENABLED=true` — وإلا خطأ `BRIDGE_DISABLED` (`api/bridge-guard.ts:6`)
+2. `BRIDGE_SHARED_SECRET` مضبوط — وإلا `BRIDGE_SECRET_NOT_CONFIGURED` (`api/bridge-guard.ts:10`)
+3. ترويسة `x-onx-bridge-key` مطابقة للسر — وإلا `BRIDGE_UNAUTHORIZED` (`api/bridge-guard.ts:13-15`)
+
+### التفعيل
+
+1. ولّد سراً قوياً: `openssl rand -hex 32` (أو PowerShell:
+   `-join ((1..64) | %{ '{0:x}' -f (Get-Random -Max 16) })`).
+2. في Render → Environment: اضبط `BRIDGE_SHARED_SECRET` بالقيمة، وغيّر `BRIDGE_ENABLED`
+   إلى `true` (افتراضيه `"false"` — `render.yaml:112-113`).
+3. أعطِ السر نفسه للمنصة المستهلكة لترسله في ترويسة `x-onx-bridge-key`.
+
+### التدوير الآمن (rotation)
+
+1. ولّد سراً جديداً.
+2. حدّث `BRIDGE_SHARED_SECRET` في Render أولاً (إعادة نشر تلقائية) — نافذة انقطاع قصيرة
+   للجسر فقط، النقاط العامة لا تتأثر.
+3. حدّث السر لدى المنصة المستهلكة فوراً بعده.
+4. تحقق (اختبار fail-closed):
+
+```bash
+# مفتاح خاطئ → يجب أن يفشل بـ BRIDGE_UNAUTHORIZED (إن نجح فهناك خلل جسيم!)
+curl -s -X POST 'https://<HOST>/api/trpc/providers.liveValidate' \
+  -H 'content-type: application/json' -H 'x-onx-bridge-key: WRONG' -d '{"json":{}}'
+
+# المفتاح الجديد → يجب أن ينجح
+curl -s -X POST 'https://<HOST>/api/trpc/providers.liveValidate' \
+  -H 'content-type: application/json' -H 'x-onx-bridge-key: <NEW_SECRET>' -d '{"json":{}}'
+```
+
+### الإيقاف الطارئ
+
+اضبط `BRIDGE_ENABLED=false` — كل نقاط الجسر (`corpusQuery.search/domains/ingest`،
+`providers.liveValidate`، `intentEngine`، `titanBridge`) ترفض فوراً بـ`BRIDGE_DISABLED`.
+سلوك fail-closed مثبت اختبارياً في `api/__tests__/bridge-contract.test.ts:57-62`.
+
+---
+
+## ج) تركيب مفاتيح المزودين — REC-03
+
+سجل المزودين الثمانية في `api/lib/provider-registry.ts:41-50`. أسماء متغيرات البيئة
+**الدقيقة** (عند وجود اسمين، الأول له الأولوية):
+
+| المزود | متغير(ات) البيئة | المرجع |
+|---|---|---|
+| OpenAI | `OPENAI_API_KEY` | `provider-registry.ts:42` |
+| Anthropic | `ANTHROPIC_API_KEY` | `provider-registry.ts:43` |
+| Google Gemini | `GEMINI_API_KEY` أو `GOOGLE_API_KEY` | `provider-registry.ts:44` |
+| Groq | `GROQ_API_KEY` | `provider-registry.ts:45` |
+| DeepSeek | `DEEPSEEK_API_KEY` | `provider-registry.ts:46` |
+| Qwen (DashScope) | `QWEN_API_KEY` أو `DASHSCOPE_API_KEY` | `provider-registry.ts:47` |
+| Llama (Together) | `TOGETHER_API_KEY` أو `LLAMA_API_KEY` | `provider-registry.ts:48` |
+| Kimi (Moonshot) | `KIMI_API_KEY` أو `MOONSHOT_API_KEY` | `provider-registry.ts:49` |
+
+### فهم الحالة الثلاثية الصادقة
+
+- **MISSING_KEY**: لا مفتاح في البيئة.
+- **CONFIGURED_UNPROBED**: مفتاح موجود لكن **لم يُفحص حياً** — لا يُدّعى «متصل».
+- **VALIDATED**: فحص حي حقيقي نجح (قائمة نماذج فعلية) بتاريخ وزمن استجابة —
+  **الطريقة الوحيدة** لبلوغ هذه الحالة هي `providers.liveValidate` (`provider-registry.ts:52-53`:
+  النتيجة تعيش في الذاكرة فقط؛ إعادة التشغيل تعيدها بصدق إلى CONFIGURED_UNPROBED).
+
+### الخطوات
+
+1. أدخل المفاتيح المتوفرة في Render → Environment بالأسماء أعلاه (Save = إعادة نشر).
+2. اقرأ الحالة (نقطة **عامة** — تكشف أول 4 أحرف من المفتاح فقط، أبداً لا القيمة):
+
+```bash
+curl -s 'https://<HOST>/api/trpc/providers.status'
+# متوقع بعد إدخال مفتاح وقبل الفحص: "status":"CONFIGURED_UNPROBED"
+```
+
+3. شغّل التحقق الحي (خلف الجسر — يتطلب القسم (ب) مفعّلاً):
+
+```bash
+curl -s -X POST 'https://<HOST>/api/trpc/providers.liveValidate' \
+  -H 'content-type: application/json' \
+  -H 'x-onx-bridge-key: <BRIDGE_SHARED_SECRET>' \
+  -d '{"json":{}}'
+```
+
+4. **تفسير الترقية**: `liveValidate` ينفذ طلب قائمة نماذج حقيقياً لكل مزود ذي مفتاح
+   (`provider-registry.ts:96-130`، مهلة 8 ثوانٍ). نجاح فعلي → `VALIDATED` مع `latencyMs`
+   و`modelCount` و`validatedAt`. فشل → يبقى `CONFIGURED_UNPROBED` مع نص الخطأ (لا ترقية
+   كاذبة). بلا أي مفاتيح → القائمة تعود كلها `MISSING_KEY` بصدق.
+5. أعد قراءة `providers.status` للتأكد من الترقية.
+
+---
+
+## د) استيعاب أرشيف 19,012 — REC-06
+
+> **الحقيقة الحالية** (تقرير `docs/CORPUS_GAP_REPORT.md`): الأرشيف الأصيل (19,012 مقالة)
+> **غير موجود في هذا المستودع** — الموجود 22,500 وحدة قالبية مولّدة (Demo). الأنبوب أدناه
+> جاهز ومختبر لاستقباله فور استرداده.
+
+نقطة الاستيعاب: `corpusQuery.ingest` (`api/corpus-query-router.ts` — خلف الجسر fail-closed)،
+تقبل حتى **500 وحدة بالدفعة** بشكل `{domain,title,body,source}`، وتنفذ:
+تطبيع → بصمة SHA-256 (`api/knowledge-router.ts` — `fingerprintKnowledge`) → إزالة تكرار داخل
+الدفعة وعبرها → إدراج، وتعيد `{accepted, duplicates, total, persistence}`.
+
+- مع `DATABASE_URL` postgres: ثبات حقيقي في جدول `onx_knowledge_corpus` بقيد
+  `fingerprint UNIQUE` و`ON CONFLICT DO NOTHING` (`api/lib/corpus-pg-store.ts:40-48,77-79`)
+  → `persistence: "POSTGRES"`.
+- بلا قاعدة: ذاكرة فقط وتصريح صادق `persistence: "UNPERSISTED"` (يضيع عند إعادة التشغيل).
+
+### سكربت دفعات مثال (يقرأ ملف JSON ويرسل بالتتابع مع العدّ)
+
+احفظه محلياً باسم `ingest-archive.mjs` (ليس جزءاً من الريبو — أداة مشغّل):
+
+```js
+// node ingest-archive.mjs <archive.json> — عناصر بشكل {domain,title,body,source}
+import { readFileSync } from "node:fs";
+
+const HOST = process.env.ONX_HOST;          // مثال: https://onx-intelligence-clean.onrender.com
+const KEY  = process.env.ONX_BRIDGE_KEY;    // قيمة BRIDGE_SHARED_SECRET
+const units = JSON.parse(readFileSync(process.argv[2], "utf8"));
+
+let accepted = 0, duplicates = 0;
+for (let i = 0; i < units.length; i += 500) {           // حد الدفعة في المخطط: 500
+  const batch = units.slice(i, i + 500);
+  const res = await fetch(`${HOST}/api/trpc/corpusQuery.ingest`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-onx-bridge-key": KEY },
+    body: JSON.stringify({ json: { units: batch } }),   // superjson envelope
+  });
+  if (!res.ok) throw new Error(`batch ${i / 500}: HTTP ${res.status} ${await res.text()}`);
+  const out = (await res.json()).result.data.json;
+  accepted += out.accepted; duplicates += out.duplicates;
+  console.log(`batch ${i / 500 + 1}: accepted=${out.accepted} duplicates=${out.duplicates} persistence=${out.persistence}`);
+}
+console.log(`TOTAL: accepted=${accepted} duplicates=${duplicates} of ${units.length}`);
+```
+
+التشغيل:
+
+```bash
+ONX_HOST=https://<HOST> ONX_BRIDGE_KEY=<SECRET> node ingest-archive.mjs archive.json
+```
+
+### التحقق النهائي بعد الاستيعاب
+
+1. **العدّ الصادق**: `npm run corpus:manifest` محلياً، أو راجع بند الكوربوس في
+   `onx.selfVerify` — قارن `rawTotal/uniqueCount` بالمتوقع (19,012 فريداً مضافاً).
+2. **الاسترجاع الفعلي**: ابحث عن عنوان تعرفه من الأرشيف عبر النقطة العامة
+   (الموجة 7 — BM25 حتمي، الفهرس يُبطَل تلقائياً بعد كل ingest فيظهر الجديد فوراً):
+
+```bash
+curl -s 'https://<HOST>/api/trpc/corpusQuery.rankedSearch?input=%7B%22json%22%3A%7B%22query%22%3A%22<كلمات من عنوان معروف>%22%7D%7D'
+# متوقع: hits تتضمن الوثيقة مع snippet مميز بعلامات « »
+```
+
+---
+
+## هـ) verify:self وعدّة OSVA
+
+### ما هو
+
+`buildSelfVerification()` (`api/lib/self-verify.ts`) يجمع **19 بنداً مقاساً** في تقرير واحد:
+6 فحوصات health حية + بند الكوربوس + 8 حالات مزودين + 3 جسور + runtime.
+
+### لغة الحقيقة الخماسية (لكل بند `verdict`)
+
+| الحكم | معناه |
+|---|---|
+| `IMPLEMENTED_PROVEN` | منفّذ ومثبت بقياس حي ناجح |
+| `PARTIAL` | يعمل جزئياً أو مهيأ بلا فحص حي (مثل مزود CONFIGURED_UNPROBED) |
+| `DOCUMENTED_ONLY` | موثق ولا يقرؤه الكود / معطّل (مثل جسر مقفل) |
+| `DEMO` | يعمل لكن بمحتوى قالبي — **الكوربوس الحالي دائماً DEMO** حتى استرداد الأرشيف |
+| `MISSING` | غائب (مفتاح مفقود، مورد UNAVAILABLE) |
+
+### العدّادان والبصمة
+
+- `claimsMeasured` مقابل `claimsAsserted`: المقاس بقياس حي مقابل المُدّعى بلا قياس.
+  **الحالة الصحية: `claimsAsserted = 0`**.
+- `fingerprint`: SHA-256 لنسخة مطبّعة من التقرير (تستبعد الحقول المتقلبة كالطوابع
+  الزمنية) — نفس الحقائق = نفس البصمة؛ تغيّرها يعني تغيّر حقيقة فعلياً.
+
+### التشغيل
+
+```bash
+npm run verify:self          # محلياً — رمز خروج 0 = صحي، 1 = يوجد ادعاء غير مقاس
+curl -s https://<HOST>/api/trpc/onx.selfVerify   # منشوراً — نقطة عامة بلا أسرار
+```
+
+### متى يقلق المشغّل؟
+
+1. **رمز خروج 1 أو `claimsAsserted > 0`** — ظهر ادعاء غير مقاس. لا تنشر قبل الفهم.
+2. **بند health انقلب إلى `MISSING`** — مورد كان حياً صار UNAVAILABLE (انظر الطوارئ أدناه).
+3. **بصمة تغيّرت بلا تغيير مقصود** — حقيقة تبدلت خلف ظهرك؛ قارن التقريرين بنداً بنداً.
+4. **مزود عاد من VALIDATED إلى CONFIGURED_UNPROBED بعد إعادة تشغيل** — هذا **طبيعي
+   وصادق** (الفحص الحي لا يُورَّث)؛ أعد `liveValidate` فقط.
+
+### كتيبات الطوارئ
+
+#### 1. قاعدة البيانات مفقودة/ساقطة
+
+- **الأعراض**: بند db في `health.status` = `UNAVAILABLE`؛ `corpus.ingest` يعيد
+  `persistence:"UNPERSISTED"` رغم أنك تتوقع POSTGRES.
+- **الفحص**: هل `DATABASE_URL` مضبوط ويبدأ بـ`postgres`؟ (`api/lib/corpus-pg-store.ts:16-19`
+  يفحص البادئة حرفياً)؛ حالة قاعدة Render من لوحتها؛ هل انتهت صلاحية الخطة المجانية؟
+- **الإجراء**: صحّح URL في Environment → Save (إعادة نشر) → تحقق بـ`health.status` ثم
+  `onx.selfVerify`. **ملاحظة صدق**: الخدمة لا تنهار بلا DB — تصرّح UNAVAILABLE/UNPERSISTED
+  بصدق وتواصل ما يمكنها (تصميم fail-honest للموجة 2).
+
+#### 2. الجسر مقفل والمنصة تفشل
+
+- **الأعراض**: المنصة تتلقى `BRIDGE_DISABLED` أو `BRIDGE_SECRET_NOT_CONFIGURED` أو
+  `BRIDGE_UNAUTHORIZED`.
+- **الفحص**: نص الخطأ يحدد السبب بدقة (`api/bridge-guard.ts:6,10,15`): الأول =
+  `BRIDGE_ENABLED` ليس true؛ الثاني = السر غير مضبوط في الخادم؛ الثالث = ترويسة
+  `x-onx-bridge-key` غائبة أو غير مطابقة (سر المنصة ≠ سر الخادم — الأرجح بعد تدوير ناقص).
+- **الإجراء**: طابق الشرطين في Render ثم السر لدى المنصة، واختبر بزوج curl «خاطئ ثم صحيح»
+  من القسم (ب). تذكّر: الرفض بلا سر صحيح **سلوك مقصود** وليس عطلاً.
+
+#### 3. مزود فاشل
+
+- **الأعراض**: بعد `liveValidate` بقي المزود `CONFIGURED_UNPROBED` مع حقل خطأ.
+- **الفحص**: اقرأ نص الخطأ في نتيجة liveValidate (HTTP 401 = مفتاح غير صالح؛ 429 =
+  حصة منتهية؛ timeout بعد 8 ثوانٍ = شبكة/حجب إقليمي)؛ تأكد أن اسم المتغير مطابق حرفياً
+  لجدول القسم (ج) وأن القيمة بلا مسافات/أسطر زائدة.
+- **الإجراء**: صحّح المفتاح → Save → أعد `liveValidate` → تأكد من `VALIDATED` في
+  `providers.status`. مزود واحد فاشل **لا يعطّل** البقية — كل مزود يُفحص مستقلاً.
+
+---
+
+## English condensed mirror
+
+Bilingual operator runbook for ONX Intelligence (STE-01 Wave 8, STE-P-03). Every command
+references real code (`file:line`); the runbook promises nothing the code doesn't do.
+
+### A) Deploy on Render (REC-04)
+
+`render.yaml` defines 3 services: web `onx-intelligence-clean` (standard/frankfurt, branch
+`main`, `npm ci && npm run build`, health check `/api/trpc/health.ping`, 5GB disk —
+lines 14-115), web `onx-intelligence-staging` (starter — lines 118-171), worker
+`onx-scheduler` (`node dist/scheduler-worker.js`, inherits `DATABASE_URL`/`OPENAI_API_KEY`
+via `fromService`, `autoDeploy: false` — lines 174-196).
+
+Steps: New → Blueprint → pick the repo; create a Render Postgres (production DB =
+Postgres, coordinator-ratified); set the `sync: false` vars manually in Environment:
+`DATABASE_URL`, `PLATFORM_INBOX_DATABASE_URL` (optional), `OPENAI_API_KEY`,
+`OWNER_UNION_ID`, `APP_ID`, `APP_SECRET`, `VITE_APP_ID`, `BRIDGE_SHARED_SECRET`.
+Vars marked `# DOCUMENTED-ONLY` in render.yaml are **not read by code yet** — kept by
+no-scope-reduction ruling; expect no effect from them.
+
+Post-deploy verification: `GET /health` (`api/boot.ts:38`), `GET /commit`
+(`api/boot.ts:48`, match against `git ls-remote origin main`),
+`GET /api/trpc/health.status` (fail-honest live checks, `api/health-router.ts:211`),
+`GET /api/trpc/onx.selfVerify`
+(expect `claimsAsserted=0`). Locally: `npm run verify:self` (exit 0).
+
+### B) Bridge key management
+
+Fail-closed guard (`api/bridge-guard.ts:4-16`) requires all of: `BRIDGE_ENABLED=true`,
+`BRIDGE_SHARED_SECRET` set, and a matching `x-onx-bridge-key` header — else
+`BRIDGE_DISABLED` / `BRIDGE_SECRET_NOT_CONFIGURED` / `BRIDGE_UNAUTHORIZED`. Rotation:
+generate (`openssl rand -hex 32`) → update server first → update consumer → test with a
+wrong-key curl (must fail) then the new key (must pass). Emergency: set
+`BRIDGE_ENABLED=false` — all bridge endpoints reject immediately (proven in
+`api/__tests__/bridge-contract.test.ts:57-62`).
+
+### C) Provider keys + live validation (REC-03)
+
+Exact env names (`api/lib/provider-registry.ts:41-50`): `OPENAI_API_KEY`,
+`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`|`GOOGLE_API_KEY`, `GROQ_API_KEY`,
+`DEEPSEEK_API_KEY`, `QWEN_API_KEY`|`DASHSCOPE_API_KEY`,
+`TOGETHER_API_KEY`|`LLAMA_API_KEY`, `KIMI_API_KEY`|`MOONSHOT_API_KEY`.
+
+Honest tri-state: `MISSING_KEY` → `CONFIGURED_UNPROBED` (key present, unprobed — never
+claimed "connected") → `VALIDATED` (only via a real models-list probe, 8s timeout, with
+`latencyMs`/`modelCount`/`validatedAt`; in-memory only, honestly reset on restart).
+
+```bash
+curl -s 'https://<HOST>/api/trpc/providers.status'   # public; keyPrefix (4 chars) only
+curl -s -X POST 'https://<HOST>/api/trpc/providers.liveValidate' \
+  -H 'content-type: application/json' -H 'x-onx-bridge-key: <SECRET>' -d '{"json":{}}'
+```
+
+### D) Ingesting the 19,012 archive (REC-06)
+
+Current truth (`docs/CORPUS_GAP_REPORT.md`): the authentic archive is **not in this
+repo**; the 22,500 in-memory units are generated templates (Demo). The pipeline is ready:
+`corpusQuery.ingest` (bridge-guarded, ≤500 units/batch of `{domain,title,body,source}`)
+normalizes → SHA-256 fingerprints → dedups in-batch and across → inserts. With a postgres
+`DATABASE_URL`: persisted in `onx_knowledge_corpus` with `fingerprint UNIQUE` +
+`ON CONFLICT DO NOTHING` (`api/lib/corpus-pg-store.ts:40-48,77-79`) →
+`persistence:"POSTGRES"`; without: honest `"UNPERSISTED"`. Use the batch script above
+(superjson envelope `{"json":{...}}`); verify with `npm run corpus:manifest`, the corpus
+item in `onx.selfVerify`, and a known-title query via public
+`corpusQuery.rankedSearch` (BM25; index auto-invalidated after ingest).
+
+### E) verify:self / OSVA + emergencies
+
+19 measured items (6 health + corpus + 8 providers + 3 bridges + runtime), five-state
+verdicts (`IMPLEMENTED_PROVEN`/`PARTIAL`/`DOCUMENTED_ONLY`/`DEMO`/`MISSING` — corpus is
+always `DEMO` until the real archive lands), `claimsMeasured` vs `claimsAsserted`
+(healthy = 0 asserted), normalized SHA-256 fingerprint (volatile fields excluded — same
+facts = same fingerprint). Run `npm run verify:self` (exit 1 on any asserted claim) or
+`GET /api/trpc/onx.selfVerify`.
+
+Worry when: exit 1 / `claimsAsserted>0`; a health item flips to `MISSING`; the
+fingerprint changes without an intended change. A provider dropping from `VALIDATED` to
+`CONFIGURED_UNPROBED` after a restart is **normal honesty** — just re-run liveValidate.
+
+Emergencies: **DB down** — check `DATABASE_URL` starts with `postgres`
+(`corpus-pg-store.ts:16-19`) and the Render DB status; the service never fakes it —
+declares `UNAVAILABLE`/`UNPERSISTED` and keeps serving what it can. **Bridge locked** —
+the error text pinpoints the failing condition (`bridge-guard.ts:6,10,15`); rejection
+without a valid secret is by design. **Provider failing** — read the liveValidate error
+(401 bad key, 429 quota, 8s timeout = network); one failing provider never blocks the
+rest.
+
+---
+
+## ترقية الذخيرة: من DEMO إلى كوربوس حقيقي (STE-K-10)
+
+النظام **يقيس** حقيقة ذخيرته ولا يدّعيها. كل وحدة بذرة قالبية تحمل الوسم
+`Source: ONX Knowledge Base v1.0`. عقد `corpus-manifest.json` يقيس كم وحدة ما زالت
+تحمل هذا الوسم ويشتق الإفصاح آلياً:
+
+- كل الوحدات قالبية → `provenance=TEMPLATED_SEED` → `disclosure=DEMO`
+- لا وحدة قالبية → `provenance=AUTHENTIC_INGEST` → `disclosure=REAL`
+- مختلطة → `provenance=MIXED` → `disclosure=DEMO` (تحفّظ صادق)
+
+**الإفصاح ينقلب بالقياس لا باليد**: لا يوجد نص DEMO ثابت يُحرَّر — `self-verify` و
+`answer-composer` وسطح `corpusQuery.manifest` كلها تقرأ الإفصاح المقاس.
+
+### خطوات المشغّل لاستبدال DEMO بكوربوس حقيقي
+
+1. **جهّز المفتاح**: `BRIDGE_ENABLED=true` + `BRIDGE_SHARED_SECRET` (القسم B). بلا مفتاح
+   يبقى `corpusQuery.ingest` مقفلاً (401 fail-closed).
+2. **أودِع الوثائق الأصيلة** عبر `corpusQuery.ingest` دفعات ≤500 برأس `x-onx-bridge-key`
+   (القسم D). **مهم**: حقل `source` لكل وحدة أصيلة يجب ألا يساوي
+   `ONX Knowledge Base v1.0` وألا يتضمن ذلك الوسم في `body` — وإلا ستُحسب قالبية.
+3. **استبدل البذرة القالبية**: أزل وحدات البذرة (kn_*) أو أعِد الإيداع لقاعدة جديدة حتى
+   يصبح عدد الوحدات القالبية = 0. المقياس هو الحَكَم.
+4. **أعِد توليد العقد**: `npm run verify:corpus -- --write` يُعيد كتابة
+   `corpus-manifest.json` عند القياس الجديد (sha256/docCount/provenance/disclosure).
+5. **تحقق من الانقلاب**: `npm run verify:corpus` (يجب أن يخضرّ) ثم افحص
+   `GET /api/trpc/corpusQuery.manifest` — يجب أن يظهر `disclosure:"REAL"`،
+   و`onx.selfVerify` يرفع بند corpus إلى `IMPLEMENTED_PROVEN` تلقائياً.
+6. **ارتكب** `corpus-manifest.json` الجديد في نفس commit استبدال الذخيرة. البوابة السادسة
+   (`verify:corpus`) في Truth Gates ستمنع أي عبث لاحق (add/remove/relabel يغيّر sha256).
+
+> الأمان: `corpus-manifest.json` عقدٌ عام بلا أسرار (عدّ + بصمة هوية فقط، لا محتوى وثائق).
+> بوابة `verify:corpus` keyless — لا تحتاج DB ولا مفاتيح؛ تقيس البذرة المشحونة فقط.
+
+---
+
+## Corpus upgrade: DEMO → authentic corpus (STE-K-10) [EN]
+
+The system **measures** its corpus truth rather than claiming it. Every templated seed
+unit carries the marker `Source: ONX Knowledge Base v1.0`. The `corpus-manifest.json`
+contract counts how many units still bear that marker and derives the disclosure
+automatically (all templated → DEMO; none → REAL; mixed → DEMO). The disclosure flips
+**by measurement, not by hand** — `self-verify`, `answer-composer` and the
+`corpusQuery.manifest` surface all read the measured value.
+
+**Operator steps:** (1) enable the bridge key (section B); (2) ingest authentic docs via
+`corpusQuery.ingest` in batches ≤500 with `x-onx-bridge-key` — each unit's `source` must
+NOT be `ONX Knowledge Base v1.0` and must not embed that marker in `body`; (3) remove the
+templated seed (kn_*) so the templated count reaches 0 — the measurement is the judge;
+(4) regenerate: `npm run verify:corpus -- --write`; (5) verify the flip: `npm run
+verify:corpus` green + `corpusQuery.manifest` shows `disclosure:"REAL"` + `onx.selfVerify`
+raises the corpus item to `IMPLEMENTED_PROVEN`; (6) commit the new `corpus-manifest.json`
+in the same commit — the sixth Truth Gate (`verify:corpus`) then blocks any later tamper.
+
+---
+
+## ترقية الذخيرة كأداة عاملة مرتكبة (STE-K-16)
+
+الموجة K-10 وثّقت المسار؛ الموجة K-16 حوّلته إلى **كود عامل مرتكب مختبَر**. لا يعاد بناء
+منطق K-10 المقاس — يُستدعى كما هو.
+
+- **النواة النقية** `api/lib/corpus-upgrade.ts`: بلا شبكة/DB/أسرار.
+  - `validateAuthenticDocs(docs)` — بوابة بنية + provenance حقيقي: يرفض domain/title/body/source
+    الفارغ، و`source` يساوي وسم البذرة، و`body` يتضمن الوسم (كي لا تُحسب أصيلة زوراً).
+  - `toAuthenticSearchDocs(docs)` — يوسم كل وثيقة **غير-قالبية** ويلحق `Source: <source>` إن
+    غاب، فيبقى provenance مرئياً لكل وثيقة.
+  - `previewUpgrade(current, authentic)` — يقيس البصمة قبل/بعد ويعيد
+    `{before, after, flipped, reachedReal, addedAuthentic, remainingTemplated, shaChanged}`.
+- **أداة المشغّل** `scripts/ingest-corpus.ts` عبر `npm run ingest:corpus -- <docs.json>`:
+  - **وضع المعاينة (افتراضي، keyless، حتمي)**: يتحقق ويقيس الإفصاح المنفرد للوثائق الأصيلة
+    (يثبت أنها تقرأ `REAL` وحدها) ويطبع خطوات إعادة التثبيت (re-pin) بلا تخزين.
+  - **وضع `--persist`**: يودع عبر جسر `corpusQuery.ingest` المصرّح فقط (يتطلب
+    `ONX_HOST` + `ONX_BRIDGE_KEY` من المشغّل — لا يُخزَّن في الريبو أبداً)، دفعات ≤500.
+  - `docs.json` = مصفوفة `{ id?, domain, title, body, source }`.
+- **إعادة التثبيت جزء من المسار لا التفاف عليه**: الاستيعاب الأصيل يغيّر sha256 المانيفست
+  شرعياً = أساس جديد مقصود. الخطوة 3 (`verify:corpus -- --write`) والخطوة 6 (ارتكاب المانيفست
+  في نفس commit) من قسم K-10 هي إجراء re-pin المعتمد، والبوابة السادسة تمنع أي عبث بعده.
+- **صدق الحالة الحية (بند و في K-16)**: السطح المنشور يبقى `disclosure:"DEMO"` بصدق حتى يوفّر
+  المؤسس أرشيف REC-06 الأصيل (19,012 وثيقة) ويستبدل البذرة القالبية فعلاً. هذه الأداة **لا
+  تلفّق** الانقلاب — تقيسه. المختلط يبقى `DEMO` تحفّظاً (لا REAL كاذب).
+
+## Corpus upgrade as working committed code (STE-K-16) [EN]
+
+K-10 documented the path; K-16 turns it into **working, committed, tested code** without
+rebuilding the measured K-10 logic. Pure core `api/lib/corpus-upgrade.ts` (no network/DB/
+secrets): `validateAuthenticDocs` (rejects empty fields, `source` equal to the seed marker,
+or `body` embedding the marker), `toAuthenticSearchDocs` (tags every doc non-templated and
+appends `Source: <source>` so provenance stays visible), and `previewUpgrade(current,
+authentic)` returning `{before, after, flipped, reachedReal, remainingTemplated,
+shaChanged}`. Operator tool `scripts/ingest-corpus.ts` via `npm run ingest:corpus --
+<docs.json>`: preview mode (default, keyless, deterministic) validates + MEASURES the
+authentic set's standalone disclosure (proves it reads `REAL`) and prints the exact re-pin
+steps, storing nothing; `--persist` ingests through the authorized fail-closed
+`corpusQuery.ingest` bridge (requires operator-provided `ONX_HOST` + `ONX_BRIDGE_KEY`,
+never in the repo), batches ≤500. Re-pin is part of the path, not a workaround: authentic
+ingest legitimately changes the manifest sha256 (intended new baseline); `verify:corpus --
+--write` + committing the manifest in the same commit is the sanctioned re-pin, and the
+sixth Truth Gate blocks tampering afterward. **Honest live state:** the deployed surface
+stays `disclosure:"DEMO"` until the founder-provided REC-06 archive (19,012 docs) actually
+replaces the templated seed — the tool measures the flip, it never fabricates it; mixed
+stays conservatively `DEMO`.
+
+---
+
+## صفحة الحقيقة العامة القابلة للقراءة (STE-K-17)
+
+مسار `/truth` (`src/pages/Truth.tsx`، مُوجَّه في `src/App.tsx`) نافذة **قراءة-فقط** بلغة
+بشرية على صدق النظام المقاس — مرآة W25/C-13. لا يحمل أي قيمة صلبة: كل حقل يُقرأ حيًّا من
+الأسطح الصادقة القائمة عبر النواة النقية `buildTruthPageModel` في `api/lib/truth-page-model.ts`.
+
+**الأسطح الثلاثة المقروءة** (نداءات tRPC قائمة، لا سطح جديد):
+- `onx.selfVerify` → ادعاءات مقاسة/مُدّعاة + البصمة + الجسور fail-closed + `truthLedgerSummary`.
+- `corpusQuery.manifest` → إفصاح الذخيرة (شارة DEMO/REAL) + `sha256` مختصر + عدد الوثائق/النطاقات.
+- `providers.status` → إفصاح حدّ المعدّل (وضع مقاس: `POSTGRES_PERSISTED` حياً أو ارتداد `PER_INSTANCE_UNPERSISTED`).
+
+**حالات القسم الصادقة** (`api/lib/truth-page-model.ts`):
+- `OK` — السطح أجاب بالبيانات.
+- `EMPTY` — أجاب لكن المورد فارغ بصدق (سجل حقيقة بلا لقطات = `state:"EMPTY"`)، لا تاريخ مُلفّق.
+- `FETCH_FAILED` — تعذّر جلب السطح؛ الصفحة تُظهر فشلاً صريحاً **لا صفراً زائفاً**. القيم تبقى
+  `null` (غياب صادق) لا `0`. سطح ميت لا يُسمّم البقية (كل مصدر مستقل).
+
+**RTL عربي أولاً** مع تسميات إنجليزية مرافقة لكل حقل وشارة.
+
+**توسيع عقد `no_key_leak`** (`api/lib/smoke-contracts.ts`، الفحص التاسع في `runSmoke`): بعد
+العقود الثمانية يُجلب `/truth` بنداء واحد ويُمرَّر عبر `assertNoKeyLeak` — فبايتات الصفحة نفسها
+لا يجوز أن تُظهر مفتاح مزود كاملاً (لا يضيف عقداً؛ يغذّي حارس التسريب القائم).
+
+> **الحالة الحية الصادقة**: الصفحة تعرض ما تقيسه الأسطح — الذخيرة تبقى `DEMO` حتى أرشيف REC-06،
+> وسجل الحقيقة يُظهر عدده الفعلي أو `EMPTY`. لا ادعاء يسبق القياس.
+
+## Public human-readable Truth page (STE-K-17) [EN]
+
+The `/truth` route (`src/pages/Truth.tsx`, wired in `src/App.tsx`) is a **read-only**,
+plain-language window onto the system's MEASURED honesty (mirror of W25/C-13). It hard-codes
+nothing: every field is read live from the existing honest surfaces via the pure
+`buildTruthPageModel` core in `api/lib/truth-page-model.ts`. Three existing tRPC reads feed
+it: `onx.selfVerify` (measured/asserted claims + fingerprint + fail-closed bridges +
+`truthLedgerSummary`), `corpusQuery.manifest` (DEMO/REAL disclosure badge + short `sha256` +
+doc/domain counts), `providers.status` (rate-limit disclosure — measured `POSTGRES_PERSISTED` or honest `PER_INSTANCE_UNPERSISTED` fallback).
+Honest section states: `OK` (surface answered), `EMPTY` (answered but the resource is
+honestly empty — an unpopulated ledger reports `state:"EMPTY"`, never fabricated history),
+and `FETCH_FAILED` (surface unreachable → an explicit failure, **never a fake zero**; values
+stay `null`, and one dead surface never poisons the others). Arabic-first RTL with English
+labels. The `no_key_leak` contract (`api/lib/smoke-contracts.ts`, the 9th fetch in
+`runSmoke`) additionally GETs `/truth` once and runs its HTML through `assertNoKeyLeak` — the
+page's own bytes must never echo a full provider key (no new contract; it feeds the existing
+leak guard).
+
+---
+
+> **مبدأ هذا القسم**: كل رقم وشكل أدناه **مقاس** من الكود (`ملف:سطر`) أو من نداء حي فعلي
+> ضد `https://onx-intelligence-clean.onrender.com` وقت كتابة الموجة 20 (الخدمة على
+> `commit 87c66e2`). لا عبارة متمناة واحدة.
+
+### و.1) خارطة الخدمة الحية (مقاسة)
+
+| العنصر | القيمة | المرجع |
+| --- | --- | --- |
+| الرابط الحي | `https://onx-intelligence-clean.onrender.com` | `api/lib/smoke-contracts.ts:342` (`DEFAULT_BASE_URL`) |
+| الفرع الموجَّه | `onxos-ste01-deploy-readiness` | Render service → branch |
+| `/health` (HTTP مباشر) | `{status,uptime,bootTime,commit,env,timestamp}` | `api/boot.ts:38-47` |
+| `/commit` (HTTP مباشر) | `{commit,service,bootTime,timestamp}` | `api/boot.ts:48-55` |
+| مصدر حقل `commit` | `RENDER_GIT_COMMIT \|\| COMMIT_SHA \|\| GIT_SHA \|\| "unknown"` (ليس سراً) | `api/boot.ts:25-32` |
+| مسار tRPC | `/api/trpc/*` بمحوّل `superjson` | `api/boot.ts:57-64` + `api/middleware.ts:12` |
+
+**مخرج `/health` حي مقاس** (الموجة 20):
+```json
+{"status":"ALIVE","uptime":437.4,"bootTime":"2026-07-13T18:45:31.662Z",
+ "commit":"87c66e2a38c0b2ad2ec7b8262ddd54633bd2a90d","env":"production", ...}
+```
+
+**شكل مغلف tRPC/superjson المقاس** (يجب أن يعرفه المشغّل لفكّ أي سطح عام):
+- **query** = `GET /api/trpc/<proc>?input=<url-encoded {"json":<value|null>}>`
+- **نجاح** = `{"result":{"data":{"json":<value>}}}`
+- **خطأ** = `{"error":{"json":{"message":..,"data":{"httpStatus":..}}}}`
+
+الأسطح العامة الحية المقاسة: `providers.status`، `onx.selfVerify`، `corpusQuery.manifest`،
+`ask.onx`، `health.ready/status/*` (كلها `publicQuery` — `api/health-router.ts:189-320`).
+
+### و.2) تشغيل الدخان الحي — العقود التسعة (`npm run smoke:live`)
+
+المُشغّل: `scripts/smoke-live.ts` (يحتاج شبكة وبيئة حية — ملاحظة في رأس الملف
+`scripts/smoke-live.ts:1-6`). المنطق النقي في `api/lib/smoke-contracts.ts`، المُشغّل
+`runSmoke` (`api/lib/smoke-contracts.ts:370-477`). البيئة: `BASE_URL` (افتراضي الرابط أعلاه،
+`scripts/smoke-live.ts:31`)، و`EXPECT_COMMIT` أو `EXPECTED_SHA` (`scripts/smoke-live.ts:34`).
+ملاحظة STE-K-29/30: الرقيب موجود في `.github/workflows/live-truth.yml` (كل 6 ساعات +
+`workflow_dispatch`) لكنّه **خامل على الفرع المحكوم** حتى يتوفر الملف على default branch.
+
+| # | العقد | ماذا يثبت | ماذا يعني فشله للمشغّل | المرجع |
+| --- | --- | --- | --- | --- |
+| 1 | `health_live` | الخدمة حية (`ALIVE`) وحقل `commit` موجود؛ ومع `EXPECT_COMMIT` = تطابق النشر | الخدمة ساقطة أو نشرت commit غير متوقع | `smoke-contracts.ts:192-215` |
+| 2 | `honest_status_selfverify` | OSVA: بنود بأحكام خماسية، بصمة sha256، و`claimsAsserted=0` | ادّعاء غير مقاس تسلّل — تحقيق فوري | `smoke-contracts.ts:217-243` |
+| 3 | `rate_limit_disclosure` | سطح قراءة عام يصرّح `rateLimit.persistence` بوضع مقاس صادق (`POSTGRES_PERSISTED` أو ارتداد `PER_INSTANCE_UNPERSISTED`)؛ `EXPECT_RL_PERSISTENCE` يؤكد الوضع | غياب التصريح أو تسمية غير معروفة أو عدم تطابق الوضع المتوقَّع = انحراف صدق | `smoke-contracts.ts:245-272` |
+| 4 | `ask_onx_honest_refusal` | سؤال خارج الذخيرة → `INSUFFICIENT_EVIDENCE`، `answer=null`، صفر استشهاد، `DEMO` | تلفيق/حشو بلا دليل — كسر عقيدة | `smoke-contracts.ts:262-282` |
+| 5 | `ask_onx_cited_answer` | سؤال داخل الذخيرة → `ANSWERED` باستشهادات + إفصاح `DEMO` | إجابة بلا استشهاد أو بلا إفصاح | `smoke-contracts.ts:284-307` |
+| 6 | `corpus_manifest_truth` | بصمة الكوربوس المنشور == المرتكب في `corpus-manifest.json` | محتوى معرفي منشور يخالف العقد المرتكب | `smoke-contracts.ts:137-190` |
+| 7 | `bridge_fail_closed` | طفرة جسر بلا مفتاح مرفوضة (401/403 + علامة `BRIDGE_`) ولم تُنفَّذ | الجسر مفتوح بلا مفتاح — ثغرة حرجة | `smoke-contracts.ts:316-338` |
+| 8 | `no_key_leak` | لا مفتاح مزوّد كامل في أي استجابة | تسريب سرّ — إيقاف وتدوير فوري | `smoke-contracts.ts:458-463` |
+| 9 | `truth_ledger_read` | سطح `onx.truthHistory` سليم البنية؛ سجل فارغ = حالة صادقة مُبلَّغة؛ لقطات مأهولة تحمل بصمة+drift | بنية سجل مشوّهة أو بصمة غير sha256 | `smoke-contracts.ts` (`checkTruthLedgerRead`) |
+
+**دلالات الطزاجة (`EXPECT_COMMIT` / PENDING) — درس K-08** (`smoke-contracts.ts:169-189`, `:384`):
+- بنية العقد 6 (disclosure/provenance/docCount/domainCount) تُطابق **دائماً**.
+- `sha256` يُطابق **strict** فقط عند `deployFresh` (health.commit == `EXPECT_COMMIT`).
+- بلا طزاجة مؤكدة واختلاف sha → **PENDING pass** يبلّغ **البصمتين معاً** (لا تمرير بالتمني، لا فشل غامض)؛ أعد التشغيل بـ`EXPECT_COMMIT` بعد أن يعيد Render النشر.
+- مع `EXPECT_COMMIT` مطابق + sha مختلف = **خرق حقيقي** (فشل).
+
+### و.3) مسح حقيقة البيئة (مرآة C-07§3) — كل قراءة `process.env` في كود الإنتاج
+
+المصدر المركزي `api/lib/env.ts:11-22`. التصنيف: **إلزامي** (منتج بلا افتراضي)،
+**اختياري/بافتراضي**، **بيئي منصّة**.
+
+| المتغير | الحالة | الافتراضي/السلوك عند الغياب | القراءة (`ملف:سطر`) |
+| --- | --- | --- | --- |
+| `NODE_ENV` | بيئي | `"development"`؛ `=production` يفعّل شبكة الأمان | `env.ts:14`، `boot.ts:44,69`، `boot.ts:71` |
+| `PORT` | بيئي | `"3000"` | `boot.ts:121` |
+| `RENDER_GIT_COMMIT`/`COMMIT_SHA`/`GIT_SHA` | بيئي (Render يحقنه) | `"unknown"` (حقل commit فقط) | `boot.ts:27-29` |
+| `APP_ID` / `APP_SECRET` | إلزامي إنتاج | تحذير `[env]` بلا إيقاف | `env.ts:12-13` |
+| `DATABASE_URL` | اختياري-حرج | `sqlite:///app/db/onx-pilot.db`؛ غير-postgres → مخازن pg تُبلّغ `UNAVAILABLE`/`UNPERSISTED` | `env.ts:17`، `health-router.ts:59,126`، `knowledge-router.ts:212`، `corpus-pg-store.ts:17,23`، `iurg-pg-store.ts:21`، `iurg-store.ts:46`، `truth-ledger.ts:47,53`، `persistent-memory.ts:368,425`، `drizzle.config.ts:4` |
+| `PLATFORM_INBOX_DATABASE_URL` | اختياري | يسقط إلى `DATABASE_URL` | `platform-inbox-store.ts:13` |
+| `BRIDGE_ENABLED` | اختياري (أمان) | `"false"` → الجسر مقفل | `env.ts:15` |
+| `BRIDGE_SHARED_SECRET` | اختياري (أمان) | `""` → الجسر fail-closed | `env.ts:16` |
+| `OPENAI_API_KEY` | اختياري | `""` → مزوّد `MISSING_KEY`/`gpt4oEnabled=false` | `env.ts:21`، `health-router.ts:106`، `knowledge-router.ts:470`، `ai-brain-router.ts:14,345`، `titan-bridge-router.ts:38`، `voice-router.ts:14`، `vet-intelligence-router.ts:15,286` |
+| `ANTHROPIC/GEMINI/GOOGLE/GROQ/DEEPSEEK/QWEN/DASHSCOPE/TOGETHER/LLAMA/KIMI/MOONSHOT_API_KEY` | اختياري | `MISSING_KEY` في `providers.status` | سجلّ المزودين (مقاس حياً في `providers.status.envKeys`) |
+| `KIMI_AUTH_URL` / `KIMI_OPEN_URL` | اختياري | نقاط Kimi الافتراضية | `env.ts:18-19` |
+| `OWNER_UNION_ID` | اختياري | `""` | `env.ts:20` |
+| `APP_URL` | اختياري | `http://localhost:3000` (روابط إعادة التعيين) | `password-reset-router.ts:102,179` |
+
+**هل `DATABASE_URL` مستخدم فعلاً؟ — نعم، مقاس حياً**: نداء `health.ready` الحي يعيد مكوّن
+`{"name":"Database","status":"HEALTHY"}` — و`checkDatabase` ينفّذ `SELECT 1` حقيقياً ضد
+Postgres ويعيد `UNAVAILABLE` لو لم يكن postgres (`health-router.ts:57-72`). إذًا قاعدة
+`onx_intelligence` على Render مضبوطة ومتصلة فعلاً — لا ادعاء.
+
+### و.4) عمليات مفتاح الجسر (`BRIDGE_SHARED_SECRET`)
+
+التفاصيل الكاملة (تفعيل/تدوير/إيقاف طارئ) في **القسم (ب)** أعلاه — لا تكرار. الحقيقة المقاسة
+الموجة 20: `providers.status` الحي يعيد `"enabled":true,"hasSharedSecret":true` — أي الجسر
+**مفعّل ومزوّد بسرّ على الإنتاج**، والعقد الحي `bridge_fail_closed` يثبت أن طفرة بلا مفتاح
+تُرفض 401 (`api/bridge-guard.ts` يرمي `TRPCError code:"UNAUTHORIZED"`). دلالات الرموز:
+`401 BRIDGE_UNAUTHORIZED` (مفتاح خاطئ)، `BRIDGE_DISABLED` (معطّل)،
+`BRIDGE_SECRET_NOT_CONFIGURED` (بلا سرّ) — `api/bridge-guard.ts:6,10,13-15`.
+
+### و.5) حقيقة rate-limit — إصرار مقاس `POSTGRES_PERSISTED` / ارتداد صادق `PER_INSTANCE_UNPERSISTED` (STE-K-19)
+
+الحدّ: `PUBLIC_READ_LIMIT=60` طلب / `PUBLIC_READ_WINDOW_SEC=60` ثانية
+(`api/lib/rate-limiter.ts:35-42`). **الإفصاح مقاس لكل نافذة، لا مُدّعى** — كل قرار يحمل مخزن
+الدعم الذي خدمه فعلاً (`RateDecision.persistence`، مقاس حياً في `rateLimit.persistence` على
+`providers.status`):
+- **`POSTGRES_PERSISTED`**: حالة الدلو قُرئت وكُتبت في Postgres داخل معاملة
+  `SELECT … FOR UPDATE` (`rate-limiter.ts` — `postgresStore.step`، جدول `onx_rate_limit_buckets`
+  عبر `ensureSchema` كمرآة truth-ledger). مُشترك بين النسخ، يصمد عبر إعادة النشر.
+- **`PER_INSTANCE_UNPERSISTED`**: ارتداد صادق — يُخدَم من ذاكرة النسخة فقط، **يتصفّر عند الإقلاع**،
+  غير مُشارك. ينقلب إليه الإفصاح تلقائياً حين يغيب `DATABASE_URL` **أو** حين يفشل نداء Postgres
+  (`decideRateLimit` يلتقط الخطأ، يسجّله server-side عبر `getLastRateLimitFallback`، ويخدم من الذاكرة).
+  **غير قاتل**: فشل مخزن الحدّ لا يُسقط السطح العام أبداً.
+
+تبعات للمشغّل:
+- الوضع المقاس **يعكس الواقع تلك اللحظة**، لا وعداً. `POSTGRES_PERSISTED` = حدّ يصمد عبر النسخ/النشر؛
+  `PER_INSTANCE_UNPERSISTED` = حدّ per-instance يتصفّر (راجع سجل `getLastRateLimitFallback` لسبب التدهور).
+- **البرهان الحي**: العقد الثالث `rate_limit_disclosure` (`npm run smoke:live`) يقبل الوضعين الصادقين
+  ويرفض أي تسمية أخرى؛ اضبط `EXPECT_RL_PERSISTENCE=POSTGRES_PERSISTED` لتأكيد أن النشر المدعوم بقاعدة
+  يقيس فعلاً الإصرار — عدم تطابق الوضع المقاس مع المتوقَّع = خرق حقيقي.
+- ليس حماية أمنية موزّعة كاملة — للحماية الجادّة أضف طبقة حافة (WAF/بوابة). موثّق بصدق كحدّ لا كوعد.
+- `/health` و`/commit` **معفيان** (فحوصات Render)؛ مسارات الجسر محمية بالمفتاح لا بالحدّ.
+
+### و.6) عمليات manifest الكوربوس — معنى انحراف sha256
+
+العقد المرتكب `corpus-manifest.json` (الجذر): `sha256=6fc2bed8…372f08`، `docCount=22500`،
+19 نطاقاً، `disclosure="DEMO"`، `provenance="TEMPLATED_SEED"` (مقاس حياً من
+`corpusQuery.manifest`). البصمة فوق أسطر الهوية المرتّبة `id\u0000domain\u0000title` فقط
+(الجسم العشوائي مستبعَد) — حتمية عبر الإقلاع لكنها تكشف add/remove/relabel.
+
+**عند اختلاف sha256:**
+- **مقصود** (استوعبت/عدّلت الذخيرة): أعد التوليد `npm run verify:corpus -- --write` وارتكب
+  الـmanifest الجديد في **نفس commit** التغيير — البوابة السادسة `verify:corpus` تحرسه بعدها.
+- **غير مقصود** (لم تلمس الذخيرة وتغيّرت البصمة): **تحقيق فوري** — عبث محتمل أو انحراف بذرة.
+- **الربط الحي**: العقد الثامن `corpus_manifest_truth` (`npm run smoke:live`) يقارن البصمة
+  **المنشورة** بالمرتكبة؛ اختلاف على نشر طازج مؤكّد (`EXPECT_COMMIT` مطابق) = خرق حقيقي؛
+  اختلاف بلا طزاجة = PENDING يبلّغ البصمتين (أعد بعد إعادة نشر Render).
+
+### و.7) أساسيات الحوادث
+
+1. **honest-status أولاً**: عند أي شكّ ابدأ بـ`onx.selfVerify` و`health.ready/status` —
+   لا مكوّن يدّعي صحة غير مقاسة (`claimsAsserted=0` عقد حي).
+2. **أرضيات golden سلك تعثّر لا يُخفَض أبداً**: `api/fixtures/eval-floors.json` =
+   `intentAccuracy=1.0`، `refusalHonesty=1.0`، `retrievalHitAtK=1.0`. أي هبوط تحتها →
+   `eval:golden` exit 1 (البوابة الخامسة في `.github/workflows/truth-gates.yml`). **ممنوع
+   خفض الأرضية لتمرير رن** — الأرضية تُرفَع بالقياس الصادق فقط (سقاطة لا سقف).
+   - **تحديث STE-K-33 (مقاس نهائي):** مجموعة `GOLDEN_SET` تعمّقت من **49 → 57**
+     حالة (تعميق +8، لا تغيير أسطح) بستة أصناف تشغيلية/معرفية واضحة:
+     (أ) نوايا التشغيل السبعة (EMERGENCY..INFO) مع رفض صادق على كوربوس DEMO،
+     (ب) رفض خارج-المعرفة طقس/سياسة/طبخ (ar/en)، (ج) Anti-overfit حجوزات
+     «غداً/tomorrow» التي تبقى BOOKING بصدق، (د) استرجاع معرفي قائم 8 نطاقات،
+     (هـ) استرجاع K-33 المضاف 6 نطاقات (LEGAL/MEDICINE/EDUCATION/FINANCE/
+     ENVIRONMENT/TRANSPORTATION)، (و) رفض خارج-المعرفة رياضة (ar/en). الراتشيت
+     يبقى 1.0×3 ويُقاس على العدد الجديد بلا خفض.
+   - **سابقة منهجية (STE-K-33):** القياس كشف صياغة استرجاع نقل ضعيفة أعطت
+     `retrievalHitAtK=0.9286` (13/14)؛ صُحّحت الصياغة إلى مصطلحات نطاقية
+     أدق ثم عاد القياس إلى `1.0`. القاعدة: إذا كشف القياس ضعف صياغة فتصحيح
+     الصياغة واجب قبل الالتزام، لا خفض للأرضية.
+   - **STE-K-34 (توثيق/تثبيت):** موجة توثيق بحتة — لا منطق جديد، لا حالات golden
+     جديدة، ولا عقود smoke جديدة (الإجمالي يبقى 9).
+   - **تحديث STE-K-42 (الجولة الثانية، مقاس نهائي):** مجموعة `GOLDEN_SET` تعمّقت من
+     **57 → 65** (+8 حالات صادقة مشتقة من محركات DEMO الفعلية بلا مزوّد خارجي):
+     (أ) رفض خارج-المعرفة ar/en (astronomy)، (ب) حواف precedence حقيقية تُثبت
+     أولوية EMERGENCY فوق BOOKING المختلط، (ج) توسيع retrieval لأربعة نطاقات
+     إضافية (STRATEGY / AGRICULTURE / MEDIA / DEFENSE).
+     الراتشيت بقي 1.0×3 بلا خفض، والقياس النهائي: `eval:golden` = `65/65`،
+     `retrieval 18/18`.
+   - **عدّاد الاختبارات:** suite العام لم يتغير في هذه الموجة (**1090 → 1090**)؛
+     التغيير كان توسيع حالات تقييم golden فقط.
+   - **سابقة جودة K-42 (قياس ثم تصحيح صياغة):** التشغيل الأول كشف حالة صياغة
+     ضعيفة (`rt-strategy`: كلمة `analysis` سحبت التصنيف إلى RESULTS وخفّضت
+     المؤشرات إلى `0.9846/0.9846/0.9444`)؛ صُحّحت الصياغة بمصطلحات استراتيجية
+     أنقى ثم عاد القياس إلى `1.0×3`. القاعدة مستمرة: تصحيح الصياغة قبل الالتزام،
+     لا تليين للحدود.
+3. **كتيبات الطوارئ التفصيلية**: انظر القسم (هـ) — «متى يقلق المشغّل» + كتيبات OSVA.
+
+### و.8) عمليات سجل الحقيقة (Truth Ledger) — الحالة الحية المقاسة (STE-K-13 → K-15)
+
+سجل الحقيقة (`api/lib/truth-ledger.ts`) يخزّن لقطات OSVA زمنياً ليصبح انحراف الحقيقة
+قابلاً للكشف عبر الزمن.
+
+**تاريخ الفجوة (STE-K-13، جرد صادق):** قبل الموجة 22 كان السجل **فارغاً على الإنتاج** لأن
+المُسجّل الوحيد كان العامل المستقل `scheduler-worker.ts:60` (خدمة `onx-scheduler`، `branch: main`
++ **`autoDeploy: false`** — `render.yaml:179,196`) **غير المنشور حياً**؛ وكرون الويب لم يكن يلتقط.
+
+**الإغلاق (STE-K-14 — الالتقاط الحي من كرون الويب):** بدل نشر خدمة منفصلة، وُصِل الالتقاط
+بكرون خدمة الويب القائم:
+- `api/boot.ts:83-110` (كرون `*/5 * * * *`) يستدعي الآن `maybeRecordTruthSnapshot()` كل tick.
+- **الإيقاع ساعي** (`TRUTH_SNAPSHOT_INTERVAL_MS = 3600000`، `truth-snapshot-cron.ts:31`) —
+  **مبرّر**: انحراف الحقيقة يتتبّع النشر/تغيّر القدرات لا الدقائق؛ الالتقاط كل 5 دقائق يكتب
+  ~288 صفاً شبه متطابق يومياً ويُنمّي سجل Postgres بلا إشارة. بوابة ساعية (24/يوم) تلتقط بصدق وبكلفة زهيدة.
+- **غير قاتل** (`truth-snapshot-cron.ts:52-64`): فشل الالتقاط يُسجَّل server-side و**لا يرمي أبداً** —
+  الحلقة والخدمة تنجوان من أي كتابة سجل فاسدة (نمط cron الصادق S-10). عند الفشل لا تتقدّم البوابة
+  → يُعاد المحاولة في الـtick التالي بدل ابتلاع ساعة كاملة.
+- **المسار اليدوي باقٍ**: طفرة `onx.truthSnapshot` (`api/onx-router.ts:19-22`) خلف الجسر fail-closed.
+- **الازدواج آمن بلا حارس** (`truth-snapshot-cron.ts:20-25`): إن نُشر `onx-scheduler` لاحقاً يلتقط أيضاً —
+  كل لقطة صف مستقل بمعرّفه وطابعه الزمني (لا مفتاح فريد يُنتهك)، وراية `drift` تبقى صحيحة
+  (بصمتان متطابقتان → `drift:false`).
+
+**القياس الحي (نداء واحد لـ`onx.truthHistory` بعد دورة كرون واحدة على الإنتاج):**
+```json
+{"persistence":"POSTGRES","count":1,"snapshots":[{"id":..,"fingerprint":"<sha256>","claimsMeasured":19,"claimsAsserted":0,"drift":false}]}
+```
+أول لقطة حقيقية في تاريخ الإنتاج — مدعومة بـPostgres، ببصمة sha256 وراية drift. (يُحدَّث الرقم مع تراكم اللقطات.)
+
+**تحديث الحالة المقاسة (STE-K-41، قياس قبل الكتابة عند commit `4d43ebe`):** السجل **ينمو ساعياً** من كرون الويب —
+القياس الحي الأحدث عبر أصل البوابة الرسمية أكّد دلالة العدّ: `onx.truthHistory.count` = **حجم نافذة
+الاستجابة** لا إجمالي الجدول. القياس المباشر: `limit=20 => count=20` (الافتراضي)،
+والإجمالي المستقل يظهر في `onx.selfVerify.truthLedgerSummary.count=37` (`persistence=POSTGRES`).
+**احتفاظ السجل مُفصَح حياً** (STE-K-22): `retention={keep:168, oldestRetainedId:1, oldestRetainedIsGenesis:true}`
+— النافذة (168 = 7 أيام ساعية) لم تُبلَغ بعد فالأصل محفوظ بصدق؛ التقليم المقاس يبدأ بعد تجاوز 168.
+سطح `/health` المقاس عبر أصل البوابة يخدم `commit=4d43ebe449f5…` (متقارب مع `4d43ebe`). حد المعدل **`POSTGRES_PERSISTED` مقاس حياً**
+(STE-K-19، و.5). صفحة `/truth` العامة **حية** (HTTP 200، مبنية كلياً من الأسطح الصادقة، صفر تسريب
+مفاتيح) وتعرض الآن **بطاقتين حيّتين**: (STE-K-23) **بطاقة احتفاظ** (keep/oldestRetainedId/شارة حافة
+genesis-retained مقابل older-pruned) + (STE-K-27) **بطاقة طزاجة النشر** (الإصدار المخدوم + وقت الإقلاع
+مقاسان من سطح `/commit`، بلا buildTime مُلفّق، و`null`-صادق عند الغياب). وتعرض أيضاً **شارة إصرار حد
+المعدل مقاسة** — واستُبدل التعليق الصلب البائت «per-instance in-memory» الذي كان يناقض مخزن K-19
+المقاس بتعليق يتبع الشارة الحية. و**برهان الرسم مُفصَح** (STE-K-25): الفحص التاسع `no_key_leak` يُثبت
+أن الصفحة المخدومة هي قشرة SPA المبنية الحقيقية بعلامات مقاسة (`id="root"` +
+`<script type="module" src="/assets/…">`) — البرهان الحي `RENDER_PROVEN=true`. كل الأسطح التسعة تُقاس
+**عبر الرابط الواحد** `…/intelligence` بنتيجة 9/9 (STE-K-20، و.9). الكوربوس يبقى `disclosure=DEMO`
+مقاساً (22500 بذرة قالبية، sha256 `6fc2bed87d86…`) **بانتظار أرشيف REC-06 الأصيل** (19,012 وثيقة)
+لينقلب REAL **بالقياس لا باليد**.
+
+**العقد التاسع `truth_ledger_read`** (`api/lib/smoke-contracts.ts` — نداء واحد لـ`onx.truthHistory`):
+يؤكد بنية السطح (`persistence` ∈ {POSTGRES, UNPERSISTED}، تطابق `count` مع طول `snapshots`،
+وكل لقطة تحمل بصمة sha256 + عدّادين رقميين + راية `drift` منطقية). السجل الفارغ يبقى حالة صادقة
+مقبولة (قبل أول دورة كرون)، والمأهول يُبلَّغ بعدد لقطاته وراياته.
+
+**برهان رسم صفحة `/truth` في `no_key_leak` (STE-K-25):** الفحص التاسع (`no_key_leak`) لا يكتفي
+الآن بمسح تسريب المفاتيح على بايتات `/truth` — بل **يُثبت أن الصفحة مرسومة فعلاً**. الدافع: قشرة
+`200 OK` فارغة كانت ستمرّ فحص التسريب دون إثبات أي رسم. `assertTruthPageRendered`
+(`api/lib/smoke-contracts.ts`) يتحقّق **من علامات مقاسة من index.html المبني الحي**: جذر SPA
+(`id="root"`) + حزمة الوحدة المبنية (`<script type="module" ... src="/assets/…">`). قشرة عارية
+(لا جذر أو لا حزمة) أو حالة غير 200 → **تفشل بصدق** بدل التنكّر كصفحة حية. **تعميق لا عقد جديد**:
+النتيجة مطوية في نفس عقد `no_key_leak` (المجموع يبقى 9)؛ التفصيل الناجح يقرأ
+«… /truth render-proven (SPA root + built bundle)».
+
+**عقيدة برهان الرسم — ثلاثية الريبو (معلم #116):** برهان أن السطح العام **مرسوم** فعلاً لا مجرد
+`200` فارغ اكتمل الآن عبر الريبوهات الثلاثة: التسويق (S-34) + الذكاء (STE-K-25) + المنصة (C-25،
+`cab2c0a`). العقيدة واحدة: القياس على البايتات المخدومة الحقيقية، والفشل الصادق حين تغيب علامات
+الرسم — لا ادعاء حياة لقشرة ميتة.
+
+**حكم معماري STE-K-35 — حدود برهان العرض في SPA (مقاس أولاً):**
+- القياس الحي لصفحة `/truth` عبر أصل البوابة الرسمية (`…/intelligence/truth`) أعطى:
+  `len=400`, `hasRoot=true`, `hasModule=true`, `hasFreshnessTextInRawHtml=false`,
+  `hasLedgerTextInRawHtml=false`.
+- النتيجة الصادقة: HTML الخام في SPA يثبت **قشرة العرض فقط** (root + module bundle)،
+  ولا يمكنه قياس ظهور بطاقة الطزاجة أو جدول السجل لأنها تُرسم client-side بعد تحميل
+  الحزمة. لذلك أي «marker ثابت» في index.html لا يثبت وجود الجدول/البطاقة فعلياً ويُرفض
+  كمسرحة قياس.
+- البديل الصادق القائم (بدون عقود جديدة): حراسة طبقة البيانات عبر الأسطح المقاسة أصلاً
+  ضمن العقود التسعة — `onx.truthHistory`/`truth-ledger` لبيانات السجل، و`/commit` لطزاجة
+  النشر، مع استمرار `no_key_leak` في إثبات قشرة SPA الحية فقط. **عدّ صادق: الإجمالي يبقى 9**.
+
+**تفعيل الحكم عمليًا (STE-K-36) — حارس طبقة البيانات لأسطح جدول /truth:**
+- القياس قبل التعميق على `truth_ledger_read` أظهر أنه كان يثبت البنية العامة
+  (count/persistence/fingerprint/drift/retention/order) لكنه لا يُلزم كل حقول الصف
+  التي يستهلكها جدول K-31 بشروط نوعية صريحة (`id` و`createdAt` الإلزاميان لكل صف،
+  `predecessorPruned` boolean حين الحضور، وقيد genesis عندما `id=1`).
+- التعميق (لا عقد جديد): نفس العقد التاسع صار يثبت **بنية الصفوف الدلالية** مباشرة من
+  الاستجابة الحية: `id` عدد صحيح موجب، `createdAt` طابع زمني صالح، `fingerprint` sha256،
+  `drift` boolean، وحواف `predecessorPruned` + `genesis` حيث تنطبق.
+- اختبارات حتمية محقونة: `smoke-live` أضيف لها **+4** حالات صفّية صريحة
+  (id مفقود/invalid، `createdAt` مفقود/invalid، `predecessorPruned` غير-boolean،
+  genesis موسوم خطأ) — وعدّاد suite الكلي ارتفع **1084 → 1088** دون إضافة عقود.
+- النتيجة: حراسة واجهة /truth البشرية تبقى صادقة عبر **طبقة البيانات** (truthHistory/ledger
+  + /commit) مع بقاء برهان HTML مقتصرًا على shell SPA فقط. **العدّ يبقى 9 (تعميق لا إضافة)**.
+
+**STE-K-37 — توطيد دائم لعقيدة SPA (حكم → تفعيل):**
+- السلسلة المكتملة الآن مرجع تشغيلي واحد: **K-35 حكم معماري صادق** (raw HTML غير قابل لقياس
+  حضور محتوى client-side) ثم **K-36 تفعيل عملي** (إلزام حقول صفوف `truthHistory` الدلالية
+  في العقد التاسع).
+- قاعدة العمل: في SPA تُحرس **قشرة العرض** من HTML الخام فقط (`root + module bundle`)،
+  بينما تُحرس **البطاقات/الجدول البشرية** من طبقة البيانات (`/commit` + `truthHistory`/`truth-ledger`)
+  داخل العقود التسعة نفسها، بلا مسرحة markers ثابتة.
+- **Last measured live run (K-37 pre-write):** `npm run smoke:live` عبر
+  `GATEWAY_ORIGIN=https://onx-gateway.onrender.com` مع
+  `EXPECT_COMMIT=425cc05` و`EXPECT_RL_PERSISTENCE=POSTGRES_PERSISTED` →
+  **9/9 PASS**.
+- **Environment truth scan (post K-36, changed files grep):** لا قراءات env تشغيلية جديدة؛
+  ظهور `process.env` في الملفات المتغيرة وثائقي/أمثلة فقط.
+
+**STE-K-38 (مرآة C-41) — حكم مقاس لدلالة `truthHistory.count`:**
+- القياس من الكود (لا افتراض): `truthHistory` يمرّر `limit` افتراضياً `20` (`api/onx-router.ts:33-37`)
+  إلى `getTruthHistory(limit)`، وهذه الدالة تُقيّد القيمة (`api/lib/truth-ledger.ts:300-301`) ثم تُعيد
+  `count: flagged.length` بعد `slice(0, capped)` (`truth-ledger.ts:327-330,334-337`)؛ أي عدّ النافذة
+  الظاهرة فقط.
+- يوجد سطح مستقل للإجمالي المحفوظ: `getTruthLedgerCount()` ينفّذ `SELECT COUNT(*)` حقيقياً
+  (`truth-ledger.ts:241-247`) ويُضخّ في `summarizeTruthLedger().count` (`truth-ledger.ts:270-273,288-291`)
+  الذي يُعرض عبر `onx.selfVerify.truthLedgerSummary` (`api/onx-router.ts:19-23`).
+- التفسير الصادق لـ`27 → 20`: ليس pruning عند 20 ولا انحرافاً؛ الفرق ناتج عن **دلالة العدّ**
+  بين قياس قرأ نافذة أكبر/حجم متاح أكبر وقتها، وقياس K-37 الذي قرأ النافذة الافتراضية (20).
+  القياس الحالي يثبت ذلك مباشرة: `truthHistory(limit=20)=20` مقابل `truthHistory(limit=100)=34`
+  مع `truthLedgerSummary.count=34`.
+- لا فجوة سطح هنا: الإجمالي المحفوظ متاح فعلاً على selfVerify؛ المطلوب تسمية الدلالة بدقة
+  (window count مقابل total count) دون اختلاق anomaly.
+
+**STE-K-39 — تفعيل حكم K-38 بحراسة تماسك الإجمالي (تعميق بلا عقد جديد):**
+- **قياس الفجوة قبل التعميق:** العقود كانت تتحقق من `onx.truthHistory` كنافذة فقط
+  (`count == snapshots.length`) ومن سلامة selfVerify العامة، دون إلزام صريح بوجود
+  `truthLedgerSummary.count` كعدد صحيح غير سالب، ودون ربط اتساق **total ≥ window**.
+- **التفعيل (نفس العقدين داخل 9):**
+  1. `honest_status_selfverify` صار يُلزم `truthLedgerSummary.count` (integer ≥ 0) ويُفصحه في detail.
+  2. `truth_ledger_read` صار يستقبل total المقاس من selfVerify ويُلزم اتساقه: `total >= snapshots.length`.
+- **حالات الفشل الحتمية (محقونة):** فشل عند `truthLedgerSummary.count` غير صالح، وفشل عند
+  `truthLedgerSummary.count < window rows`؛ مع بقاء عدّ العقود 9 (تعميق لا إضافة).
+- **عدّاد الاختبارات:** `1088 → 1090` (إضافة حالتين حتميتين في `smoke-live.test.ts`).
+- **مسح صدق البيئة (post K-39, changed files):** لا قراءات env تشغيلية جديدة.
+
+**انعكاس معلم #124 — عقيدة دلالة العدّ المقاسة (مرجع دائم ثلاثي الريبو):**
+- **المنصة C-41:** `count` يعبّر عن نافذة استجابة مع إفصاح retained مستقل.
+- **الذكاء K-38/K-39:** `truthHistory.count` نافذة، و`selfVerify.truthLedgerSummary.count`
+  إجمالي محفوظ مستقل؛ والحراسة التشغيلية الآن تُلزم اتساق `total >= window`.
+- **التسويق S-52:** `count` هناك يعبّر عن إجمالي حقيقي مباشرة.
+- الخلاصة العقائدية: **لا فرض تماثل بين الريبوهات**؛ الدلالة تُثبت من الكود + القياس الحي
+  لكل مستودع، ثم يُوثّق أي asymmetry بصدق.
+
+- **Last measured live run (K-40 pre-write):** `npm run smoke:live` عبر
+  `GATEWAY_ORIGIN=https://onx-gateway.onrender.com` مع
+  `EXPECT_COMMIT=8169151` و`EXPECT_RL_PERSISTENCE=POSTGRES_PERSISTED` →
+  **9/9 PASS**.
+
+**STE-K-41 — قياس تماسك دلالة `drift` (حكم مقاس):**
+- **القياس من كود السطح:** توليد `drift` في ledger نفسه يساوي مقارنة بصمة اللقطة مع سلفها المباشر
+  (`withDriftFlags`: `previous ? previous.fingerprint !== row.fingerprint : false` في
+  `api/lib/truth-ledger.ts:199-206`)، مع تسمية الحافة غير القابلة للقياس عبر
+  `predecessorPruned` (`truth-ledger.ts:209-223`).
+- **القياس من عقد الحراسة:** العقد التاسع يثبت حتمياً (وليس نوع boolean فقط) أنه لكل زوج صفوف
+  متتالٍ داخل النافذة: `drift === (fp[i] !== fp[i+1])` (`api/lib/smoke-contracts.ts:483-503`)؛
+  والحافة غير القابلة للقياس تُحرس بصدق: `predecessorPruned` فقط على الأقدم و`drift=false`
+  (`smoke-contracts.ts:506-523`).
+- **حالات الفشل الحتمية موجودة مسبقاً ومحقونة:** اختبارات fabricated-drift في
+  `api/__tests__/smoke-live.test.ts:608-634` + حافة `predecessorPruned` (`:730-752`).
+  لذا لا حاجة لتعميق كود إضافي في K-41؛ العدّاد يبقى **1090 → 1090** (docs-only).
+- **Last measured live run (K-41 pre-write):** `npm run smoke:live` عبر
+  `GATEWAY_ORIGIN=https://onx-gateway.onrender.com` مع
+  `EXPECT_COMMIT=4d43ebe` و`EXPECT_RL_PERSISTENCE=POSTGRES_PERSISTED` →
+  **9/9 PASS**.
+- **Environment truth scan (post K-41, changed files):** لا قراءات env تشغيلية جديدة.
+- **Environment truth scan (post K-42, changed files):** لا قراءات env تشغيلية جديدة.
+- **Last measured live run (K-43 pre-write):**
+  `/health` عبر أصل البوابة الرسمية = `commit=b58ced1c174b…` (`ALIVE`, `env=production`) و
+  `onx.selfVerify.truthLedgerSummary.count=39` (`persistence=POSTGRES`).
+- **كتلة مرجعية دائمة — STE-K-42 (جولة golden الثانية):**
+  `GOLDEN_SET` توسّعت **57 → 65** بحواف تشغيلية صادقة مشتقة من محركات DEMO الفعلية:
+  (أ) رفض خارج-المعرفة ar/en (astronomy)،
+  (ب) precedence حقيقي: `EMERGENCY > BOOKING` عند السؤال المختلط،
+  (ج) retrieval مضاف لأربعة مجالات (`STRATEGY/AGRICULTURE/MEDIA/DEFENSE`).
+  السابقة المنهجية ثابتة: الصياغة الضعيفة تُصحَّح **داخل الحالة** (مثل `rt-strategy`)
+  ولا يُضعَّف ratchet إطلاقاً؛ الأرضيات تبقى `1.0×3`.
+- **إعلان عدّ صادق K-43:** موجة توثيق فقط — العقود **9** ثابتة، suite الاختبارات
+  **1090** ثابت، وحجم golden المعتمد **65**.
+- **Environment truth scan (post K-43, changed files):** لا قراءات env تشغيلية جديدة.
+
+**STE-K-44 — قياس حارس إعادة حساب fingerprint (حكم مقاس):**
+- **كيف تُولَّد بصمة اللقطة فعلياً:** `recordTruthSnapshot()` يبني تقرير selfVerify الحي
+  (`truth-ledger.ts:111`) ثم يخزّن `report.fingerprint` مع التقرير JSONB (`:123-127`).
+  نفس البصمة تُحسب من canonical stable payload في `fingerprintReport`:
+  `sha256(JSON.stringify(stable))` على حقول محددة (items/health/corpus/providers/bridges/claims)
+  في `self-verify.ts:66-82`.
+- **ما الذي يحرسه العقد الآن:** `truth_ledger_read` يثبت أن fingerprint بصيغة sha256
+  (`smoke-contracts.ts:470-471`) ويثبت تماسك drift عبر مقارنة بصمات الصفوف المتجاورة
+  (`:497-503`) — لكنه لا يعيد بناء payload الداخلي للقطعة المخزنة.
+- **حافة الصدق (قابلية القياس):** سطح `onx.truthHistory` العام يُرجع **صفوفاً ملخّصة فقط**
+  (`onx-router.ts:31-38`) من استعلام لا يُعيد عمود `report` (`truth-ledger.ts:315-325`)،
+  لذلك إعادة حساب fingerprint من المحتوى الكامل للّقطة **غير قابلة للقياس** على هذا
+  السطح. بناء حارس recomputation هنا سيكون حارساً زائفاً.
+- **الحكم التنفيذي K-44:** توثيق فجوة القياس بصدق دون تعميق شكلي. العدّ ثابت:
+  العقود **9**، الاختبارات **1090**.
+- **Environment truth scan (post K-44, changed files):** لا قراءات env تشغيلية جديدة.
+
+**STE-K-45 — إغلاق فجوة K-44 بحارس وحدة حتمي (عقيدة مكتملة):**
+- **قياس الفجوة أولاً:** لم يكن هناك اختبار وحدة يعيد حساب fingerprint بشكل **مستقل**
+  من canonical stable payload داخل الاختبار؛ الموجود كان يختبر الثبات عبر
+  `fingerprintReport` نفسه (`api/__tests__/self-verify.test.ts:40-52`).
+- **التفعيل الحتمي:** أضيف اختبار وحدة واحد يُنشئ report عبر المسار الحقيقي
+  (`buildSelfVerification`) ثم يعيد حساب `sha256(JSON.stringify(stable))`
+  مستقلاً داخل الاختبار ويطابقه مع `report.fingerprint`، مع شق سلبي يثبت أن
+  تعديل أي حقل stable (claimsMeasured) يغيّر البصمة:
+  `api/__tests__/self-verify.test.ts:55-79`.
+- **ربط العقيدة K-44 → K-45:** live-surface يبقى غير قابل لقياس recomputation
+  (summary-only في `truthHistory`)، لكن الحافة صارت محروسة **وحدةً** في نفس
+  معادلة canonical المولّدة للبصمة (`self-verify.ts:66-82`) دون إضافة عقود.
+- **إعلان عدّ صادق K-45:** العقود **9** ثابتة؛ suite الاختبارات **1090 → 1091**.
+- **Last measured live run (K-45 pre-write):**
+  `/health` = `commit=5a17ccef59ad…` (`ALIVE`, `env=production`) و
+  `onx.selfVerify.truthLedgerSummary.count=41` (`persistence=POSTGRES`).
+- **Environment truth scan (post K-45, changed files):** لا قراءات env تشغيلية جديدة.
+
+**STE-K-46 — تماسك claims داخل selfVerify (قياس ثم تفعيل):**
+- **القياس أولاً (فجوة حقيقية):**
+  - `buildSelfVerification` يحسب العدّادات من `items` مباشرة:
+    `claimsMeasured = items.filter(i=>i.measured).length` و
+    `claimsAsserted = items.length - claimsMeasured` (`self-verify.ts:161-163`).
+  - عقد `honest_status_selfverify` كان يتحقق من five-state verdict + `claimsAsserted===0`
+    فقط، دون إلزام صريح لتطابق العدّادات مع `items` (`smoke-contracts.ts:255-260` قبل K-46).
+  - الاختبارات كانت تلتقط `claimsAsserted>0`، لكن لا حالة مزوّرة صريحة
+    `claimsMeasured != measured-items` (`smoke-live.test.ts:211-218` قبل K-46).
+- **التفعيل (داخل العقد القائم، بلا عقد جديد):**
+  - نفس العقد صار يفرض:
+    1) `measured` boolean لكل claim item،
+    2) `claimsMeasured === count(items.measured===true)`،
+    3) `claimsAsserted === items.length - measuredCount`.
+    (`api/lib/smoke-contracts.ts:255-276`).
+  - حالة فشل حتمية مضافة: عدّاد مزوّر (`claimsMeasured:2` مقابل عناصر measured فعلية)
+    يفشل بصدق، مع التغطية لاختبار measured-flag غير boolean:
+    (`api/__tests__/smoke-live.test.ts:211-222`).
+- **إعلان عدّ صادق K-46:** العقود **9** ثابتة؛ suite الاختبارات **1091 → 1092**.
+- **Last measured live run (K-46 pre-write):**
+  `/health` = `commit=39529e5efceb…` (`ALIVE`, `env=production`) و
+  `onx.selfVerify.truthLedgerSummary.count=42` (`persistence=POSTGRES`).
+- **Environment truth scan (post K-46, changed files):** لا قراءات env تشغيلية جديدة.
+
+**STE-K-47 — تجميد K-46 (docs-only):**
+- **Last measured live run (K-47 pre-write):**
+  `/health` = `commit=151ed03d5868…` (`ALIVE`, `env=production`) و
+  `onx.selfVerify.truthLedgerSummary.count=43` (`persistence=POSTGRES`).
+- **كتلة مرجعية دائمة — سلسلة التماسك الداخلي مكتملة (K-44 → K-45 → K-46):**
+  1) **K-44 (حكم مقاس):** إعادة حساب fingerprint من payload الكامل غير قابلة للقياس حيًا
+     على سطح `truthHistory` العام (summary-only، بلا `report`).
+  2) **K-45 (تفعيل وحدة):** حافة عدم القابلية الحية أُغلقت بحارس وحدة حتمي يعيد حساب
+     `sha256(JSON.stringify(stable))` مستقلًا ويطابق `report.fingerprint`.
+  3) **K-46 (تفعيل عقد حي):** `honest_status_selfverify` يفرض تماسك العدّادات داخليًا:
+     `claimsMeasured` يطابق measured-items، و`claimsAsserted` يطابق asserted-items،
+     مع فشل صادق حتمي للعداد المزور.
+  النتيجة التشغيلية: لا مسرحية قياس — الحراسة موزعة حسب قابلية القياس
+  (live contracts لما يظهر حيًا، unit guard لما لا يظهر حيًا).
+- **إعلان عدّ صادق K-47:** موجة توثيق فقط — العقود **9** ثابتة، suite الاختبارات
+  **1092** ثابت، golden **65** ثابت.
+- **Environment truth scan (post K-46, changed files):** `process.env` ظهر فقط داخل نصوص
+  توثيقية في ملفات docs المعدّلة، دون أي قراءة env تشغيلية جديدة في الكود.
+
+**STE-K-48 — حكم مقاس لمنطق تشذيب retention (keep=168):**
+- **القياس أولاً (الكود الإنتاجي):**
+  - التشذيب يُنفّذ داخل نفس معاملة الإدراج في `recordTruthSnapshot`:
+    `BEGIN → INSERT → DELETE (OFFSET keep) → COMMIT`
+    (`api/lib/truth-ledger.ts:121-138`) مع `LEDGER_RETENTION_KEEP=168` (`:23`).
+  - دلالة الحافة بعد التشذيب تُسمّى صراحة عبر `markPrunedEdge`:
+    إذا كان أقدم صف مرئي هو أقدم صف محتفَظ به و`id>1` تُعلَّم
+    `predecessorPruned=true` (`truth-ledger.ts:214-223`)، بينما `drift`
+    يبقى مقاساً فقط عند وجود predecessor مرئي (`withDriftFlags`, `:199-206`).
+  - دلالة genesis مقاسة من `oldestRetainedId===1`
+    (`getTruthHistory`, `truth-ledger.ts:302-307`).
+- **القياس أولاً (اختبارات الوحدة القائمة):**
+  - عقد حتمي يغطي الذرّية ومعامل keep نفسه: اختبار
+    `postgres capture: insert+prune are ATOMIC …` يثبت ترتيب
+    `BEGIN/INSERT/DELETE/COMMIT` وأن `DELETE` يستخدم `OFFSET 168`
+    (`api/__tests__/truth-ledger.test.ts:213-243`).
+  - عقد حتمي يغطي تسمية الحافة بعد التقليم: اختبار
+    `postgres read: ... NAMES a pruned-predecessor edge honestly`
+    يثبت `oldestRetainedId>1` ثم `predecessorPruned=true` و`drift=false`
+    للحافة غير القابلة للقياس (`truth-ledger.test.ts:245-272`).
+  - عقد drift الأساسي عبر الصفوف (عند predecessor مرئي) مثبت في
+    `drift detection ...` (`truth-ledger.test.ts:88-100`).
+- **الحكم الصادق K-48:** لا فجوة اختبارية تستدعي تعميقاً جديداً؛ المنطق
+  محروس وحدوياً بالفعل. التشذيب الحي نفسه غير قابل للقياس الآن لأن العدّ
+  المقاس (`selfVerify.truthLedgerSummary.count=44`) ما زال دون keep=168.
+- **إعلان عدّ صادق K-48:** موجة توثيق/حكم فقط — العقود **9** ثابتة،
+  suite الاختبارات **1092** ثابت، golden **65** ثابت.
+- **Last measured live run (K-48 pre-write):**
+  `/health` = `commit=ff9b67f9d639…` (`ALIVE`, `env=production`) و
+  `onx.selfVerify.truthLedgerSummary.count=44` (`persistence=POSTGRES`).
+- **Environment truth scan (post K-48, changed files):** `process.env` ظهر فقط داخل
+  نصوص docs المعدّلة، دون أي قراءة env تشغيلية جديدة.
+
+**STE-K-49 — صدق حداثة أحدث لقطة (قياس ثم تفعيل):**
+- **القياس أولاً (إيقاع الالتقاط + قابلية القياس):**
+  - الكرون الويبي يَنبض كل 5 دقائق (`boot.ts:84`) ويستدعي
+    `maybeRecordTruthSnapshot()` (`boot.ts:105-110`).
+  - الالتقاط نفسه مُبوّب ساعةً كاملة:
+    `TRUTH_SNAPSHOT_INTERVAL_MS = 60*60*1000` (`truth-snapshot-cron.ts:29`) مع اختبار
+    حتمي لإيقاع الساعة (`truth-snapshot-cron.test.ts:30-32`).
+  - السطح العام يعيد توقيت أحدث لقطة فعليًا: `truthHistory.snapshots[].createdAt`
+    (`truth-ledger.ts:315-325`) ويُعرَض عبر `onx.truthHistory` (`onx-router.ts:33-38`).
+- **فجوة K-49 (قبل التفعيل):**
+  - عقد `truth_ledger_read` كان يثبت البنية/الترتيب/drift/retention دون حارس
+    حداثة صريح على أحدث `createdAt` (`smoke-contracts.ts:406-566` قبل K-49)،
+    ما يعني أن ركود الكرون الطويل قد يمر إذا بقيت البنية صحيحة.
+- **التفعيل (داخل العقد القائم — بلا عقد جديد):**
+  - تعميق `truth_ledger_read` ليكسر بصدق عندما تصبح أحدث لقطة أقدم من
+    عتبة حداثة مشتقة من الإيقاع المقاس: `2×TRUTH_SNAPSHOT_INTERVAL_MS + 10m`،
+    مع تمرير `Date.now()` من `runSmoke` للفحص الحي
+    (`api/lib/smoke-contracts.ts`).
+  - اختبار حتمي مضاف يثبت فشلًا صادقًا على لقطة راكدة:
+    `api/__tests__/smoke-live.test.ts` (stale latest snapshot case).
+- **الحكم الصادق K-49:** الركود صار قابلاً للكشف حيًا من نفس السطح العام
+  (`createdAt` متاح)، لذا التفعيل تم داخل العقد التاسع نفسه دون إضافة عقود.
+- **إعلان عدّ صادق K-49:** العقود **9** ثابتة؛ suite الاختبارات **1092 → 1093**.
+- **Last measured live run (K-49 pre-write):**
+  `/health` = `commit=ff9b67f9d639…` (`ALIVE`, `env=production`) و
+  `onx.selfVerify.truthLedgerSummary.count=44` (`persistence=POSTGRES`).
+- **Environment truth scan (post K-49, changed files):** `process.env` ظهر فقط داخل
+  نصوص docs المعدّلة، دون أي قراءة env تشغيلية جديدة.
+
+**STE-K-50 — تجميد K-48/K-49 (docs-only):**
+- **Last measured live run (K-50 pre-write):**
+  `/health` = `commit=bfbf4a45f1d9…` (`ALIVE`, `env=production`) و
+  `onx.selfVerify.truthLedgerSummary.count=46` (`persistence=POSTGRES`) و
+  `onx.truthHistory(limit=20).snapshots[0].createdAt=2026-07-14T12:15:08.145Z`
+  بعمر مقاس `≈10` دقائق.
+- **كتلة مرجعية دائمة — عقيدة حداثة اللقطة (K-49):**
+  - العتبة ليست رقمًا اعتباطيًا: مشتقة من الإيقاع المقاس في الكود
+    (`TRUTH_SNAPSHOT_INTERVAL_MS=1h`) بصيغة `2×interval + 10m`.
+  - هذا يجعل breach الركود صادقًا: إذا تجاوز عمر أحدث لقطة العتبة يفشل العقد
+    مباشرة بدل تمرير بنية صحيحة ببيانات قديمة.
+  - مرآة C-56 (platform): نفس المبدأ المنهجي (freshness SLO) مع اختلاف
+    اشتقاق العتبة من إيقاع الخدمة الفعلي في intelligence، لا نسخ ثابت.
+- **إعلان عدّ صادق K-50:** موجة توثيق فقط — العقود **9** ثابتة، suite الاختبارات
+  **1093** ثابت، golden **65** ثابت.
+- **Environment truth scan (post K-49, changed files):** `process.env` ظهر فقط داخل
+  نصوص docs المعدّلة، دون أي قراءة env تشغيلية جديدة في الكود.
+
+**STE-K-51 — كتلة انعكاس معالم #127..#131 (docs-only):**
+- **Last measured live run (K-51 pre-write):**
+  `/health` = `commit=337c07946f37…` (`ALIVE`, `env=production`) و
+  `onx.selfVerify.truthLedgerSummary.count=47` (`persistence=POSTGRES`) و
+  أحدث `truthHistory.createdAt=2026-07-14T12:30:09.183Z` بعمر مقاس `≈7` دقائق.
+- **انعكاس المعالم الثلاثية (من منظور intelligence):**
+  - **#127 coherence-guard:** مكتمل عبر K-39 (total>=window داخل العقد التاسع)
+    مع C-49 وS-57 كمرآة ثلاثية لنفس مبدأ اتساق العدّ عبر الأسطح.
+  - **#128 golden round-2:** مكتمل عبر K-42 (golden: `57→65`) مع C-51 (`43`)
+    وS-58 (`51`) — التوسعة حسب كل مستودع مع ratchet صادق غير مخفّض.
+  - **#129 fingerprint recompute:** K-44 حكم قابلية قياس + K-45 حارس وحدة
+    (بدل حارس حي زائف) مع C-53/C-54 وS-59 — نفس العقيدة: الحراسة حيث تُقاس.
+  - **#130 counter-coherence:** K-46 فعّل تماسك claims العدّادي داخل العقد القائم
+    مع C-58 وS-57 — كشف العدّاد المزوّر صار حتميًا.
+  - **#131 freshness honesty:** K-49 فعّل حارس حداثة بعتبة مشتقة من الإيقاع
+    المقاس (`2×TRUTH_SNAPSHOT_INTERVAL_MS + 10m`) كمرآة منهجية لـC-56 وS-60
+    (≤120min في تلك المستودعات) دون فرض تماثل رقمي أعمى.
+- **إعلان عدّ صادق K-51:** موجة توثيق فقط — العقود **9** ثابتة، suite الاختبارات
+  **1093** ثابت، golden **65** ثابت.
+- **Environment truth scan (post K-50, changed files):** `process.env` ظهر فقط داخل
+  نصوص docs المعدّلة، دون أي قراءة env تشغيلية جديدة في الكود.
+
+**STE-K-52 — صدق حمولة `/health` (قياس ثم تفعيل، مرآة C-62):**
+- **القياس أولاً (source vs contract):**
+  - حمولة `/health` الحية من المصدر تشمل:
+    `{status, uptime, bootTime, commit, env, timestamp}`
+    (`api/boot.ts:39-47`).
+  - قبل K-52 كان `health_live` يحرس فقط:
+    `status==="ALIVE"` + وجود `commit` + مطابقته مع `EXPECT_COMMIT` عند توفره
+    (`smoke-contracts.ts:216-238` قبل التفعيل)، بدون فحص بنية `commit/env/uptime/timestamp`.
+- **فجوة K-52 (حقيقية):**
+  - `commit` كان يمر بأي نص عند غياب EXPECT_COMMIT.
+  - `env` غير مقيّد بقيم مسموحة.
+  - `uptime/timestamp` غير محروسين رغم وجودهما في الحمولة الإنتاجية.
+- **التفعيل (داخل العقد القائم — بلا عقد جديد):**
+  - `health_live` صار يفرض:
+    1) `commit` بصيغة sha-like hex (7..40)،
+    2) `env` ضمن مجموعة مسموحة (`production|development|test|staging`)،
+    3) `uptime` غير سالب عندما يوجد،
+    4) `timestamp` parseable وغير مستقبلي خارج هامش صادق (2 دقائق) مع حقن `now`.
+    (`api/lib/smoke-contracts.ts`).
+  - اختبار حتمي مضاف يغلق الفجوة:
+    commit غير sha / env غير مسموح / uptime سالب / timestamp غير صالح أو مستقبلي
+    يفشل بصدق (`api/__tests__/smoke-live.test.ts`).
+- **الحكم الصادق K-52:** الفجوة كانت حقيقية وقابلة للقياس من نفس سطح `/health`،
+  وتم إغلاقها بتعميق العقد القائم فقط (total contracts يبقى 9).
+- **إعلان عدّ صادق K-52:** العقود **9** ثابتة؛ suite الاختبارات **1093 → 1094**؛ golden **65** ثابت.
+- **Last measured live run (K-52 pre-write):**
+  `/health` = `commit=d7cd4f31090b…`, `status=ALIVE`, `env=production`,
+  `uptime=490.716...`, `timestamp=2026-07-14T12:48:33.281Z`;
+  `onx.selfVerify.truthLedgerSummary.count=48`,
+  latest `truthHistory.createdAt=2026-07-14T12:45:06.352Z` (age≈3m).
+- **Environment truth scan (post K-52, changed files):** لا قراءات env تشغيلية جديدة؛
+  استعمال `process.env` بقي ضمن المسارات القائمة (boot/env wiring)، والتعديلات أضافت حراسة تعاقدية فقط.
+
+**STE-K-53 — تجميد توثيقي لـK-52 (docs-only):**
+- **مرجع K-52 المثبّت:** commit `aaf8a22` مع Truth Gates run `29333973727` أخضر؛
+  فجوة القياس كانت بنيوية على حمولة `/health` وأُغلقت بتعميق داخل العقد القائم `health_live`
+  (دون عقد جديد). هذا يطابق مرآة **C-62 المقبولة @7940e1a** في platform، ومع **S-62** الجاري في marketing
+  ضمن نفس عقيدة "قياس البنية قبل الادعاء".
+- **Last measured live run (K-53 pre-write):**
+  `/health` = `commit=b7c219c34d1b…`, `status=ALIVE`, `env=production`;
+  `onx.selfVerify.truthLedgerSummary.count=50` (`persistence=POSTGRES`);
+  latest `truthHistory.createdAt=2026-07-14T13:10:11.013Z` (age≈4m).
+- **Strict live verification (pre-commit):** `smoke:live` عبر origin الرسمي
+  مع `EXPECT_COMMIT=b7c219c` و`EXPECT_RL_PERSISTENCE=POSTGRES_PERSISTED` = **9/9**.
+- **إعلان عدّ صادق K-53:** docs-only؛ العقود **9** ثابتة؛ suite الاختبارات **1094** ثابت؛
+  golden **65** ثابت.
+- **Environment truth scan (post K-53, changed files):** `process.env` ظهر فقط داخل
+  نصوص docs المعدّلة (`docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md`) دون
+  أي قراءة env تشغيلية جديدة في كود الخادم.
+
+**STE-K-54 — صدق بنية صفوف `truthHistory` (قياس ثم تعميق داخل العقد التاسع):**
+- **القياس أولًا (source + contract):**
+  - السطح العام `onx.truthHistory` يُنتِج الصفوف من `getTruthHistory(limit)` مع
+    `limit` مقيدًا إلى `[1..100]`، ثم يرجع `snapshots` (newest-first) مع
+    الحقول `{id,fingerprint,claimsMeasured,claimsAsserted,createdAt,drift,predecessorPruned?}`
+    (`api/lib/truth-ledger.ts:300-337`).
+  - العقد القائم `truth_ledger_read` كان يحرس بالفعل:
+    - typed row fields + parseable `createdAt` **لكل صف** (`smoke-contracts.ts:504-517`)،
+    - اتساق `count===snapshots.length` (`474-475`)،
+    - ترتيب newest-first بالـ`id` و`createdAt` + تماسك drift (`540-555`).
+  - **الفجوة المقاسة K-54:** لم يكن هناك حارس صريح يثبت أن `rows.length` لا يتجاوز
+    `limit` المطلوب في نفس الاستدعاء (التحقق كان ضمنيًا عبر المصدر لا تعاقديًا).
+- **التفعيل (تعميق بلا عقد جديد):**
+  - إضافة guard داخل `truth_ledger_read` يفرض فشلًا صادقًا عند
+    `returned rows > requested limit` عندما يُمرَّر `expectedWindowLimit`
+    (`api/lib/smoke-contracts.ts`).
+  - تمرير `truthHistoryLimit=20` من runner إلى العقد نفسه لضمان حراسة مباشرة
+    على السطح الحي (`api/lib/smoke-contracts.ts` في مسار `runSmoke`).
+  - اختبار حتمي مضاف: فشل عند إرجاع 3 صفوف مع حد مطلوب 2
+    (`api/__tests__/smoke-live.test.ts` ضمن suite `checkTruthLedgerRead`).
+- **Last measured live run (K-54 pre-write):**
+  `/health` = `commit=09eb4e9db48e…`, `status=ALIVE`, `env=production`;
+  `onx.selfVerify.truthLedgerSummary.count=51` (`persistence=POSTGRES`);
+  latest `truthHistory.createdAt=2026-07-14T13:20:07.453Z` (age≈2m).
+- **إعلان عدّ صادق K-54:** تعميق داخل العقد التاسع فقط — العقود **9** ثابتة؛
+  suite الاختبارات **1094 → 1095**؛ golden **65** ثابت.
+- **Environment truth scan (post K-54, changed files):** لا قراءات env تشغيلية جديدة
+  في كود الخادم؛ `process.env` ظهر فقط داخل نصوص docs المعدّلة.
+
+**STE-K-55 — تجميد توثيقي لـK-54 (docs-only):**
+- **عقيدة بنية الصفوف (الحكم المجمّد):**
+  - المحروس مسبقًا داخل العقد التاسع: typed row fields + `createdAt` parseable لكل صف
+    + ترتيب newest-first + اتساق drift.
+  - الفجوة التي أغلقتها K-54: حارس صريح لـ
+    `rows.length <= requested limit` بدل الاكتفاء بالضمان الضمني من المصدر.
+- **مرآة ثلاثية:** platform **C-66 مقبولة @4174116** (فجوة الصف الوحيد + سقف النافذة 100).
+  هذه السلسلة مرشحة لمعْلَم **#133** عند إغلاق مرآة marketing المقابلة.
+- **Last measured live run (K-55 pre-write):**
+  `/health` = `commit=6ece1834792c…`, `status=ALIVE`, `env=production`;
+  `onx.selfVerify.truthLedgerSummary.count=52` (`persistence=POSTGRES`);
+  latest `truthHistory.createdAt=2026-07-14T13:30:06.073Z` (age≈2m).
+- **Strict live verification (pre-commit):** `smoke:live` عبر origin الرسمي
+  مع `EXPECT_COMMIT=6ece183` و`EXPECT_RL_PERSISTENCE=POSTGRES_PERSISTED` = **9/9**.
+- **إعلان عدّ صادق K-55:** docs-only؛ العقود **9** ثابتة؛ suite الاختبارات **1095** ثابت؛
+  golden **65** ثابت.
+- **Environment truth scan (post K-55, changed files):** `process.env` ظهر فقط داخل
+  نصوص docs المعدّلة (`docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md`) دون
+  أي قراءة env تشغيلية جديدة في كود الخادم.
+
+**STE-K-56 — الجولة الثالثة لتوسيع golden eval (قياس ثم تفعيل):**
+- **القياس أولًا (قبل التوسعة):**
+  - `eval:golden` baseline: `total=65`, `intentAccuracy=1`, `refusalHonesty=1`,
+    `retrievalHitAtK=1`, `retrieval=18/18`.
+  - توزيع الفئات المقاس من `api/fixtures/golden-set.ts`:
+
+  | Slice | Before K-56 | After K-56 |
+  |---|---:|---:|
+  | Total golden cases | 65 | 73 |
+  | Retrieval (`rt-*`) | 18 | 18 |
+  | Out-of-domain refusal (`rj-*`) | 10 | 13 |
+  | Precedence (`px-*`) | 2 | 5 |
+  | Anti-overfit booking (`ao-*`) | 4 | 4 |
+  | Diacritized cases (`note: \"diacritized...\"`) | 2 | 4 |
+  | COMPLAINT intent cases | 3 | 4 |
+  | RESULTS intent cases | 3 | 4 |
+
+- **التفعيل (إضافة 8 حالات صادقة مقاسة):**
+  - رفض صادق لمجالات جديدة + no-fabrication: `rj-markets-ar`, `rj-private-en`,
+    `rj-unknown-symbols`.
+  - precedence متعددة المستويات (EMERGENCY فوق BOOKING/PRICING/RESULTS + حالة UPPERCASE):
+    `px-em-price-ar`, `px-em-results-en`, `px-em-case-en`.
+  - حساسية التشكيل العربية: `co-ar-dia-1`, `re-ar-dia-1`.
+  - **تصحيح صياغة ضعيفة** أثناء القياس: `rj-movies-en` أعطت إجابة (refusal mismatch)؛
+    صُححت إلى `rj-private-en` للحفاظ على رفض صادق بلا تخفيض أرضيات.
+- **قياس ما بعد التوسعة:**
+  - `eval:golden` النهائي: `total=73`, `intentAccuracy=1`, `refusalHonesty=1`,
+    `retrievalHitAtK=1` (ratchet 1.0×3 محفوظ بلا خفض).
+- **Last measured live run (K-56 pre-write):**
+  `/health` = `commit=7042a34626d2…`, `status=ALIVE`, `env=production`;
+  `onx.selfVerify.truthLedgerSummary.count=53` (`persistence=POSTGRES`);
+  latest `truthHistory.createdAt=2026-07-14T13:35:08.594Z` (age≈10m).
+- **Strict live verification (pre-commit):** `smoke:live` عبر origin الرسمي
+  مع `EXPECT_COMMIT=7042a34` و`EXPECT_RL_PERSISTENCE=POSTGRES_PERSISTED` = **9/9**.
+- **إعلان عدّ صادق K-56:** golden **65→73**؛ العقود **9** ثابتة؛
+  suite الاختبارات **1095** ثابتة؛ golden floors **1.0/1.0/1.0** ثابتة.
+- **Environment truth scan (post K-56, changed files):** `process.env` ظهر فقط داخل
+  نصوص docs المعدّلة؛ لا قراءات env تشغيلية جديدة في كود الخادم.
+
+**STE-K-57 — تجميد توثيقي للجولة الثالثة (docs-only):**
+- **Last measured live run (K-57 pre-write):**
+  `/health` = `commit=e94240748e9a…`, `status=ALIVE`, `env=production`;
+  `onx.selfVerify.truthLedgerSummary.count=54` (`persistence=POSTGRES`);
+  latest `truthHistory.createdAt=2026-07-14T13:50:08.168Z` (age≈7m).
+- **كتلة الجولات الثالثة الموازية (مرجعية):**
+  - **intelligence / K-56:** توسعة golden من `65→73` مع تصحيح الصياغة الضعيفة
+    (`rj-movies-en` → `rj-private-en`) للحفاظ على رفض صادق.
+  - **platform / C-68 (accepted @bffa45c):** توسعة `43→51` مع أرضيات
+    `22/15/14` وبدون صياغات ضعيفة.
+  - **marketing:** الجولة الثالثة لم تُكلّف بعد (ملاحظة صادقة).
+  - **حالة المعلم:** مرشح معلم golden-round-3 ثلاثي عند اكتمال marketing.
+- **Strict live verification (pre-commit):** `smoke:live` عبر origin الرسمي
+  مع `EXPECT_COMMIT=e942407` و`EXPECT_RL_PERSISTENCE=POSTGRES_PERSISTED` = **9/9**.
+- **إعلان عدّ صادق K-57:** docs-only؛ العقود **9** ثابتة؛ suite الاختبارات **1095** ثابت؛
+  golden **73** ثابت.
+- **Environment truth scan (post K-57, changed files):** `process.env` ظهر فقط داخل
+  نصوص docs المعدّلة (`docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md`) دون
+  أي قراءة env تشغيلية جديدة في كود الخادم.
+
+**STE-K-58 — قياس/تعميق صدق سطح البوابة مقابل السطح المباشر (مرآة C-70):**
+- **قياس الفجوة أولاً (code truth):**
+  - `smoke:live` يشغّل **نفس** العقود التسعة عبر `runSmoke(baseUrl)` على قاعدة واحدة فقط
+    (`scripts/smoke-live.ts` يمرر `baseUrl` مفردًا)، لذا كان المرور عبر gateway لا يثبت تكافؤ
+    core payload مع direct surface بحد ذاته.
+  - لا يوجد قبل K-58 حارس مباشر داخل العقود يقارن `commit/count/fingerprint` بين المسارين.
+- **التعميق (بدون عقد جديد، المجموع يبقى 9):**
+  - داخل العقود القائمة فقط، أُضيف parity اختياري عبر `parityBaseUrl`:
+    - `health_live`: تطابق `commit` (prefix/full) + `status` + `env` بين gateway/direct.
+    - `honest_status_selfverify`: تطابق `fingerprint` و`truthLedgerSummary.count`.
+    - `truth_ledger_read`: تطابق `count` و`latest snapshot fingerprint`.
+  - أي عدم تطابق يفشل **نفس العقد** بصيغة صادقة `gateway/direct parity mismatch` (لا عقد عاشر).
+- **اختبار حتمي (forged mismatch):**
+  - أُضيف اختبار وحدة يزوّر direct payload مقابل gateway ويثبت فشلًا صادقًا في
+    العقود الثلاثة المذكورة أعلاه مع بقاء العدد الكلي `9`.
+- **Last measured live run (K-58 pre-write):**
+  `/health` = `commit=e21fa8c93642…`, `status=ALIVE`, `env=production`;
+  `onx.selfVerify.truthLedgerSummary.count=55` (`persistence=POSTGRES`);
+  latest `truthHistory.createdAt=2026-07-14T14:00:07.180Z` (age≈17m).
+- **Strict live verification (pre-commit):** `smoke:live` عبر origin الرسمي
+  مع `EXPECT_COMMIT=e21fa8c` و`EXPECT_RL_PERSISTENCE=POSTGRES_PERSISTED` و
+  `PARITY_BASE_URL=https://onx-intelligence-clean.onrender.com` = **9/9**.
+- **إعلان عدّ صادق K-58:** تعميق داخل عقود قائمة فقط؛ العقود **9** ثابتة؛
+  suite الاختبارات **1095 passed** ثابتة؛ golden **73** ثابت.
+- **Environment truth scan (post K-58, changed files):**
+  قراءة env الجديدة (`PARITY_BASE_URL`) مضافة في أداة القياس `scripts/smoke-live.ts`
+  فقط (operator-tooling-only)، دون أي قراءة env تشغيلية جديدة في كود الخادم.
+
+**STE-K-59 — تجميد توثيقي لعقيدة تكافؤ البوابة (docs-only):**
+- **قياس حي pre-write (direct + gateway):**
+  - direct `/health`: `200`, `status=ALIVE`, `env=production`,
+    `commit=22d749d775dd1d6c6c3fd91dc53d05ac3e6fdf62`.
+  - gateway `/intelligence/health`: `200`, `status=ALIVE`, `env=production`,
+    `commit=22d749d775dd1d6c6c3fd91dc53d05ac3e6fdf62`.
+  - gateway `onx.selfVerify.truthLedgerSummary.count=56`؛
+    gateway `onx.truthHistory.count=20`, `persistence=POSTGRES`,
+    `latestCreatedAt=2026-07-14T14:25:08.026Z` (age≈3m).
+- **المبدأ الدائم (Parity Doctrine):**
+  - parity guards تعيش **داخل العقود القائمة نفسها** (health/selfVerify/truth_ledger_read) —
+    لا عقد عاشر، والمجموع يبقى 9.
+  - أي تباعد بين direct والبوابة في جوهر الحمولة (`commit/count/fingerprint`)
+    يفشل صادقًا بصيغة `gateway/direct parity mismatch`.
+  - `freshness/version` تبقى أسطحًا مباشرة فقط (حكم صادق): البوابة ليست مصدر `version` الأصل.
+- **الفجوة المغلقة (K-58):**
+  - قبل K-58 كان strict smoke عبر البوابة قادرًا على المرور رغم احتمال payload قديم/مشوه
+    على مسار البوابة طالما كل عقد منفردًا بدا صحيحًا.
+  - بعد K-58 صار هذا الانحراف غير قابل للقبول بالبناء عبر parity guard داخل العقود نفسها.
+- **مؤشر المرآة الثلاثية (مرشح #136):**
+  - platform: `C-70 @29641c1` (accepted)
+  - intelligence: `K-58 @22d749d` (accepted)
+  - marketing: `S-69` (in progress)
+- **Strict live verification (pre-commit):** `smoke:live` عبر origin الرسمي
+  مع `EXPECT_COMMIT=22d749d` و`EXPECT_RL_PERSISTENCE=POSTGRES_PERSISTED` و
+  `PARITY_BASE_URL=https://onx-intelligence-clean.onrender.com` = **9/9**.
+- **إعلان عدّ صادق K-59:** docs-only؛ العقود **9** ثابتة؛ suite **1095** ثابتة؛
+  golden **73** ثابتة.
+- **Environment truth scan (post K-59, changed files):** `process.env` ظهر في
+  الملفات المعدلة (`docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md`) كسياق توثيقي فقط؛
+  لا إضافة لقراءات env تشغيلية جديدة.
+
+**STE-K-60 — تماسك الحقول المشتقة (مرآة C-72، مرشح #137):**
+- **القياس أولاً (source truth):**
+  - `truthLedgerSummary` في `onx.selfVerify` يحمل حقولًا مشتقة من `summarizeTruthLedger`:
+    `state/persistence/count/latestFingerprint/capturedAt/claimsMeasured/claimsAsserted/drift/retention`
+    (`api/lib/truth-ledger.ts:257-297`, `api/onx-router.ts:19-23`).
+  - قبل K-60: العقود تحرس التماسك بقوة في `truthHistory` (count/drift/order/retention keep)
+    لكنها كانت أضعف على تماسك summary المشتق (معظمها type/وجود، لا اتساق اشتقاق كامل).
+  - لا يوجد حقل `atCapacity` على السطح العام حاليًا (قياس مباشر: لا وجود له في الكود).
+- **الفجوة الحقيقية المغلقة (بدون عقد جديد):**
+  - تعميق `honest_status_selfverify` للتحقق من تماسك summary داخليًا:
+    `state` مقابل nullability/count، `persistence` الصالح، و`retention` المشتقة
+    (`oldestRetainedId ↔ oldestRetainedIsGenesis`).
+  - تعميق `truth_ledger_read` للتحقق من الاتساق الاشتقاقي بين السطحين:
+    `onx.selfVerify.truthLedgerSummary` يجب أن يطابق `onx.truthHistory` في
+    `persistence`, `retention`, وأحدث `fingerprint/capturedAt/claims*/drift`.
+  - فشل صادق حتمي لأي حمولة مزوّرة (type صحيح لكن اشتقاق متناقض).
+- **تغطية الاختبارات الحتمية (forged payload → breach):**
+  - فشل `checkSelfVerify` عند تزوير summary (`state/count` أو retention flags متناقضة).
+  - فشل `checkTruthLedgerRead` عند:
+    1) mismatch أحدث summary مقابل latest snapshot،
+    2) retention flags متناقضة،
+    3) populated snapshots مع `oldestRetainedId=null`,
+    4) mismatch retention بين summary وtruthHistory.
+- **تطبيق parity تلقائيًا على المسارين:**
+  - K-58 parity يعيد تشغيل **نفس العقود نفسها** عبر direct+gateway؛ لذلك كل حارس K-60
+    يسري تلقائيًا على المسارين دون إضافة عقد عاشر.
+- **قياس حي pre-write (direct + gateway):**
+  - direct `/health`: `200`, `status=ALIVE`, `env=production`,
+    `commit=02cad8ff3f92df067d192bc9c088664a25c66671`.
+  - gateway `/intelligence/health`: `200`, `status=ALIVE`, `env=production`,
+    `commit=02cad8ff3f92df067d192bc9c088664a25c66671`.
+  - gateway `truthLedgerSummary`: `state=POPULATED`, `persistence=POSTGRES`,
+    `count=57`, latest fp=`bb642469c81d`, `capturedAt=2026-07-14T14:35:06.585Z`,
+    `claimsMeasured=19`, `claimsAsserted=0`, `drift=false`,
+    `retention={keep:168, oldestRetainedId:1, oldestRetainedIsGenesis:true}`.
+  - gateway `truthHistory`: `count=20`, latest fp=`bb642469c81d`,
+    `latestCreatedAt=2026-07-14T14:35:06.585Z` (age≈13m), `persistence=POSTGRES`,
+    retention مطابق.
+  - فشل صادق أثناء القياس الحي: لا يوجد.
+- **Strict live verification (pre-commit):** `smoke:live` عبر origin الرسمي
+  مع `EXPECT_COMMIT=02cad8f` و`EXPECT_RL_PERSISTENCE=POSTGRES_PERSISTED` و
+  `PARITY_BASE_URL=https://onx-intelligence-clean.onrender.com` = **9/9**.
+- **مرآة الثلاثي (مرشح #137):**
+  - platform: `C-72` (ongoing mirror anchor)
+  - intelligence: `K-60` (this wave)
+  - marketing: mirror pending
+- **إعلان عدّ صادق K-60:** العقود **9** ثابتة؛ suite **1095→1100**؛ golden **73** ثابتة.
+- **Environment truth scan (post K-60, changed files):** `process.env` ظهر فقط
+  في docs المعدّلة كسياق توثيقي؛ لا إضافة لقراءات env تشغيلية جديدة.
+
+**STE-K-61 — تجميد توثيقي K-60 + انعكاس معلم #137 (docs-only):**
+- **قياس حي pre-write (direct + gateway):**
+  - direct `/health`: `200`, `status=ALIVE`, `env=production`,
+    `commit=d6481187f1ba33bb04ff8c50c9de88b5cf358b31`.
+  - gateway `/intelligence/health`: `200`, `status=ALIVE`, `env=production`,
+    `commit=d6481187f1ba33bb04ff8c50c9de88b5cf358b31`.
+  - gateway `truthLedgerSummary`: `state=POPULATED`, `persistence=POSTGRES`,
+    `count=58`, latest fp=`bb642469c81d`, `capturedAt=2026-07-14T14:55:09.118Z`,
+    `claimsMeasured=19`, `claimsAsserted=0`, `drift=false`,
+    `retention={keep:168, oldestRetainedId:1, oldestRetainedIsGenesis:true}`.
+  - gateway `truthHistory`: `count=20`, latest fp=`bb642469c81d`,
+    `latestCreatedAt=2026-07-14T14:55:09.118Z` (age≈10m), `persistence=POSTGRES`,
+    retention مطابق.
+  - فشل صادق أثناء القياس الحي: لا يوجد.
+- **انعكاس معلم #137 (ثلاثي المستودعات):**
+  - platform: `C-72 @526d35a` (accepted)
+  - marketing: `S-71 @92e60aa` (accepted)
+  - intelligence: `K-60 @d648118` (accepted)
+  - **الحالة:** معلم #137 **مُصادَق**.
+- **عقيدة دائمة — تماسك الكائنات المشتقة (مرآة platform §7.48):**
+  - صحة النوع لا تكفي: كل حقل مشتق يجب أن يُحرس مقابل **مصدر اشتقاقه**.
+  - الفجوة المغلقة في K-60: كان جزء من summary يُفحص نوعيًا/وجوديًا دون اتساق اشتقاقي كامل.
+  - الحراس الآن يثبتون الاتساق داخليًا (`state/count/nullability/retention`) وعبر السطحين
+    (`selfVerify.truthLedgerSummary` ↔ `truthHistory` latest/retention).
+  - لأن parity (K-58) يشغّل **نفس العقود نفسها** على المباشر والبوابة، فحراس التماسك يسري
+    أثرهم تلقائيًا على المسارين دون عقد عاشر.
+- **إعلان عدّ صادق K-61:** docs-only؛ العقود **9** ثابتة؛ suite **1100** ثابتة؛
+  golden **73** ثابتة.
+- **Environment truth scan (post K-61, changed files):** `process.env` ظهر في
+  (`docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md`) كسياق توثيقي فقط؛
+  لا إضافة لقراءات env تشغيلية جديدة.
+
+**STE-K-62 — تماسك أسطح الجدولة/الكرون (مرآة C-74 + S-73، مرشح #138):**
+- **القياس أولًا (source + live):**
+  - metadata الجدولة ظاهرة علنًا على tRPC في `scheduler.status`:
+    `active/interval/intervalHuman/lastRun/nextRun/msUntilNext/runCount/status`
+    (`api/scheduler-router.ts:304-320`).
+  - `health`/`selfVerify` يعكسان metadata مشتقة من نفس المصدر:
+    `checkScheduler()` يبني عبارة `active/total/failing + IUC cron status/lastTick`
+    من `getRhythmHealthSnapshot()` + `getIucRuntimeStatus()`
+    (`api/health-router.ts:130-140`, `api/scheduler-router.ts:277-283`,
+    `api/lib/iuc-runtime.ts:1-23`).
+  - live pre-write (direct + gateway): `/health` كلاهما `commit=1683ea7…`, `ALIVE`, `production`;
+    `truthLedgerSummary.count=59`, `truthHistory.latestCreatedAt=2026-07-14T15:15:08.092Z` (age≈7m);
+    `scheduler.status` = `total=5`, `active=2`, `failing=0`; sample pulse:
+    `interval=60000`, `intervalHuman=1m`, `nextRun/msUntilNext` موجودان معًا.
+- **الحكم الصادق (فجوة حقيقية):**
+  - قبل K-62 كانت الحماية تركز على أنواع أسطح الحقيقة الأساسية؛ scheduler metadata العام
+    كان غير محروس اشتقاقيًا داخل العقود التسعة (خصوصًا علاقات `intervalHuman↔interval`,
+    `nextRun↔msUntilNext`, `active↔nextRun`, `runCount↔lastRun`, وتطابق `Scheduler` detail
+    مع `scheduler.status`).
+  - تم الإغلاق بتعميق داخل العقد القائم `honest_status_selfverify` فقط (لا عقد عاشر).
+- **التعميق داخل العقد القائم (9 ثابتة):**
+  - `checkSelfVerify` صار يستقبل `scheduler.status` ويطبق حراس تماسك اشتقاقية:
+    1) parse صادق لعبارة Scheduler (`active/total/failing; IUC cron ...`).
+    2) تطابق counts العبارة مع aggregation حي من `scheduler.status`.
+    3) صحة اشتقاق `intervalHuman` من `interval`.
+    4) تماسك `nextRun/msUntilNext` (وجودًا وقيمةً عند توفر now).
+    5) biconditional صادق `active ↔ nextRun`.
+    6) تماسك `runCount ↔ lastRun`.
+    7) توافق verdict عنصر Scheduler مع failing rhythms (`PARTIAL` iff failing>0).
+  - التنفيذ في: `api/lib/smoke-contracts.ts` (داخل `checkSelfVerify` + runner step selfVerify).
+  - لأن الحارس داخل نفس العقد القائم، فهو يعمل مع مسار gateway الحالي، وضمن
+    تآزر parity K-58 يبقى العقد نفسه جزءًا من مسار المقارنة المباشر/البوابة (دون زيادة عدّ العقود).
+- **اختبارات فشل حتمية (forged payload → breach):**
+  - mismatch counts بين Scheduler detail و`scheduler.status` يفشل.
+  - تزوير `active=false` مع `nextRun` موجود يفشل.
+  - suite `smoke-live.test.ts` ارتفعت `1100→1102` مع بقاء العقد 9.
+- **Strict live verification (pre-commit):** `smoke:live` عبر origin الرسمي
+  مع `EXPECT_COMMIT=1683ea7` و`EXPECT_RL_PERSISTENCE=POSTGRES_PERSISTED` و
+  `PARITY_BASE_URL=https://onx-intelligence-clean.onrender.com` = **9/9**.
+- **مرشح معلم #138 (ثلاثي المستودعات):**
+  - platform: `C-74 @d18ff6b` (accepted, run 29344133101)
+  - marketing: `S-73 @cea5819` (accepted — truthful absence, run 29343556787)
+  - intelligence: `K-62` (this wave)
+- **إعلان عدّ صادق K-62:** العقود **9** ثابتة؛ suite **1100→1102**؛ golden **73** ثابتة.
+- **Environment truth scan (post K-62, changed files):** `process.env` ظهر فقط
+  في docs والنصوص/اختبارات العقد؛ لا إضافة لقراءات env تشغيلية جديدة في كود الخادم المنتج.
+
+**STE-K-63 — تجميد توثيقي K-62 + انعكاس معلم #138 (docs-only):**
+- **قياس حي pre-write (direct + gateway):**
+  - direct `/health`: `200`, `status=ALIVE`, `env=production`,
+    `commit=88b1ab16cfd6ce9e9aa016e27b94528417740359`.
+  - gateway `/intelligence/health`: `200`, `status=ALIVE`, `env=production`,
+    `commit=88b1ab16cfd6ce9e9aa016e27b94528417740359`.
+  - gateway `truthLedgerSummary`: `state=POPULATED`, `persistence=POSTGRES`,
+    `count=60`, latest fp=`bb642469c81d`, `capturedAt=2026-07-14T15:35:08.307Z`,
+    `claimsMeasured=19`, `claimsAsserted=0`, `drift=false`.
+  - gateway `truthHistory`: `count=20`, latest fp=`bb642469c81d`,
+    `latestCreatedAt=2026-07-14T15:35:08.307Z` (age≈3m), `persistence=POSTGRES`,
+    `retention={keep:168, oldestRetainedId:1, oldestRetainedIsGenesis:true}`.
+  - gateway `scheduler.status`: `total=5`, `active=2`, `failing=0`; sample pulse:
+    `interval=60000`, `intervalHuman=1m`, `lastRun=2026-07-14T15:37:42.162Z`,
+    `nextRun=2026-07-14T15:38:42.162Z`, `msUntilNext=15604`, `runCount=6`, `status=HEALTHY`.
+  - فشل صادق أثناء القياس الحي: لا يوجد.
+- **انعكاس معلم #138 (ثلاثي المستودعات) — مُصادَق:**
+  - platform: `C-74 @d18ff6b` (run `29344133101`)
+  - marketing: `S-73 @cea5819` (run `29343556787`)
+  - intelligence: `K-62 @88b1ab1` (run `29345725493`)
+  - **الحالة:** معلم #138 **مُصادَق**.
+- **عقيدة دائمة — تماسك أسطح الجدولة:**
+  - المبدأ الثلاثي: **biconditional حيث توجد الحقول**، و**غياب صادق حيث لا توجد**،
+    و**لا حراس مختلقة**.
+  - في intelligence، أسطح الجدولة موجودة علنًا (`scheduler.status`) فالحراس تُطبق
+    على علاقات الاشتقاق الفعلية (`active/total/failing`, `intervalHuman↔interval`,
+    `nextRun↔msUntilNext`, `active↔nextRun`, `runCount↔lastRun`).
+  - في marketing، لا أسطح جدولة عامة أصلًا (S-73) فالحكم الصادق docs-only دون
+    اختلاق حارسٍ على سطح غير موجود.
+  - في platform، حقول mode/bound موجودة فالحارس biconditional صريح (C-74).
+  - لأن حارس intelligence داخل نفس عقد `honest_status_selfverify` القائم،
+    فهو يسري على مسار البوابة تلقائيًا، وتآزر parity (#136) يحافظ على الصدق عبر المسارين.
+- **توثيق انحراف commitَي K-62 بصدق:** `4b9db57` أنجز التعميق الوظيفي،
+  ثم `88b1ab1` أصلح narrowing TypeScript فقط (لا تغيير سلوكي)، وكلاهما ضمن
+  نفس موجة K-62 ومثبتان في تشغيل Truth Gates `29345725493`.
+- **إعلان عدّ صادق K-63:** docs-only؛ العقود **9** ثابتة؛ suite **1102** ثابتة؛
+  golden **73** ثابتة.
+- **Environment truth scan (post K-63, changed files):** `process.env` ظهر في
+  (`docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md`) كسياق توثيقي فقط؛
+  لا إضافة لقراءات env تشغيلية جديدة.
+
+**STE-K-64 — الجولة الرابعة لتوسيع golden eval (قياس ثم تفعيل):**
+- **القياس أولًا (قبل التوسعة):**
+  - baseline من K-63: `eval:golden` = `total=73`, `intentAccuracy=1`,
+    `refusalHonesty=1`, `retrievalHitAtK=1` (راتشيت 1.0×3 قائم).
+  - توزيع العائلات المقاس من `api/fixtures/golden-set.ts` (SHA baseline `690ab2d`) مقابل ما بعد K-64:
+
+  | Family slice (ID prefix) | Before K-64 | After K-64 |
+  |---|---:|---:|
+  | Total golden cases | 73 | 81 |
+  | `em-*` (EMERGENCY) | 7 | 8 |
+  | `bk-*` (BOOKING) | 5 | 6 |
+  | `pr-*` (PRICING) | 5 | 6 |
+  | `co-*` (COMPLAINT) | 4 | 5 |
+  | `re-*` (RESULTS) | 4 | 5 |
+  | `rf-*` (REFILL) | 4 | 5 |
+  | `in-*` (INFO) | 4 | 5 |
+  | `px-*` (precedence) | 5 | 6 |
+  | `rj-*` (out-of-domain refusal) | 13 | 13 |
+  | `rt-*` (retrieval) | 18 | 18 |
+
+- **التفعيل (إضافة 8 حالات صادقة من حواف قواعد فعلية):**
+  - `em-en-3` (`golden-set.ts:41`) — حافة `collapsed/seizure` من قاموس الطوارئ
+    (`intent-engine.ts:57-58`).
+  - `bk-en-2` (`golden-set.ts:48`) — حافة `reschedule/appointment` من BOOKING
+    (`intent-engine.ts:72,77`).
+  - `pr-en-2` (`golden-set.ts:56`) — حافة `price/cost/fee` من PRICING
+    (`intent-engine.ts:96`).
+  - `co-en-2` (`golden-set.ts:63`) — حافة `unhappy/disappointed/terrible` من COMPLAINT
+    (`intent-engine.ts:108`).
+  - `re-en-2` (`golden-set.ts:69`) — حافة `bloodwork/scan` من RESULTS
+    (`intent-engine.ts:120`).
+  - `rf-en-2` (`golden-set.ts:75`) — حافة `medication/renew` من REFILL
+    (`intent-engine.ts:132`).
+  - `in-en-3` (`golden-set.ts:83`) — حافة `question/location` من INFO
+    (`intent-engine.ts:145`).
+  - `px-em-book-en-2` (`golden-set.ts:138`) — precedence فعلي: وجود إشارة EMERGENCY
+    يُقدَّم دائمًا على BOOKING (`intent-engine.ts:12-13,230`).
+- **تصحيح صادق أثناء القياس (بدون خفض الأرضية):**
+  - 3 حالات جديدة كانت متوقعة رفضًا لكنها تُجاب بصدق لأن EMERGENCY/INFO لا تخضعان
+    لـ`OPERATIONAL_FLOOR` اللانهائي (`answer-composer.ts:39-47`): `em-en-3`, `in-en-3`,
+    `px-em-book-en-2`. تم تثبيت `expectRefusal=false` لهذه الحالات بعد القياس الحي
+    بدل كسر `refusalHonesty` أو تلفيق رفض.
+- **قياس ما بعد التوسعة:**
+  - `eval:golden` النهائي: `total=81`, `intentAccuracy=1`, `refusalHonesty=1`,
+    `retrievalHitAtK=1` (الراتشيت 1.0×3 محفوظ بلا خفض).
+- **قياس حي pre-write (direct + gateway):**
+  - direct `/health`: `200`, `status=ALIVE`, `env=production`,
+    `commit=690ab2df648e29a2e1325ec316069f987d573c5a`.
+  - gateway `/intelligence/health`: `200`, `status=ALIVE`, `env=production`,
+    `commit=690ab2df648e29a2e1325ec316069f987d573c5a`.
+  - gateway `onx.selfVerify.truthLedgerSummary`: `count=61`, `persistence=POSTGRES`,
+    `latestFingerprint=bb642469c81d`, `capturedAt=2026-07-14T15:45:10.204Z`, `drift=false`.
+  - gateway `onx.truthHistory`: `count=20`, `persistence=POSTGRES`,
+    `latestCreatedAt=2026-07-14T15:45:10.204Z` (age≈17m),
+    `retention={keep:168, oldestRetainedId:1, oldestRetainedIsGenesis:true}`.
+  - فشل صادق أثناء القياس الحي: لا يوجد.
+- **Strict live verification (pre-commit):** `smoke:live` عبر origin الرسمي مع
+  `EXPECT_COMMIT=690ab2d` و`EXPECT_RL_PERSISTENCE=POSTGRES_PERSISTED` = **9/9**.
+- **مرآة المعلم #139 (golden round-4 tri-repo):**
+  - platform: `C-76 @80dd3c0` (accepted)
+  - intelligence: `K-64` (this wave)
+  - marketing: `S-74` (pending)
+- **إعلان عدّ صادق K-64:** العقود **9** ثابتة؛ suite الاختبارات **1102** ثابتة؛
+  golden **73→81**؛ floors **1.0/1.0/1.0** ثابتة.
+- **Environment truth scan (post K-64, changed files):** `process.env` ظهر فقط داخل
+  docs المعدّلة (`docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md`) كسياق توثيقي؛
+  لا قراءات env تشغيلية جديدة في كود الخادم.
+
+**STE-K-65 — تجميد توثيقي للجولة الرابعة golden (docs-only):**
+- **Last measured live run (K-65 pre-write):**
+  - direct `/health`: `200`, `status=ALIVE`, `env=production`,
+    `commit=f8cd2dee800e520822d78a3f29d994d9aa7141ee`.
+  - gateway `/intelligence/health`: `200`, `status=ALIVE`, `env=production`,
+    `commit=f8cd2dee800e520822d78a3f29d994d9aa7141ee`.
+  - gateway `onx.selfVerify.truthLedgerSummary`: `count=64`, `persistence=POSTGRES`,
+    `latestFingerprint=bb642469c81d`, `capturedAt=2026-07-14T18:20:06.216Z`, `drift=false`.
+  - gateway `onx.truthHistory`: `count=20`, `persistence=POSTGRES`,
+    `latestCreatedAt=2026-07-14T18:20:06.216Z` (age≈3m),
+    `retention={keep:168, oldestRetainedId:1, oldestRetainedIsGenesis:true}`.
+  - gateway `scheduler.status`: `total=5`, `active=2`, `failing=0`; sample `pulse`:
+    `interval=60000`, `intervalHuman=1m`, `lastRun=2026-07-14T18:22:34.164Z`,
+    `nextRun=2026-07-14T18:23:34.164Z`, `msUntilNext=35808`, `runCount=132`, `status=HEALTHY`.
+  - فشل صادق أثناء القياس الحي: لا يوجد.
+- **تجميد K-64 على SHA/Run الحقيقيين:**
+  - intelligence `K-64 @f8cd2de`, Truth Gates `29348524377` = success.
+- **جدول الجولة الرابعة (before/after) ثابت توثيقياً:**
+
+  | Slice | Before K-64 | After K-64 |
+  |---|---:|---:|
+  | Total golden cases | 73 | 81 |
+  | `em-*` | 7 | 8 |
+  | `bk-*` | 5 | 6 |
+  | `pr-*` | 5 | 6 |
+  | `co-*` | 4 | 5 |
+  | `re-*` | 4 | 5 |
+  | `rf-*` | 4 | 5 |
+  | `in-*` | 4 | 5 |
+  | `px-*` | 5 | 6 |
+
+- **مصادر الحواف (file:line) المثبتة:**
+  - `em-en-3` (`api/fixtures/golden-set.ts:41`) ← قاموس EMERGENCY:
+    `collapsed/seizure` في `api/lib/intent-engine.ts:57-58`.
+  - `bk-en-2` (`api/fixtures/golden-set.ts:48`) ← BOOKING:
+    `reschedule/appointment` في `api/lib/intent-engine.ts:72,77`.
+  - `pr-en-2` (`api/fixtures/golden-set.ts:56`) ← PRICING:
+    `price/cost/fee` في `api/lib/intent-engine.ts:96`.
+  - `co-en-2` (`api/fixtures/golden-set.ts:63`) ← COMPLAINT:
+    `unhappy/disappointed/terrible` في `api/lib/intent-engine.ts:108`.
+  - `re-en-2` (`api/fixtures/golden-set.ts:69`) ← RESULTS:
+    `bloodwork/scan` في `api/lib/intent-engine.ts:120`.
+  - `rf-en-2` (`api/fixtures/golden-set.ts:75`) ← REFILL:
+    `medication/renew` في `api/lib/intent-engine.ts:132`.
+  - `in-en-3` (`api/fixtures/golden-set.ts:83`) ← INFO:
+    `question/location` في `api/lib/intent-engine.ts:145`.
+  - `px-em-book-en-2` (`api/fixtures/golden-set.ts:138`) ← precedence:
+    EMERGENCY يعلو BOOKING متى وُجدت إشارة طوارئ إيجابية في
+    `api/lib/intent-engine.ts:12-13,230`.
+- **السابقة الصادقة المثبتة:** ثلاث حالات مرشحة رفضًا (`em-en-3`, `in-en-3`,
+  `px-em-book-en-2`) قِيست retrieval-evidenced answered، لأن EMERGENCY وINFO
+  لا يخضعان لـ`OPERATIONAL_FLOOR` اللانهائي في
+  `api/lib/answer-composer.ts:39-47`؛ لذلك ثُبّت `expectRefusal=false` بدل تلفيق الرفض.
+- **مؤشر معلم #139 (golden round-4 tri-repo):**
+  - platform `C-76`: `57`
+  - intelligence `K-64`: `81`
+  - marketing `S-74`: `66`
+  - **المجموع:** `204`
+- **Strict live verification (pre-commit):** `smoke:live` عبر origin الرسمي مع
+  `EXPECT_COMMIT=f8cd2de`, `EXPECT_RL_PERSISTENCE=POSTGRES_PERSISTED`,
+  `PARITY_BASE_URL=https://onx-intelligence-clean.onrender.com` = **9/9**.
+- **إعلان عدّ صادق K-65:** docs-only؛ العقود **9** ثابتة؛ suite **1102** ثابتة؛
+  golden **81** ثابتة.
+- **Environment truth scan (post K-65, changed files):** `process.env` ظهر فقط داخل
+  docs المعدّلة (`docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md`) كسياق توثيقي؛
+  لا قراءات env تشغيلية جديدة في كود الخادم.
+
+**STE-K-66 — الجولة الخامسة لتوسيع golden eval (قياس ثم تفعيل):**
+- **القياس أولًا (قبل التوسعة):**
+  - baseline من K-65: `eval:golden` = `total=81`, `intentAccuracy=1`,
+    `refusalHonesty=1`, `retrievalHitAtK=1` (راتشيت 1.0×3 قائم).
+  - توزيع العائلات المقاس من `api/fixtures/golden-set.ts` (SHA baseline `be3468c`) مقابل ما بعد K-66:
+
+  | Family slice (ID prefix) | Before K-66 | After K-66 |
+  |---|---:|---:|
+  | Total golden cases | 81 | 89 |
+  | `em-*` (EMERGENCY) | 8 | 9 |
+  | `bk-*` (BOOKING) | 6 | 7 |
+  | `pr-*` (PRICING) | 6 | 7 |
+  | `co-*` (COMPLAINT) | 5 | 6 |
+  | `re-*` (RESULTS) | 5 | 6 |
+  | `in-*` (INFO) | 5 | 6 |
+  | `px-*` (precedence) | 6 | 8 |
+
+- **التفعيل (إضافة 8 حالات صادقة من حواف قواعد فعلية):**
+  - `em-en-4` (`golden-set.ts:42`) — حافة `choking` من قاموس EMERGENCY
+    (`intent-engine.ts:57-58`).
+  - `bk-en-4` (`golden-set.ts:50`) — عبارة BOOKING الصريحة `make an appointment`
+    (`intent-engine.ts:77`).
+  - `pr-ar-4` (`golden-set.ts:59`) — عبارة PRICING العربية `كم يكلف`
+    (`intent-engine.ts:99`).
+  - `co-en-3` (`golden-set.ts:66`) — خلطتا COMPLAINT `complain` + `unhappy`
+    (`intent-engine.ts:108`).
+  - `re-en-3` (`golden-set.ts:73`) — مزج RESULTS `xray/analysis/labs`
+    (`intent-engine.ts:120`).
+  - `in-en-4` (`golden-set.ts:88`) — عبارة INFO `working hours`
+    (`intent-engine.ts:147`).
+  - `px-em-rf-en` (`golden-set.ts:145`) — أسبقية EMERGENCY على REFILL مع
+    `unconscious` (`intent-engine.ts:57-58,230`).
+  - `px-em-co-en` (`golden-set.ts:146`) — أسبقية EMERGENCY على COMPLAINT مع
+    `choking` (`intent-engine.ts:57-58,230`).
+- **حكم القياس الصادق:** لا حاجة لقلب توقعات أو إسقاط حالات في هذه الجولة؛
+  الحالات الثماني اجتازت القياس مباشرةً، مع بقاء السابقة المؤسسية ثابتة:
+  **النوع هو الحارس** حيث يكفي، و**قلب التوقع بدل التلفيق** إذا كشف القياس فرقًا
+  حقيقيًا كما حدث في K-64.
+- **قياس ما بعد التوسعة:**
+  - `eval:golden` النهائي: `total=89`, `intentAccuracy=1`, `refusalHonesty=1`,
+    `retrievalHitAtK=1` (الراتشيت 1.0×3 محفوظ بلا خفض).
+- **قياس حي pre-write (direct + gateway):**
+  - direct `/health`: `200`, `status=ALIVE`, `env=production`,
+    `commit=be3468cd2fbcc1106cc8d1669d95500fd35dfaf5`.
+  - gateway `/intelligence/health`: `200`, `status=ALIVE`, `env=production`,
+    `commit=be3468cd2fbcc1106cc8d1669d95500fd35dfaf5`.
+  - gateway `onx.selfVerify.truthLedgerSummary`: `count=65`, `persistence=POSTGRES`,
+    `capturedAt=2026-07-14T18:35:07.508Z`.
+  - gateway `onx.truthHistory`: `count=20`, `persistence=POSTGRES`,
+    `latestCreatedAt=2026-07-14T18:35:07.508Z` (age≈2m),
+    `retention={keep:168, oldestRetainedId:1, oldestRetainedIsGenesis:true}`.
+  - gateway `scheduler.status`: `total=5`, `active=2`, `failing=0`; sample `pulse`:
+    `interval=60000`, `intervalHuman=1m`, `lastRun=2026-07-14T18:36:29.305Z`,
+    `nextRun=2026-07-14T18:37:29.305Z`, `msUntilNext=40805`, `runCount=7`, `status=HEALTHY`.
+  - فشل صادق أثناء القياس الحي: لا يوجد.
+- **الساق الثالثة والأخيرة للجولة الخامسة (ثلاثي المستودعات):**
+  - platform `C-83`: `64`
+  - marketing `S-78`: `74`
+  - intelligence `K-66`: `89`
+  - **المجموع:** `227`
+- **Strict live verification (pre-commit):** `smoke:live` عبر origin الرسمي مع
+  `EXPECT_COMMIT=be3468c`, `EXPECT_RL_PERSISTENCE=POSTGRES_PERSISTED`,
+  `PARITY_BASE_URL=https://onx-intelligence-clean.onrender.com` = **9/9**.
+- **إعلان عدّ صادق K-66:** العقود **9** ثابتة؛ suite الاختبارات **1102** ثابتة
+  (data-driven)؛ golden **81→89**؛ floors **1.0/1.0/1.0** ثابتة.
+- **Environment truth scan (post K-66, changed files):** `process.env` ظهر فقط داخل
+  docs المعدّلة (`docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md`) كسياق توثيقي؛
+  لا قراءات env تشغيلية جديدة في كود الخادم.
+
+**STE-K-67 — تجميد توثيقي مزدوج للجولة الخامسة + انعكاس معلم #140 + شهادة التقارب (docs-only):**
+- **Last measured live run (K-67 pre-write):**
+  - direct `/health`: `200`, `status=ALIVE`, `env=production`,
+    `commit=99a0db2cee4475cf40f1fce8cc35f552bb1c8d1b`.
+  - gateway `/intelligence/health`: `200`, `status=ALIVE`, `env=production`,
+    `commit=99a0db2cee4475cf40f1fce8cc35f552bb1c8d1b`.
+  - gateway `onx.selfVerify.truthLedgerSummary`: `count=65`, `persistence=POSTGRES`,
+    `latestFingerprint=bb642469c81d`, `capturedAt=2026-07-14T18:35:07.508Z`, `drift=false`.
+  - gateway `onx.truthHistory`: `count=20`, `persistence=POSTGRES`,
+    `latestCreatedAt=2026-07-14T18:35:07.508Z` (age≈15m),
+    `retention={keep:168, oldestRetainedId:1, oldestRetainedIsGenesis:true}`.
+  - gateway `scheduler.status`: `total=5`, `active=2`, `failing=0`; sample `pulse`:
+    `interval=60000`, `intervalHuman=1m`, `lastRun=2026-07-14T18:48:41.291Z`,
+    `nextRun=2026-07-14T18:49:41.291Z`, `msUntilNext=7024`, `runCount=1`, `status=HEALTHY`.
+  - فشل صادق أثناء القياس الحي: لا يوجد.
+- **تجميد K-66 على SHA/Run الحقيقيين:**
+  - intelligence `K-66 @99a0db2`, Truth Gates `29359021159` = success.
+- **تجميد الجولة الخامسة (before/after) ثابت توثيقياً:**
+
+  | Slice | Before K-66 | After K-66 |
+  |---|---:|---:|
+  | Total golden cases | 81 | 89 |
+  | `em-*` | 8 | 9 |
+  | `bk-*` | 6 | 7 |
+  | `pr-*` | 6 | 7 |
+  | `co-*` | 5 | 6 |
+  | `re-*` | 5 | 6 |
+  | `in-*` | 5 | 6 |
+  | `px-*` | 6 | 8 |
+
+- **الحواف الثماني المثبتة (file:line):**
+  - `em-en-4` (`api/fixtures/golden-set.ts:42`) ← `choking` في
+    `api/lib/intent-engine.ts:57-58`.
+  - `bk-en-4` (`api/fixtures/golden-set.ts:51`) ← `make an appointment` في
+    `api/lib/intent-engine.ts:77`.
+  - `pr-ar-4` (`api/fixtures/golden-set.ts:60`) ← `كم يكلف` في
+    `api/lib/intent-engine.ts:99`.
+  - `co-en-3` (`api/fixtures/golden-set.ts:67`) ← `complain` + `unhappy` في
+    `api/lib/intent-engine.ts:108`.
+  - `re-en-3` (`api/fixtures/golden-set.ts:74`) ← `xray/analysis/labs` في
+    `api/lib/intent-engine.ts:120`.
+  - `in-en-4` (`api/fixtures/golden-set.ts:89`) ← `working hours` في
+    `api/lib/intent-engine.ts:147`.
+  - `px-em-rf-en` (`api/fixtures/golden-set.ts:145`) ← أسبقية EMERGENCY على REFILL مع
+    `unconscious` في `api/lib/intent-engine.ts:57-58,230`.
+  - `px-em-co-en` (`api/fixtures/golden-set.ts:146`) ← أسبقية EMERGENCY على COMPLAINT مع
+    `choking` في `api/lib/intent-engine.ts:57-58,230`.
+- **انعكاس معلم #140 — مُصادَق:**
+  - platform `C-83 @45ca561` = `64`
+  - marketing `S-78 @905c250` = `74`
+  - intelligence `K-66 @99a0db2` = `89`
+  - **الإجمالي الإمبراطوري:** `227` حالة، metrics = `1.0/1.0/1.0` عبر الثلاثة.
+- **شهادة تقارب intelligence (مرآة C-87 / S-76):**
+  - **السلسلة المحلية الكاملة:** `check` + `test` + `guard:scan` + `verify:self` +
+    `verify:corpus` + `eval:golden` = أخضر.
+  - **Strict live verification:** `smoke:live` عبر origin الرسمي مع
+    `EXPECT_COMMIT=99a0db2`, `EXPECT_RL_PERSISTENCE=POSTGRES_PERSISTED`,
+    `PARITY_BASE_URL=https://onx-intelligence-clean.onrender.com` = **9/9**.
+    - **انحراف زمني صادق موثّق:** القياس pre-write سجّل `truthLedgerSummary.count=65`
+      و`latestCreatedAt=2026-07-14T18:35:07.508Z`، بينما strict smoke اللاحق التقط
+      لقطة جديدة فصار `truthLedgerSummary.count=66` مع بقاء جميع العقود خضراء. هذا
+      تقدّم زمني مقاس، لا اختلاف سلوكي.
+    - **جدول العقائد المجمّدة → حالتها الحية:**
+
+    | Doctrine / freeze | Live status at K-67 |
+    |---|---|
+    | Gateway/direct parity (#136 / K-58) | direct+gateway `/health` متطابقان على `99a0db2` |
+    | Derived-object coherence (#137 / K-60) | `truthLedgerSummary.count=65` وretention genesis صادقان |
+    | Scheduler surface coherence (#138 / K-62) | `scheduler.status total=5 active=2 failing=0`, sample `pulse=HEALTHY` |
+    | Golden round-4 freeze (#139 / K-65) | `eval:golden` ما زال فوق الأرضية السابقة (`89 ≥ 81`) بلا خفض |
+    | Golden round-5 freeze (#140 / K-66) | `eval:golden total=89`, metrics `1/1/1`, live parity محفوظة |
+
+- **إعلان عدّ صادق K-67:** docs-only؛ العقود **9** ثابتة؛ suite **1102** ثابتة؛
+  golden **89** ثابتة.
+- **Environment truth scan (post K-67, changed files):** `process.env` ظهر فقط داخل
+  docs المعدّلة (`docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md`) كسياق توثيقي؛
+  لا قراءات env تشغيلية جديدة في كود الخادم.
+
+**STE-K-68 — ما بعد التقارب: حكم إشباع صادق (docs-only):**
+- **Last measured live run (K-68 pre-write):**
+  - direct `/health`: `200`, `status=ALIVE`, `env=production`,
+    `commit=3809b11b53edf7cb9ebf1edc47ae7a15c94b2efc`.
+  - gateway `/intelligence/health`: `200`, `status=ALIVE`, `env=production`,
+    `commit=3809b11b53edf7cb9ebf1edc47ae7a15c94b2efc`.
+  - gateway `onx.selfVerify.truthLedgerSummary`: `count=67`, `persistence=POSTGRES`,
+    `latestFingerprint=bb642469c81d`, `capturedAt=2026-07-14T19:00:07.308Z`, `drift=false`.
+  - gateway `onx.truthHistory`: `count=20`, `persistence=POSTGRES`,
+    `latestCreatedAt=2026-07-14T19:00:07.308Z` (age≈4m),
+    `retention={keep:168, oldestRetainedId:1, oldestRetainedIsGenesis:true}`.
+  - gateway `scheduler.status`: `total=5`, `active=2`, `failing=0`; sample `pulse`:
+    `intervalHuman=1m`, `lastRun=2026-07-14T19:04:01.059Z`,
+    `nextRun=2026-07-14T19:05:01.059Z`, `msUntilNext=40099`, `runCount=7`, `status=HEALTHY`.
+  - فشل صادق أثناء القياس الحي: لا يوجد.
+- **ما الذي فُحص ولماذا حُكم بالإشباع:**
+
+  | Surface / doctrine examined | Source evidence | Saturation judgment |
+  |---|---|---|
+  | `/health` failure semantics | `api/health-router.ts:56-88,197-223` | الفشل/الغياب مسمّى صادقًا بالفعل: DB غير المضبوطة = `UNAVAILABLE`، DB المكسورة = `UNHEALTHY`، readiness لا يلفّق الجاهزية ويحوّلها إلى `NOT_READY` عند الكسر الحقيقي. لا فجوة حراسة إضافية على السطح الحالي. |
+  | self-verify verdict semantics | `api/lib/self-verify.ts:52-61,98-105` + `api/lib/smoke-contracts.ts:389-540` | `DEGRADED/UNHEALTHY → PARTIAL` و`UNAVAILABLE → MISSING` محروستان اشتقاقيًا، بما فيها semantics الـScheduler عند `failing>0`. لا تدهور جزئي صامت متبقٍ قابل للحراسة الآن. |
+  | truth summary/history non-fabrication | `api/lib/truth-ledger.ts:251-337` + `api/lib/smoke-contracts.ts:326-388,782-1001` | `EMPTY/POPULATED`، latest fields، drift، retention، وتطابق summary↔history كلها محروسة بالفعل. أي non-200 أو payload ناقص يخرق العقود مباشرة (`expected 200` في `health_live`, `honest_status_selfverify`, `truth_ledger_read`). |
+  | retention edge عند `keep=168` | `api/lib/truth-ledger.ts:16-23,300-329` + live count `67` | الحافة الوحيدة المتبقية هنا زمنية: prune الحقيقي يبدأ بعد تجاوز `168`. ما دون ذلك غير قابل للقياس الحي الآن دون انتظار زمني فعلي؛ الحارس الحالي يغطي semantics حال الوصول. |
+  | outage / 503 semantics | `api/lib/smoke-contracts.ts:223,301,707` | العقود تفشل honest على non-200 مسبقًا. ما تبقى ليس فجوة سطح، بل يتطلب افتعال outage حي أو fault injection إنتاجي، وهو غير آمن وغير صادق كمهمة تقوية الآن. |
+
+- **الحكم الصادق المفتوح (مرآة C-88 / S-80):**
+  - لا توجد الآن فجوة **قابلة للحراسة ذات قيمة حقيقية** داخل الأسطح التسعة المعروضة دون
+    اختلاق surface جديد أو افتعال عطل إنتاجي.
+  - المتبقي إما:
+    1. **زمني** — retention prune بعد `keep=168` ولم نبلغه بعد (live count الآن `67`)، أو
+    2. **غير آمن للقياس الحي** — 503/outage semantics تتطلب تعطيلًا متعمّدًا، بينما العقود
+       الحالية تفشل honest على non-200 أصلًا.
+  - لذلك الحكم هنا **docs-only saturation** لا تعميق جديد.
+- **Strict live verification (pre-commit):** `smoke:live` عبر origin الرسمي مع
+  `EXPECT_COMMIT=3809b11`, `EXPECT_RL_PERSISTENCE=POSTGRES_PERSISTED`,
+  `PARITY_BASE_URL=https://onx-intelligence-clean.onrender.com` = **9/9**.
+- **السلسلة المحلية الكاملة:** `check` + `test` + `guard:scan` + `verify:self` +
+  `verify:corpus` + `eval:golden` = أخضر.
+- **إعلان عدّ صادق K-68:** docs-only؛ العقود **9** ثابتة؛ suite **1102** ثابتة؛
+  golden **89** ثابتة.
+- **Environment truth scan (post K-68, changed files):** `process.env` ظهر فقط داخل
+  docs المعدّلة (`docs/COVERAGE_MATRIX.md`, `docs/OPERATIONS_RUNBOOK.md`) كسياق توثيقي؛
+  لا قراءات env تشغيلية جديدة في كود الخادم.
+
+**بطاقة طزاجة النشر على `/truth` (STE-K-27):** الصفحة العامة تعرض الآن **الإصدار المخدوم + وقت
+الإقلاع** مقاسين من سطح `/commit` القائم (`api/boot.ts` — نفس السطح الذي تثبته عقود `health`/`commit`
+الحية) عبر نمط `SourceOutcome` القائم: سطح يجيب بلا `commit` → حالة `EMPTY` مسماة (لا بصمة ملفّقة)؛
+سطح متعذّر → `FETCH_FAILED` مميز (لا صفر زائف)؛ `bootTime` يمرّ `null`-صادقاً حين يغيب. **عدّ صادق —
+تعميق لا إضافة:** `/truth` ممسوحة أصلاً في `no_key_leak` (K-17/K-25) وسطح `/commit` من العقود التسعة،
+فالمجموع يبقى 9. حزمة المتصفح تبقى نظيفة (type-only imports، 1950 module بلا زيادة).
+
+**جدول سجل الحقيقة على `/truth` (STE-K-31):** الصفحة العامة تعرض الآن صفوف `truthHistory` البشرية
+كما هي من السطح القائم (`onx.truthHistory`): `id` + `capturedAt` + بصمة مختصرة + `drift` +
+`predecessorPruned`، مع شارة `GENESIS` عندما `id=1`. صدق الحافة صار مرئياً صفاً-بصف: عند
+`predecessorPruned=true` تُعرض شارة كهرمانية «سابقه مُقلَّم» مع تفسير «الانحراف غير قابل للقياس».
+وإذا غاب أي حقل يظهر `null`-صادق (`—`) بلا قيم مُختلَقة. **عدّ صادق — تعميق لا إضافة:** هذا ليس
+سطحاً جديداً (truthHistory ضمن العقود التسعة أصلاً)، و`/truth` ممسوحة مسبقاً في `no_key_leak`، لذا
+المجموع يبقى 9.
+
+**معلم #119 — الرابط الواحد لحقيقة الـAPI (ثلاثي الريبو):** اكتمل الآن عبر الريبوهات الثلاثة.
+في هذا المستودع تظل الحقيقة مقاسة عبر أصل البوابة الواحد `…/intelligence` للعقود التسعة دون
+تغيير عدّها؛ واجهة تسويق الويب مستثناة بقرار معماري #118 كما هو.
+
+**دلالات راية `drift` للمشغّل** (`truth-ledger.ts:138-146`) — نفس منطق انحراف الكوربوس (و.6):
+- `drift: true` يعني بصمة اللقطة اختلفت عن سابقتها المباشرة زمنياً — **تغيّرت الحقيقة المقاسة**.
+- **مقصود** (نشر قدرة جديدة رفعت حكماً في OSVA): أساس جديد — سجّله وامضِ.
+- **غير مقصود** (لا نشر وتغيّرت البصمة): **تحقيق فوري** — انحدار حقيقة محتمل. ابدأ بـ`onx.selfVerify`
+  لمقارنة الأحكام البند-ببند (و.7).
+
+**إظهار الانحراف على السطح الصادق (STE-K-15):**
+- `onx.selfVerify` يُرجع الآن حقلاً مقاساً `truthLedgerSummary`
+  (`api/onx-router.ts:16-24` → `summarizeTruthLedger`، `truth-ledger.ts`):
+  `{state, count, latestFingerprint, capturedAt, claimsMeasured, claimsAsserted, drift}`.
+  **مقاس من السجل لا مُدّعى**: `buildSelfVerification` يبقى نقياً (بصمته ثابتة)، والملخص حقل شقيق
+  فلا تتلوّث اللقطات المخزّنة. راية `drift` الأخيرة حقيقية (`getTruthHistory(1)` يجلب صفاً إضافياً
+  لمقارنة صادقة). سجل فارغ → `state:"EMPTY"` (حالة مسماة صادقة، لا تلفيق تاريخ).
+- **تصليب عقد `truth_ledger_read` (سلامة الانحراف عبر الزمن)**: عند `count ≥ 2` يتحقق العقد
+  (`smoke-contracts.ts checkTruthLedgerRead`) من: (1) ترتيب newest-first فعلي (`id` تنازلي +
+  `createdAt` غير متزايد) — سجل خارج الترتيب = تلفيق؛ (2) **سلامة راية drift**: لكل لقطة لها سابق
+  مرئي يجب أن تساوي `drift` نتيجة `fp[i] !== fp[i+1]` — راية تناقض مقارنة البصمة الفعلية = **خرق تلفيق**.
+  اللقطة الأقدم المرئية سابقها مُقتطَع (يُجلب `limit+1` ثم يُقتطع) فتُستثنى بصدق من الفحص.
+
+> **English mirror (STE-K-12):** This section is measured, not wished. Live map (و.1):
+> service `onx-intelligence-clean.onrender.com`, branch `onxos-ste01-deploy-readiness`,
+> `/health` shape at `api/boot.ts:38-47`, tRPC/superjson envelope at `api/boot.ts:57-64`.
+> Nine live smoke contracts (و.2) in `api/lib/smoke-contracts.ts` with per-contract
+> proof/failure meaning + `EXPECT_COMMIT`/PENDING freshness semantics (`:169-189,:384`).
+> Environment truth scan (و.3): every `process.env` read from `api/lib/env.ts:11-22` and
+> callers, classified required/optional/default. **`DATABASE_URL` is genuinely used** —
+> live `health.ready` returns `Database: HEALTHY` (real `SELECT 1`, `health-router.ts:57-72`).
+> Bridge ops (و.4) → section B; live `hasSharedSecret:true`. Rate-limit truth (و.5, STE-K-19):
+> MEASURED per window — `POSTGRES_PERSISTED` (bucket state in `onx_rate_limit_buckets` via a
+> `SELECT … FOR UPDATE` transaction, survives redeploy) or honest `PER_INSTANCE_UNPERSISTED`
+> fallback (memory, resets on boot) when the DB is absent/unreachable — non-fatal, never claimed
+> ahead of measurement; 60/60s; `EXPECT_RL_PERSISTENCE` asserts the deployment's backing store.
+> Corpus sha256 drift
+> (و.6): intended → `verify:corpus --write` + commit; unintended → investigate; tied to the
+> live `corpus_manifest_truth` contract. Incidents (و.7): honest-status first; golden floors
+> 1.0×3 are a tripwire that is never lowered.
+>
+> **STE-K-13/K-14 (و.8):** Truth-ledger ops. K-13 found the live ledger EMPTY (the recorder
+> worker `onx-scheduler` was `autoDeploy:false`/`branch:main`, render.yaml:179,196; the web cron
+> didn't snapshot) — an honest C-08 discovery. K-14 closes it: the live web cron
+> (`boot.ts:83-110`) now calls `maybeRecordTruthSnapshot()` each tick, hourly-gated
+> (`truth-snapshot-cron.ts:31`, justified: drift tracks deploys not minutes) and NON-FATAL
+> (`:52-64`, never throws — S-10 survival). Double-capture with `onx-scheduler` is safe (rows
+> independent by id+timestamp). Ninth live contract `truth_ledger_read` accepts an empty ledger
+> and validates snapshot/fingerprint/drift structure when populated. Drift semantics mirror و.6.
+>
+> **STE-K-15 (و.8):** Drift on the honest surface. `onx.selfVerify` now returns a MEASURED
+> `truthLedgerSummary` (`onx-router.ts:16-24` → `summarizeTruthLedger`): `{state, count,
+> latestFingerprint, capturedAt, claimsMeasured, claimsAsserted, drift}`; empty ledger →
+> `state:"EMPTY"` (named honest state, no fabricated history). `buildSelfVerification` stays
+> pure/fingerprint-stable — the summary is a sibling field, so stored snapshots stay pure. The
+> `truth_ledger_read` contract is hardened for drift-over-time: with ≥2 snapshots it verifies
+> newest-first order (id + createdAt) and drift-flag INTEGRITY (drift must equal
+> `fp[i]!==fp[i+1]`); a flag contradicting the fingerprint comparison is a fabrication breach.
+
+**احتفاظ محدود بإفصاح مقاس (STE-K-22):** السجل يُلتقط ساعياً (و.8) وكان سينمو بلا حدّ في جدول
+إنتاجي. الآن يُحتفظ فقط بأحدث **N=168 لقطة** (= 7 أيام × 24 ساعة بالإيقاع الساعي — نافذة أسبوعية
+لرصد الانحراف مع إبقاء الجدول محدوداً). التقليم **ذرّي وقت الالتقاط**: في Postgres يجري ضمن نفس
+معاملة الإدراج (`truth-ledger.ts:119-153` — `BEGIN`/`INSERT`/`DELETE … OFFSET $1`/`COMMIT` عبر
+`p.connect()`؛ `ROLLBACK` عند الخطأ) فلا يرى قارئٌ متزامنٌ تقليماً نصف-مطبَّق؛ في مسار الذاكرة
+حلقة `shift()` مقيّدة بـ`LEDGER_RETENTION_KEEP` (`:164-168`). **لا حذف صامت — إفصاح على السطح**:
+`onx.truthHistory` و`truthLedgerSummary` يُرجعان `retention:{keep, oldestRetainedId (min id مقاس),
+oldestRetainedIsGenesis}` (`truth-ledger.ts:180-196,214-236`). **صدق حافة النافذة (مرآة S-31):** حين
+تبلغ الصفحة قاع النافذة والأقدم المرئي `id>1` (سابقه مُقلَّم)، يُوسَم `predecessorPruned:true` بدل
+ادّعاء `drift:false` كمقارنة مقاسة — الانحراف غير قابل للقياس بعد تقليم السابق فيُسمّى صراحةً لا
+يُلمّح. العقد التاسع `truth_ledger_read` عُمّق (لا عقد جديد — الإجمالي يبقى 9): يقبل الإفصاح
+tolerant-when-present، ويرفض `keep` غير الموجب، أو صفحة تتجاوز النافذة، أو `predecessorPruned` على
+غير-الأقدم، أو `predecessorPruned` مع `drift=true` (خرق). **الحالة الحية:** النافذة 168 لم تُبلَغ بعد
+(السجل ينمو نحوها) — `oldestRetainedIsGenesis` يبقى `true` (البصمة الأصل محفوظة) حتى تتجاوز اللقطات
+168 فيبدأ التقليم بصدق مقاس.
+
+> **STE-K-22 (و.8):** Bounded retention with MEASURED disclosure. The hourly ledger would grow
+> unbounded; now only the newest **N=168** snapshots are kept (7 days × 24h at the hourly cadence —
+> a week-scale drift window, bounded table). Pruning is ATOMIC at capture time: on Postgres inside
+> the same insert transaction (`truth-ledger.ts:119-153`, `BEGIN`/`INSERT`/`DELETE … OFFSET $1`/
+> `COMMIT` via `p.connect()`, `ROLLBACK` on error) so no concurrent reader sees a half-applied trim;
+> in memory a `shift()` loop bounded by `LEDGER_RETENTION_KEEP`. NOT a silent delete — the read
+> surface DISCLOSES `retention:{keep, oldestRetainedId (measured min id), oldestRetainedIsGenesis}`
+> on `onx.truthHistory` and `truthLedgerSummary`. Edge honesty (mirror S-31): when the page reaches
+> the bottom of the window and the oldest visible `id>1` (its predecessor was pruned), it is NAMED
+> `predecessorPruned:true` instead of asserting `drift:false` as a measured comparison — drift is
+> not measurable once the predecessor is gone, so it is named, not implied. The 9th contract
+> `truth_ledger_read` is DEEPENED (not a new contract; total stays 9): tolerant-when-present, it
+> rejects a non-positive `keep`, a page exceeding the window, `predecessorPruned` on a non-oldest
+> snapshot, or `predecessorPruned` with a fabricated `drift=true`. Live state: the 168 window is not
+> yet reached (the ledger is still growing toward it) so `oldestRetainedIsGenesis` stays `true`
+> until snapshots exceed 168 and honest measured pruning begins. — قياس الحقيقة عبر أصل البوابة الرسمية (STE-K-20)
+
+**السياق المقاس:** `main` تقاعد كلياً من الخدمة الحية؛ كل الأسطح تُبلغ عبر البوابة الرسمية
+`https://onx-gateway.onrender.com`. البوابة تركّب خدمة الذكاء بمسارين مختلفين في إعادة الكتابة —
+والحقيقة **مقاسة لا مفترضة**:
+
+| المسار عبر البوابة | القياس الحي | إعادة الكتابة للـupstream |
+|---|---|---|
+| `/api/intelligence/v1/health` | **404** | المسار المفترض خاطئ |
+| `/api/intelligence/health` | 404 | مُركّب `/api/*` → upstream `/api/health` (غير موجود) |
+| `/api/intelligence/trpc/<proc>` | 200 | مُركّب `/api/*` → upstream `/api/trpc/<proc>` ✓ |
+| `/intelligence/health` | **200** | full-app بلا إعادة كتابة → upstream `/health` ✓ |
+| `/intelligence/commit` | **200** | full-app → `/commit` ✓ |
+| `/intelligence/truth` | **200** | full-app → `/truth` ✓ |
+| `/intelligence/api/trpc/<proc>` | **200** | full-app → `/api/trpc/<proc>` ✓ |
+
+**الأصل الواحد الذي يخدم كل الأسطح التسعة** هو التركيب full-app `…/intelligence` — يحفظ مسارات
+الـupstream حرفياً، فـ`{base}/health` و`{base}/commit` و`{base}/api/trpc/<proc>` و`{base}/truth` كلها
+تُحلّ. لذلك **العقود التسعة نفسها تعمل بلا تغيير** عبر هذا الأصل — **تعميق لا إضافة** (نفس العقيدة،
+أصل ثانٍ رسمي مبرهَن الوصول).
+
+**التشغيل:** عيّن `GATEWAY_ORIGIN` فيُشتقّ الأساس تلقائياً من التركيب المقاس (`gatewayBaseUrl` في
+`api/lib/smoke-contracts.ts` → `DEFAULT_GATEWAY_ORIGIN` + `GATEWAY_APP_MOUNT="/intelligence"`).
+`BASE_URL` الصريح يتقدّم دائماً إن وُجد. ومنذ K-58 يمكن إضافة `PARITY_BASE_URL` (اختياري)
+لفحص تكافؤ core payload بين gateway وdirect داخل نفس العقود التسعة.
+
+```bash
+GATEWAY_ORIGIN=https://onx-gateway.onrender.com EXPECT_COMMIT=<sha> \
+  EXPECT_RL_PERSISTENCE=POSTGRES_PERSISTED \
+  PARITY_BASE_URL=https://onx-intelligence-clean.onrender.com npm run smoke:live
+# → 9/9، baseUrl=https://onx-gateway.onrender.com/intelligence (gateway origin) + parity check
+```
+
+**البرهان الحي (commit `82d713f`):** 9/9 عبر الأصل الواحد، exit 0 — health ALIVE،
+selfVerify 19/0، rate-limit `POSTGRES_PERSISTED` مقاس، ask رفض+استشهاد، الجسر 401 fail-closed،
+corpus sha `6fc2bed8` مطابق (DEMO)، truth-ledger 12 لقطة، صفر تسريب مفاتيح.
+
+> **English mirror (STE-K-20 — و.9):** `main` has retired from live service; every surface is
+> reached through the official gateway `https://onx-gateway.onrender.com`. MEASURED, not assumed:
+> the sibling `/api/intelligence/*` mount rewrites to upstream `/api/*` (serves tRPC at
+> `/api/intelligence/trpc/<proc>` but NOT `/health` or `/commit`, which live at the app root),
+> while the full-app mount `/intelligence/*` preserves upstream paths exactly and is therefore the
+> ONE base serving all nine doctrine surfaces. Set `GATEWAY_ORIGIN` and `smoke:live` derives the
+> base via `gatewayBaseUrl()` (`smoke-contracts.ts`). This is a DEEPENING (same 9 contracts, second
+> official origin), not new contracts. Live proof @`82d713f`: 9/9 through
+> `…/intelligence`, exit 0, `persistence=POSTGRES_PERSISTED`, 12 ledger snapshots, zero key leak.
+
+### و.10) رقيب الحقيقة الحية المجدول (STE-K-29) — قياس دوري بين الموجات
+
+**الملف:** `.github/workflows/live-truth.yml`
+
+**متى يعمل؟**
+- **على الفرع المحكوم (غير default): خامل بالكامل**.
+- قيد GitHub Actions المقاس: `workflow_dispatch` و`schedule` كلاهما default-branch-only لملف
+  workflow؛ لذلك وجود `live-truth.yml` على فرع STE وحده لا ينتج تشغيلات فعلية.
+- على default branch يعمل وفق الضبط (`cron: 17 */6 * * *`) + تشغيل يدوي.
+
+**ماذا يقيس؟**
+- نفس `npm run smoke:live` بعقوده التسعة القائمة، عبر أصل البوابة الرسمي
+  `GATEWAY_ORIGIN=https://onx-gateway.onrender.com`.
+- لا عقد جديد: **تعميق تشغيل** للعقود القائمة (المجموع يبقى 9).
+
+**دلالات الصدق (مقصودة):**
+- لا نضبط `EXPECT_COMMIT` في الرقيب المجدول؛ الهدف قياس ما يخدمه الإنتاج فعلياً الآن، لا ربط
+  الرن بـSHA متوقَّع قد يصبح قديماً بعد نشر طبيعي.
+- أي خرق عقد → فشل الرن (إشارة حمراء مرئية) بصدق.
+
+**الأسرار:**
+- لا أسرار جديدة. هذا الرقيب يستدعي أسطح قراءة عامة فقط؛ `smoke:live` يعمل بلا مفاتيح مزوّد/جسر.
+- متغير `GATEWAY_ORIGIN` في workflow متغير تشغيل CI فقط، وليس قراءة جديدة في كود السيرفر.
+
+**REC-07 (تصحيح صادق):**
+- القيد لا يخص `workflow_dispatch` فقط؛ يشمل `schedule` أيضاً ما دام الملف خارج default branch.
+- الخيارات التشغيلية الصادقة:
+  1) استثناء ضيّق معتمد من المؤسس لملف workflow واحد إلى `main` (#117).
+  2) قبول الخمول حتى الدمج النهائي إلى default branch.
+  3) تشغيل مجدول خارجي مستقل (scheduler خارج GitHub Actions).

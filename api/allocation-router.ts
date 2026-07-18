@@ -4,7 +4,9 @@
 // and detection of the 7 failure patterns. Pure / CI-safe.
 // ============================================================
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { createRouter, publicQuery } from "./middleware";
+import { enforceRateLimit } from "./lib/rate-limiter";
 import {
   APS_DIMENSIONS,
   PRIORITIES,
@@ -20,6 +22,18 @@ import {
   allocate,
   type PriorityId,
 } from "./allocation-engine";
+import {
+  ALLOCATION_RELEVANCE_THRESHOLD,
+  decideDurableAllocation,
+  AllocationDurableError,
+} from "./lib/allocation-durable-engine";
+import {
+  getAllocationAccuracy,
+  getAllocationHistory,
+  isAllocationPersistenceConfigured,
+  recordAllocationDecision,
+  recordAllocationOutcome,
+} from "./lib/allocation-durable-store";
 
 const zApsScores = z.object({
   FI: z.number().optional(),
@@ -53,7 +67,36 @@ const zState = z.object({
   actionRate: z.number().optional(),
 });
 
+const zRequest = z.object({
+  apsScores: zApsScores,
+  priorities: zPriorities,
+  signals: zSignals,
+  state: zState,
+});
+
 export const allocationRouter = createRouter({
+  status: publicQuery.query(async ({ ctx }) => {
+    const rateLimit = await enforceRateLimit(ctx);
+    return {
+      access: "PUBLIC_READ" as const,
+      rateLimit,
+      persistenceConfigured: isAllocationPersistenceConfigured(),
+      relevanceThreshold: ALLOCATION_RELEVANCE_THRESHOLD,
+      failClosedRules: [
+        "INSUFFICIENT_EVIDENCE=>REQUIRES_APPROVAL",
+        "AUTHORITY_DENIED=>REQUIRES_APPROVAL",
+      ],
+      capabilities: [
+        "durable-state",
+        "corpus-tool",
+        "memory-history",
+        "authority-gate",
+        "evaluation",
+        "outcome-feedback",
+      ],
+    };
+  }),
+
   dimensions: publicQuery.query(() => ({ dimensions: APS_DIMENSIONS })),
   computeAPS: publicQuery.input(zApsScores).query(({ input }) => ({ aps: computeAPS(input) })),
 
@@ -73,7 +116,81 @@ export const allocationRouter = createRouter({
     transferPaths: TRANSFER_PATHS,
   })),
 
-  allocate: publicQuery
-    .input(z.object({ apsScores: zApsScores, priorities: zPriorities, signals: zSignals, state: zState }))
-    .query(({ input }) => allocate(input)),
+  allocate: publicQuery.input(zRequest).query(({ input }) => allocate(input)),
+
+  decide: publicQuery
+    .input(
+      z.object({
+        question: z.string().min(1).max(2000),
+        request: zRequest,
+        topK: z.number().int().min(1).max(20).default(5),
+        corpusDomain: z.string().trim().min(1).max(120).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const rateLimit = await enforceRateLimit(ctx);
+      let draft;
+      try {
+        draft = await decideDurableAllocation(input);
+      } catch (e) {
+        if (e instanceof AllocationDurableError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
+        }
+        throw e;
+      }
+      const stored = await recordAllocationDecision(draft);
+      return {
+        access: "PUBLIC_WRITE" as const,
+        rateLimit,
+        persistence: stored.persistence,
+        decision: {
+          id: stored.id,
+          ...draft,
+          outcome: "PENDING" as const,
+        },
+      };
+    }),
+
+  history: publicQuery
+    .input(
+      z.object({
+        limit: z.number().int().min(1).max(1000).default(50),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const rateLimit = await enforceRateLimit(ctx);
+      const result = await getAllocationHistory(input);
+      return { access: "PUBLIC_READ" as const, rateLimit, ...result };
+    }),
+
+  accuracy: publicQuery.query(async ({ ctx }) => {
+    const rateLimit = await enforceRateLimit(ctx);
+    const metric = await getAllocationAccuracy();
+    return { access: "PUBLIC_READ" as const, rateLimit, ...metric };
+  }),
+
+  recordOutcome: publicQuery
+    .input(
+      z.object({
+        id: z.number().int().positive(),
+        outcome: z.enum(["CONFIRMED", "REJECTED", "DEFERRED"]),
+        note: z.string().trim().max(2000).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const rateLimit = await enforceRateLimit(ctx);
+      const result = await recordAllocationOutcome(input.id, input.outcome, input.note);
+      if (!result.found || !result.decision) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: `ALLOCATION_DECISION_NOT_FOUND: ${input.id}`,
+        });
+      }
+      return {
+        access: "PUBLIC_WRITE" as const,
+        rateLimit,
+        persistence: result.persistence,
+        decision: result.decision,
+      };
+    }),
 });

@@ -10,87 +10,51 @@ import { env } from "./lib/env";
 import { createOAuthCallbackHandler } from "./kimi/auth";
 import { Paths } from "@contracts/constants";
 import { serveStaticFiles } from "./lib/vite";
-import { computeIUC, type IurgObjectInput } from "./iuc-engine";
-import { createLoop, tickLoop, type Rung } from "./living-loop";
-import {
-  appendContinuityLog,
-  getIurgObjects,
-  saveIucSnapshot,
-  saveIurgObject,
-} from "./lib/iurg-store";
+import { runLivingLoopTick } from "./lib/runtime-loop-tick";
 import { markIucTick, setIucCronStatus } from "./lib/iuc-runtime";
 import { runPerceptionSyncTick } from "./lib/perception-adapter";
 import { runReflectionTick } from "./lib/reflection-cycle";
+import { runMindTick, recordMindTickCronFailure } from "./lib/mind-tick";
+import { maybeRecordTruthSnapshot } from "./lib/truth-snapshot-cron";
 import { hydratePersistedIurgGraph } from "./iuc-router";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
-function toRung(rank?: number): Rung {
-  const r = Math.max(1, Math.min(6, Math.trunc(rank ?? 1)));
-  return (`R${r}` as Rung);
-}
+const BOOT_TIME = new Date().toISOString();
 
-function fromRung(rung: Rung): 1 | 2 | 3 | 4 | 5 | 6 {
-  return Number(rung.substring(1)) as 1 | 2 | 3 | 4 | 5 | 6;
-}
-
-function shouldSnapshot(now: Date): boolean {
-  return now.getUTCMinutes() === 0;
-}
-
-async function runLivingLoopTick(): Promise<void> {
-  const objects = await getIurgObjects();
-  if (objects.length === 0) return;
-
-  const loop = createLoop(objects.map((obj) => ({
-    id: obj.id ?? "",
-    rung: toRung(obj.rank),
-    strength: obj.context ?? obj.trust ?? 0.5,
-    decayRate: 0.02,
-    reinforceRate: 0.03,
-  })));
-  tickLoop(loop);
-
-  for (const event of loop.log) {
-    await appendContinuityLog({
-      tick: event.tick,
-      eventType: event.type,
-      objectId: event.objectId,
-      detail: event.detail,
-    });
-  }
-
-  const byId = new Map(objects.map((obj) => [obj.id, obj] as const));
-  for (const item of loop.objects) {
-    const source = byId.get(item.id);
-    if (!source) continue;
-    await saveIurgObject({
-      ...source,
-      rank: fromRung(item.rung),
-      context: item.strength,
-    });
-  }
-
-  if (shouldSnapshot(new Date())) {
-    const persisted = await getIurgObjects();
-    const snapshot = computeIUC(persisted as IurgObjectInput[]);
-    const value = (key: string): number => snapshot.indicators.find((i) => i.key === key)?.value ?? 0;
-    await saveIucSnapshot({
-      tuc: snapshot.tuc,
-      ugr: value("UGR"),
-      urs: value("URS"),
-      ksr: value("UC"),
-      pdr: value("UY"),
-      krr: value("UVR"),
-      kor: value("UT"),
-      scg: value("CAS"),
-      sai: value("FAS"),
-      objectCount: snapshot.objectCount,
-    });
-  }
+// Deployment-proof source of truth: Render injects RENDER_GIT_COMMIT;
+// generic hosts can set COMMIT_SHA / GIT_SHA. Never a secret.
+function deployedCommit(): string {
+  return (
+    process.env.RENDER_GIT_COMMIT ||
+    process.env.COMMIT_SHA ||
+    process.env.GIT_SHA ||
+    "unknown"
+  );
 }
 
 app.use(bodyLimit({ maxSize: 50 * 1024 * 1024 }));
+
+// STE-01 production-proof endpoints (plain HTTP, no tRPC client needed).
+// Deep component checks remain at /api/trpc/health.* (health-router.ts).
+app.get("/health", (c) =>
+  c.json({
+    status: "ALIVE",
+    uptime: process.uptime(),
+    bootTime: BOOT_TIME,
+    commit: deployedCommit(),
+    env: process.env.NODE_ENV || "development",
+    timestamp: new Date().toISOString(),
+  }),
+);
+app.get("/commit", (c) =>
+  c.json({
+    commit: deployedCommit(),
+    service: "onx-intelligence-clean",
+    bootTime: BOOT_TIME,
+    timestamp: new Date().toISOString(),
+  }),
+);
 app.get(Paths.oauthCallback, createOAuthCallbackHandler());
 app.use("/api/trpc/*", async (c) => {
   return fetchRequestHandler({
@@ -139,6 +103,21 @@ if (env.isProduction) {
       } catch (err) {
         console.error("[reflection-cycle] tick failed (non-fatal):", err);
       }
+      // G6: living mind cycle — inbox → B5 contradictions → B7 proposals.
+      // runMindTick never throws by design; a catch here is itself a
+      // countable failure: structured error + cronFailures metric +
+      // lastCronError readiness evidence — never a silent non-fatal.
+      try {
+        await runMindTick();
+      } catch (err) {
+        recordMindTickCronFailure(err);
+      }
+      // STE-K-14: capture a truth-ledger snapshot from the LIVE web
+      // cron (closes the K-13 gap where the ledger was empty because
+      // the recording worker was never deployed). Hourly-gated inside
+      // this 5-min tick and non-fatal — maybeRecordTruthSnapshot never
+      // throws, so a bad ledger write can never kill the loop.
+      await maybeRecordTruthSnapshot();
     });
     // Wave 6-b boot order: (1) hydrate persisted IURG objects from
     // Postgres into the in-memory graph, THEN (2) replay the inbox via
