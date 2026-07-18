@@ -20,9 +20,10 @@ describe("corpus ONX constitutional canon", () => {
     const objects = buildCorpusObjects(CURATED_ONX_CANON);
     expect(objects).toHaveLength(7);
     for (const obj of objects) {
-      expect(obj.provenance.type).toBe("AUTHORED");
-      expect(obj.provenance.citation).toBe("ONX Constitution — The Seven Principles");
-      expect(obj.provenance.sourceAuthority).toBe("ONX Founder");
+      expect(obj.provenance).toBeDefined();
+      expect(obj.provenance?.type).toBe("AUTHORED");
+      expect(obj.provenance?.citation).toBe("ONX Constitution — The Seven Principles");
+      expect(obj.provenance?.sourceAuthority).toBe("ONX Founder");
       expect(obj.domainTag).toBe("GOVERNANCE");
       expect(isProvenanceValid(obj.provenance)).toBe(true);
     }

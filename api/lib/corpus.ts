@@ -281,7 +281,6 @@ export function searchCorpus(
     const content = (obj.contentText ?? "").toLowerCase();
     const citation = obj.provenance?.citation?.toLowerCase() ?? "";
     const domain = (obj.domainTag ?? "").toLowerCase();
-    const haystack = `${content} ${citation} ${domain}`;
 
     let score = 0;
     if (content.includes(queryText)) score += 40; // full phrase in content
