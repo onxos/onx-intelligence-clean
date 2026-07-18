@@ -13,7 +13,7 @@ ENV NODE_ENV=production
 ENV PORT=10000
 COPY package*.json ./
 COPY --from=builder /app/package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN npm install -g npm@10.9.2 && npm ci --omit=dev && npm cache clean --force
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/db ./db
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 CMD wget --no-verbose --tries=1 --spider http://localhost:10000/api/trpc/health.ping || exit 1
