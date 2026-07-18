@@ -19,8 +19,10 @@ const dimensions: ProsperityDimension[] = [
   { name: "Social", nameAr: "اجتماعي", score: 0.68, weight: 0.15, trend: "STABLE" },
   { name: "Spiritual", nameAr: "روحي", score: 0.91, weight: 0.15, trend: "UP" },
   { name: "Health", nameAr: "صحي", score: 0.76, weight: 0.15, trend: "STABLE" },
-  { name: "Environmental", nameAr: "بيئي", score: 0.54, weight: 0.10, trend: "DOWN" },
+  { name: "Environmental", nameAr: "بيئي", score: 0.54, weight: 0.07, trend: "DOWN" },
   { name: "Governance", nameAr: "حوكمة", score: 0.88, weight: 0.05, trend: "UP" },
+  { name: "Technological", nameAr: "تقني", score: 0.81, weight: 0.02, trend: "UP" },
+  { name: "Educational", nameAr: "تعليمي", score: 0.74, weight: 0.01, trend: "UP" },
 ];
 
 export const ocppRouter = createRouter({
