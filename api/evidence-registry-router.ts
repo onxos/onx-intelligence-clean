@@ -4,9 +4,12 @@
 // ============================================================
 import { z } from "zod";
 import { createRouter, publicQuery, authedQuery } from "./middleware";
-import { getDb } from "./queries/connection";
-import { evidenceRegistry } from "@db/schema";
-import { eq } from "drizzle-orm";
+import {
+  isEvidencePersistenceConfigured,
+  listEvidence,
+  seedEvidence,
+  setEvidenceVerification,
+} from "./lib/evidence-pg-store";
 
 const EVIDENCE_SEED: Array<{
   evidenceId: string;
@@ -104,6 +107,41 @@ const EVIDENCE_SEED: Array<{
   { evidenceId: "EV-LAYER-L5", category: "LAYER", layer: "L5", priority: 74, title: "L5: Pilot & Launch Certified", description: "طبقة التجريب والإطلاق معتمدة", expectedResult: "All L5 evidence records PASSED" },
 ];
 
+// ============================================================
+// Router — PostgreSQL-backed via api/lib/evidence-pg-store.ts
+// Fallback: identical in-memory behavior when DATABASE_URL is not
+// postgres (dev/sandbox). No drizzle/mysql2 path is touched.
+// ============================================================
+
+/** In-memory fallback mirrors the previous behavior exactly */
+const FALLBACK_RECORDS = EVIDENCE_SEED.map((r, i) => ({
+  ...r,
+  id: i + 1,
+  status: "PENDING" as const,
+  founderSigned: 0,
+  verificationMethod: null,
+  actualResult: null,
+  verifiedAt: null,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+}));
+
+const FALLBACK_STATS = {
+  total: 69, passed: 1, failed: 0, pending: 68,
+  completionRate: 1,
+  p0Total: 12, p0Passed: 1, p0Rate: 8,
+  founderSigned: 0,
+  persistence: "IN_MEMORY" as const,
+  byLayer: [
+    { layer: "L0", total: 6, passed: 0 },
+    { layer: "L1", total: 8, passed: 0 },
+    { layer: "L2", total: 6, passed: 1 },
+    { layer: "L3", total: 27, passed: 0 },
+    { layer: "L4", total: 8, passed: 0 },
+    { layer: "L5", total: 8, passed: 0 },
+  ],
+};
+
 export const evidenceRegistryRouter = createRouter({
   // Get all evidence records
   getAll: publicQuery
@@ -114,22 +152,24 @@ export const evidenceRegistryRouter = createRouter({
     }).optional())
     .query(async ({ input }) => {
       try {
-        const db = getDb();
-        let rows = await db.select().from(evidenceRegistry).orderBy(evidenceRegistry.priority);
+        let rows: Array<Record<string, unknown>> = await listEvidence();
         if (input?.category) rows = rows.filter(r => r.category === input.category);
         if (input?.status) rows = rows.filter(r => r.status === input.status);
         if (input?.layer) rows = rows.filter(r => r.layer === input.layer);
         return rows;
       } catch {
-        return EVIDENCE_SEED.map((r, i) => ({ ...r, id: i + 1, status: "PENDING" as const, founderSigned: 0, verificationMethod: null, actualResult: null, verifiedAt: null, createdAt: new Date(), updatedAt: new Date() }));
+        let rows: Array<Record<string, unknown>> = FALLBACK_RECORDS;
+        if (input?.category) rows = rows.filter(r => r.category === input.category);
+        if (input?.status) rows = rows.filter(r => r.status === input.status);
+        if (input?.layer) rows = rows.filter(r => r.layer === input.layer);
+        return rows;
       }
     }),
 
   // Get summary stats
   stats: publicQuery.query(async () => {
     try {
-      const db = getDb();
-      const rows = await db.select().from(evidenceRegistry);
+      const rows = await listEvidence();
       const total = rows.length;
       const passed = rows.filter(r => r.status === "PASSED").length;
       const failed = rows.filter(r => r.status === "FAILED").length;
@@ -143,6 +183,7 @@ export const evidenceRegistryRouter = createRouter({
         p0Passed,
         p0Rate: p0.length > 0 ? Math.round((p0Passed / p0.length) * 100) : 0,
         founderSigned: rows.filter(r => r.founderSigned === 1).length,
+        persistence: "PERSISTED" as const,
         byLayer: ["L0","L1","L2","L3","L4","L5"].map(layer => ({
           layer,
           total: rows.filter(r => r.layer === layer).length,
@@ -150,21 +191,7 @@ export const evidenceRegistryRouter = createRouter({
         })),
       };
     } catch {
-      const passed = 1; // P0-03 (15k records) is the only confirmed pass
-      return {
-        total: 69, passed, failed: 0, pending: 68,
-        completionRate: 1,
-        p0Total: 12, p0Passed: passed, p0Rate: 8,
-        founderSigned: 0,
-        byLayer: [
-          { layer: "L0", total: 6, passed: 0 },
-          { layer: "L1", total: 8, passed: 0 },
-          { layer: "L2", total: 6, passed: 1 },
-          { layer: "L3", total: 27, passed: 0 },
-          { layer: "L4", total: 8, passed: 0 },
-          { layer: "L5", total: 8, passed: 0 },
-        ],
-      };
+      return FALLBACK_STATS;
     }
   }),
 
@@ -177,47 +204,62 @@ export const evidenceRegistryRouter = createRouter({
     }))
     .mutation(async ({ input }) => {
       try {
-        const db = getDb();
-        await db.update(evidenceRegistry)
-          .set({
-            status: "PASSED",
-            actualResult: input.actualResult,
-            founderSigned: input.founderSign ? 1 : 0,
-            verifiedAt: new Date(),
-          })
-          .where(eq(evidenceRegistry.evidenceId, input.evidenceId));
-        return { success: true, evidenceId: input.evidenceId };
+        const { updated } = await setEvidenceVerification({
+          evidenceId: input.evidenceId,
+          status: "PASSED",
+          actualResult: input.actualResult,
+          founderSign: input.founderSign,
+        });
+        return { success: updated, evidenceId: input.evidenceId, persistence: "PERSISTED" as const };
       } catch {
         return { success: false, error: "DB not configured" };
       }
     }),
 
-  // Seed all 69 records into DB
+  // Record a verification result — full status set (founder/admin testing)
+  verify: authedQuery
+    .input(z.object({
+      evidenceId: z.string(),
+      status: z.enum(["IN_PROGRESS","PASSED","FAILED","WAIVED"]),
+      verificationMethod: z.string().min(3),
+      actualResult: z.string().min(5),
+      verifier: z.string().default("founder"),
+      founderSign: z.boolean().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const { updated } = await setEvidenceVerification({
+          evidenceId: input.evidenceId,
+          status: input.status,
+          verificationMethod: input.verificationMethod,
+          actualResult: input.actualResult,
+          verifier: input.verifier ?? ctx.user?.unionId ?? "founder",
+          founderSign: input.founderSign,
+        });
+        return { success: updated, evidenceId: input.evidenceId, persistence: "PERSISTED" as const };
+      } catch {
+        return { success: false, error: "DB not configured" };
+      }
+    }),
+
+  // Seed all 69 records into PostgreSQL (idempotent — never touches verified rows)
   seed: publicQuery.mutation(async () => {
     try {
-      const db = getDb();
-      const existing = await db.select({ evidenceId: evidenceRegistry.evidenceId }).from(evidenceRegistry);
-      const existingIds = new Set(existing.map(r => r.evidenceId));
-      const toInsert = EVIDENCE_SEED.filter(r => !existingIds.has(r.evidenceId));
-      if (toInsert.length > 0) {
-        await db.insert(evidenceRegistry).values(
-          toInsert.map(r => ({
-            evidenceId: r.evidenceId,
-            category: r.category,
-            title: r.title,
-            description: r.description,
-            expectedResult: r.expectedResult,
-            priority: r.priority,
-            layer: r.layer as "L0"|"L1"|"L2"|"L3"|"L4"|"L5"|null,
-            status: "PENDING" as const,
-            founderSigned: 0,
-          }))
-        );
-      }
-      return { seeded: toInsert.length, existing: existingIds.size, total: EVIDENCE_SEED.length };
+      const { seeded, existing } = await seedEvidence(EVIDENCE_SEED);
+      return {
+        seeded,
+        existing,
+        total: EVIDENCE_SEED.length,
+        persistence: "PERSISTED" as const,
+      };
     } catch {
       return { seeded: 0, existing: 0, total: 69, note: "DB not configured — evidence tracked in-memory" };
     }
   }),
-});
 
+  // Readiness probe — lets ops verify which storage is live
+  persistenceStatus: publicQuery.query(() => ({
+    configured: isEvidencePersistenceConfigured(),
+    backend: isEvidencePersistenceConfigured() ? "postgres" : "in-memory",
+  })),
+});
