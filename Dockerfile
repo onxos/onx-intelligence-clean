@@ -1,7 +1,7 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm install
+RUN npm install -g npm@10.9.2 && npm install
 COPY . .
 RUN npx vite build && npx esbuild api/boot.ts api/scheduler-worker.ts --platform=node --bundle --format=esm --outdir=dist --tsconfig=tsconfig.server.json --banner:js="import{createRequire}from'module';const require=createRequire(import.meta.url);"
 
