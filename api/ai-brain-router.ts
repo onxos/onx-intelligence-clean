@@ -358,17 +358,54 @@ export const aiBrainRouter = createRouter({
       const state = getOrCreateBrainState(input.userId);
       const context = buildContext(input.userId, input.titanHint === "auto" ? state.lastTitanUsed : input.titanHint, input.query);
 
-      // Select persona system prompt
-      const SYSTEM_PROMPTS: Record<string, string> = {
-        prometheus: "أنت ONX Brain — محرك الذكاء المؤسسي. أجب بعمق استراتيجي وحكمة حضارية. استخدم إطار ONX الدستوري في تحليلاتك.",
-        athena: "أنت ONX Brain — محرك المعرفة والتحليل. أجب بدقة علمية وتنظيم منطقي. استند دائماً إلى الأدلة والمصادر.",
-        zeus: "أنت ONX Brain — محرك القرار والحوكمة. أجب بحسم وقيادة. كل قرار يجب أن يكون عادلاً ومسؤولاً.",
-        hermes: "أنت ONX Brain — محرك التواصل والتنسيق. أجب بوضوح وسرعة. ركّز على العمل التشغيلي والتنفيذ.",
-        apollo: "أنت ONX Brain — محرك الإبداع والفنون. أجب بإلهام وجمال. ربط كل شيء بالمعنى الأعمق.",
+      // EV-P0-02: Titan personas — كل تيتان شخصية مستقلة بهوية ومجال وأسلوب
+      const TITAN_PERSONAS: Record<string, { title: string; domain: string; prompt: string }> = {
+        prometheus: {
+          title: "تيتان الاستراتيجية",
+          domain: "strategy",
+          prompt: "أنت Prometheus (بروميثيوس) — تيتان الاستراتيجية في حضارة ONX. هويتك: كبير مستشاري المؤسس للمدى الطويل. عرّف بنفسك باسمك ولقبك عند السؤال عنك. أسلوبك: تحويل النية إلى خطط، موازنة السيناريوهات، تفكير بعمق استراتيجي وحكمة حضارية ضمن إطار ONX الدستوري (أمانة، إحسان، عدل، رحمة، حكمة، إتقان، توكل). لا تنتحل شخصية تيتان آخر.",
+        },
+        athena: {
+          title: "تيتانة المعرفة والحكمة",
+          domain: "knowledge",
+          prompt: "أنت Athena (أثينا) — تيتانة المعرفة والحكمة في حضارة ONX. هويتك: حارسة قاعدة المعرفة وتحويل الخبرة إلى حكمة مؤسسية. عرّفي بنفسك باسمك ولقبك عند السؤال عنك. أسلوبك: دقة علمية، استناد دائم إلى الأدلة والمصادر، تنظيم منطقي صارم، وتمييز واضح بين المؤكد والمرجح والمجهول. لا تنتحلي شخصية تيتان آخر.",
+        },
+        zeus: {
+          title: "تيتان المعمارية والحوكمة",
+          domain: "architecture",
+          prompt: "أنت Zeus (زيوس) — تيتان المعمارية والحوكمة في حضارة ONX. هويتك: مهندس النظام الأعلى وحارس الحدود السيادية وموثّق القرارات المعمارية. عرّف بنفسك باسمك ولقبك عند السؤال عنك. أسلوبك: حسم وقيادة، كل قرار عادل ومسؤول وموثق، واحترام صارم لحدود المسارات (لا يستورد مسارٌ الآخر). لا تنتحل شخصية تيتان آخر.",
+        },
+        hermes: {
+          title: "تيتان العمليات والتنفيذ",
+          domain: "operations",
+          prompt: "أنت Hermes (هيرميس) — تيتان العمليات والتنفيذ في حضارة ONX. هويتك: قائد تحويل القرارات المعتمدة إلى تنفيذ عبر الجسد (Platform) ومراقبة الإنجاز والجودة والزمن. عرّف بنفسك باسمك ولقبك عند السؤال عنك. أسلوبك: وضوح وسرعة وتركيز تشغيلي، خطوات قابلة للتنفيذ، ومساءلة عن النتائج. لا تنتحل شخصية تيتان آخر.",
+        },
+        apollo: {
+          title: "تيتان الحوكمة الدستورية",
+          domain: "governance",
+          prompt: "أنت Apollo (أبولو) — تيتان الحوكمة الدستورية في حضارة ONX. هويتك: القاضي الدستوري الذي يفرض المبادئ السبعة على كل قرار ويدير بوابات الاعتماد. عرّف بنفسك باسمك ولقبك عند السؤال عنك. أسلوبك: ربط كل حكم بالمبدأ الدستوري المرتبط به صراحة، عدل وتوازن، ورفض أي اقتراح يخالف الدستور مهما كان ذكياً. لا تنتحل شخصية تيتان آخر.",
+        },
       };
 
-      const titanId = input.titanHint === "auto" ? state.lastTitanUsed : input.titanHint;
-      const systemPrompt = SYSTEM_PROMPTS[titanId] || SYSTEM_PROMPTS.prometheus;
+      // توجيه دلالي عند auto: نية السؤال تختار التيتان (مع بقاء آخر تيتان كخيار افتراضي)
+      function routeTitan(query: string, fallback: string): string {
+        const q = query;
+        const rules: Array<[RegExp, string]> = [
+          [/استراتيج|خطط|رؤية|توسع|سوق|منافس|نمو|استثمار|أولويات/i, "prometheus"],
+          [/معرفة|بحث|مصدر|دليل|مرجع|تعلم|معلومة|بيانات|توثيق/i, "athena"],
+          [/معمار|بنية|نظام|حوكم|حدود|قرار تقني|تصميم|أمان/i, "zeus"],
+          [/تنفيذ|تشغيل|عمليات|مهمة|جدول|إنجاز|موعد|فريق|مخزون|حجز/i, "hermes"],
+          [/دستور|مبدأ|عدل|أخلاق|امتثال|حكم|شرعي|مخالفة|اعتماد/i, "apollo"],
+        ];
+        for (const [re, titan] of rules) if (re.test(q)) return titan;
+        return fallback;
+      }
+
+      const titanId = input.titanHint === "auto"
+        ? routeTitan(input.query, state.lastTitanUsed)
+        : input.titanHint;
+      const titanMeta = TITAN_PERSONAS[titanId] || TITAN_PERSONAS.prometheus;
+      const systemPrompt = titanMeta.prompt;
 
       const completion = await ai.chat.completions.create({
         model: "gpt-4o",
@@ -395,6 +432,12 @@ export const aiBrainRouter = createRouter({
       return {
         response,
         titanUsed: titanId,
+        titanAttribution: {
+          id: titanId,
+          title: titanMeta.title,
+          domain: titanMeta.domain,
+          routedBy: input.titanHint === "auto" ? "semantic-router" : "explicit",
+        },
         tokensUsed,
         model: "gpt-4o",
         memoryStored: true,
