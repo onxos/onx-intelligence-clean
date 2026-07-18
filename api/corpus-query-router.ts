@@ -175,8 +175,8 @@ export const corpusQueryRouter = createRouter({
       limit: z.number().min(1).max(20).default(5),
       domain: z.string().optional(),
     }))
-    .query(async ({ input }) => {
-      assertBridgeAccess("corpusQuery");
+    .query(async ({ ctx, input }) => {
+      assertBridgeAccess(ctx);
       const { results, model, corpusSize } = await semanticSearchCorpus(
         input.query,
         input.limit,
@@ -200,16 +200,16 @@ export const corpusQueryRouter = createRouter({
   // ترحيل embeddings دفعة — idempotent؛ يُستدعى حتى اكتمال الترحيل
   reembedPg: publicQuery
     .input(z.object({ batchSize: z.number().min(1).max(500).default(200) }).optional())
-    .mutation(async ({ input }) => {
-      assertBridgeAccess("corpusQuery");
+    .mutation(async ({ ctx, input }) => {
+      assertBridgeAccess(ctx);
       const batchSize = input?.batchSize ?? 200;
       const { reembedded, remaining, model } = await reembedCorpusBatch(batchSize);
       return { reembedded, remaining, model, done: remaining === 0 };
     }),
 
   // العداد الصادق: provenance-valid فقط — ما تثبته القاعدة فعلاً
-  realCounts: publicQuery.query(async () => {
-    assertBridgeAccess("corpusQuery");
+  realCounts: publicQuery.query(async ({ ctx }) => {
+    assertBridgeAccess(ctx);
     const { total, embedded, model } = await corpusRealCounts();
     return { total, embedded, model, simulated: false };
   }),
