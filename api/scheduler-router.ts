@@ -6,6 +6,7 @@
 import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 import { persistCycle } from "./lib/scheduler-cycle-store";
+import { agentTick } from "./lib/agent-runtime-store";
 import { recordPgFailure, recordPgSuccess } from "./lib/pg-diagnostics";
 
 // --- Rhythm Definitions ---
@@ -147,6 +148,9 @@ const timers: Map<string, ReturnType<typeof setInterval>> = new Map();
 
 // --- Execution Engine ---
 function executeRhythm(rhythmId: string): { actions: number; duration: number; status: string } {
+  // Agent runtime heartbeat: every rhythm tick, all ACTIVE agents beat and
+  // queued agent tasks are processed — the agents' standing work loop.
+  void agentTick(rhythmId).catch(() => undefined);
   const rhythm = RHYTHMS.get(rhythmId);
   if (!rhythm || !rhythm.active) return { actions: 0, duration: 0, status: "SKIPPED" };
 

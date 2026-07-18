@@ -74,37 +74,13 @@ export const agentRuntimeRouter = createRouter({
       return { taskId, status: "QUEUED" };
     }),
 
-  // One runtime cycle: all agents beat + process up to `maxTasks` queued tasks.
-  // Called by the pulse rhythm and available on demand.
+  // One runtime cycle: delegates to the shared standing work loop
+  // (api/lib/agent-runtime-store.agentTick) also driven by the rhythms.
   tick: protectedQuery
     .input(z.object({ rhythm: z.string().default("pulse"), maxTasks: z.number().min(0).max(10).default(3) }).optional())
     .mutation(async ({ input }) => {
-      await ensureAgentSchema();
-      const rhythm = input?.rhythm ?? "pulse";
-      const maxTasks = input?.maxTasks ?? 3;
-      const p = getPool();
-      let agentsBeat = 0;
-      try {
-        const { rows } = await p.query(`SELECT id FROM agents WHERE status='ACTIVE'`);
-        for (const a of rows) {
-          await beat(a.id as string, rhythm, 0);
-          agentsBeat++;
-        }
-      } finally {
-        await p.end().catch(() => undefined);
-      }
-      let processed = 0;
-      for (let i = 0; i < maxTasks; i++) {
-        const task = await claimTask();
-        if (!task) break;
-        try {
-          const result = await executeTask(task.kind, task.payload);
-          await completeTask(task.taskId, result, true);
-        } catch (e) {
-          await completeTask(task.taskId, { error: String(e).slice(0, 200) }, false);
-        }
-        processed++;
-      }
-      return { rhythm, agentsBeat, tasksProcessed: processed, tickAt: new Date().toISOString() };
+      const { agentTick } = await import("./lib/agent-runtime-store");
+      const result = await agentTick(input?.rhythm ?? "pulse", input?.maxTasks ?? 3);
+      return { rhythm: input?.rhythm ?? "pulse", ...result, tickAt: new Date().toISOString() };
     }),
 });
