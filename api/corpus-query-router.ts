@@ -10,6 +10,11 @@ import {
   type CorpusUnitInput,
 } from "./lib/corpus-pg-store";
 import {
+  semanticSearchCorpus,
+  reembedCorpusBatch,
+  corpusRealCounts,
+} from "./lib/corpus-vector-search";
+import {
   invalidateCorpusSearchIndex,
   registerCorpusSource,
   searchCorpus,
@@ -162,4 +167,50 @@ export const corpusQueryRouter = createRouter({
         total: input.units.length,
       };
     }),
+
+  // EV-P1-03: بحث دلالي حقيقي (OpenAI embeddings + pgvector) على corpus provenance-valid
+  semanticSearchPg: publicQuery
+    .input(z.object({
+      query: z.string().min(1),
+      limit: z.number().min(1).max(20).default(5),
+      domain: z.string().optional(),
+    }))
+    .query(async ({ input }) => {
+      assertBridgeAccess("corpusQuery");
+      const { results, model, corpusSize } = await semanticSearchCorpus(
+        input.query,
+        input.limit,
+        input.domain,
+      );
+      return {
+        results: results.map((r) => ({
+          id: r.id,
+          domain: r.domain,
+          category: r.category,
+          title: r.title,
+          body: r.body,
+          similarity: Math.round(Number(r.similarity) * 1000) / 1000,
+        })),
+        model,
+        corpusSize,
+        simulated: false,
+      };
+    }),
+
+  // ترحيل embeddings دفعة — idempotent؛ يُستدعى حتى اكتمال الترحيل
+  reembedPg: publicQuery
+    .input(z.object({ batchSize: z.number().min(1).max(500).default(200) }).optional())
+    .mutation(async ({ input }) => {
+      assertBridgeAccess("corpusQuery");
+      const batchSize = input?.batchSize ?? 200;
+      const { reembedded, remaining, model } = await reembedCorpusBatch(batchSize);
+      return { reembedded, remaining, model, done: remaining === 0 };
+    }),
+
+  // العداد الصادق: provenance-valid فقط — ما تثبته القاعدة فعلاً
+  realCounts: publicQuery.query(async () => {
+    assertBridgeAccess("corpusQuery");
+    const { total, embedded, model } = await corpusRealCounts();
+    return { total, embedded, model, simulated: false };
+  }),
 });
