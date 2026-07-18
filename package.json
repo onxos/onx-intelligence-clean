@@ -20,6 +20,7 @@
     "eval:golden":  "tsx --tsconfig tsconfig.server.json scripts/eval-golden.ts",
     "smoke:live":   "tsx --tsconfig tsconfig.server.json scripts/smoke-live.ts",
     "ingest:corpus": "tsx --tsconfig tsconfig.server.json scripts/ingest-corpus.ts",
+    "corpus:evidence": "tsx scripts/corpus-evidence.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push"

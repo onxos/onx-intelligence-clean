@@ -131,3 +131,9 @@ jobs:
         env:
           PG_TEST_URL: postgres://postgres:postgres@localhost:5432/onx_test
         run: npx vitest run api/__tests__/pg-adapter-integration.test.ts
+
+      - name: Corpus durable Postgres persistence (live pg proof)
+        env:
+          PG_TEST_URL: postgresql://postgres:postgres@localhost:5432/onx_test
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/onx_test
+        run: npx vitest run api/__tests__/corpus-pg-persistence.test.ts

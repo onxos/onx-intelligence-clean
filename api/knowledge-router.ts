@@ -341,17 +341,26 @@ export const knowledgeRouter = createRouter({
       };
     }),
 
-  // KN-04: domains — List all domains
-  domains: publicQuery.query(() => ({
-    domains: DOMAINS.map((d) => ({
-      id: d.id,
-      nameAr: d.nameAr,
-      nameEn: d.nameEn,
-      description: d.description,
-      recordCount: d.recordCount,
-    })),
-    totalRecords: DOMAINS.reduce((s, d) => s + d.recordCount, 0),
-  })),
+  // KN-04: domains — List all domains. recordCount is MEASURED from the store
+  // (records actually present), not a declared constant — honest by construction.
+  domains: publicQuery.query(() => {
+    const measured: Record<string, number> = {};
+    for (const r of knowledgeStore.values()) measured[r.domain] = (measured[r.domain] || 0) + 1;
+    return {
+      domains: DOMAINS.map((d) => ({
+        id: d.id,
+        nameAr: d.nameAr,
+        nameEn: d.nameEn,
+        description: d.description,
+        recordCount: measured[d.id] ?? 0,
+      })),
+      totalRecords: knowledgeStore.size,
+      measured: true,
+      // Honest: these are procedurally generated scaffold records, not cited
+      // provenance-valid knowledge. See iuc.corpusStatus for the real corpus.
+      provenance: "SIMULATED_SCAFFOLD",
+    };
+  }),
 
   // KN-05: byDomain — Browse by domain
   byDomain: publicQuery
@@ -395,8 +404,14 @@ export const knowledgeRouter = createRouter({
     }
     return {
       totalRecords: all.length,
-      targetRecords: 15000,
-      seedProgress: `${all.length}/15000`,
+      // Honest provenance labeling: this knowledge base is a procedurally
+      // generated in-memory SCAFFOLD — the records have no real citations and
+      // are NOT provenance-valid. The persisted, provenance-tracked corpus is
+      // reported by iuc.corpusStatus (grouped counts + provenanceValidCount).
+      provenanceModel: "SIMULATED_SCAFFOLD",
+      syntheticRecords: all.length,
+      provenanceValidRecords: 0,
+      note: "Procedurally generated scaffold; not provenance-valid. See iuc.corpusStatus for the real corpus.",
       domains: Object.keys(byDomain).length,
       tiersCovered: Object.keys(byTier).length,
       byDomain,
