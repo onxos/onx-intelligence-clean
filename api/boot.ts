@@ -18,6 +18,17 @@ import { runMindTick, recordMindTickCronFailure } from "./lib/mind-tick";
 import { maybeRecordTruthSnapshot } from "./lib/truth-snapshot-cron";
 import { hydratePersistedIurgGraph } from "./iuc-router";
 
+// Optional error tracking: active only when SENTRY_DSN is configured.
+if (process.env.SENTRY_DSN) {
+  try {
+    const Sentry = await import("@sentry/node");
+    Sentry.init({ dsn: process.env.SENTRY_DSN, environment: process.env.NODE_ENV ?? "production" });
+    process.stderr.write("[sentry] initialised\n");
+  } catch (e) {
+    process.stderr.write(`[sentry] unavailable: ${String(e).slice(0, 80)}\n`);
+  }
+}
+
 const app = new Hono<{ Bindings: HttpBindings }>();
 
 const BOOT_TIME = new Date().toISOString();

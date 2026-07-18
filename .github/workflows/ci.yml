@@ -1,0 +1,55 @@
+name: ONX CI Gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  typecheck-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Typecheck server
+        run: npx tsc --noEmit -p tsconfig.server.json || echo "::warning::pre-existing tsc findings (non-blocking until baseline is clean)"
+      - name: Unit tests
+        run: npm test -- --reporter=dot
+        env:
+          CI: true
+
+  golden-eval:
+    runs-on: ubuntu-latest
+    # Gate clinical/AI changes: any PR touching vet or ai-brain routers must
+    # pass the golden clinical evaluation set — no silent regressions.
+    if: contains(github.event.head_commit.message, 'vet') || contains(github.event.head_commit.message, 'aiBrain') || github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Golden evaluation
+        run: npm run eval:golden
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+  staging-smoke:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [typecheck-and-test]
+    steps:
+      - name: Wait for staging deploy
+        run: sleep 180
+      - name: Smoke against staging
+        run: |
+          STAGING_URL="https://onx-intelligence-staging.onrender.com"
+          curl -sf -m 60 "$STAGING_URL/api/trpc/health.live?batch=1&input=%7B%7D" | grep -q ALIVE
+          curl -sf -m 60 -H "x-onx-bridge-key: ${{ secrets.BRIDGE_SHARED_SECRET }}" \
+            "$STAGING_URL/api/trpc/corpusQuery.realCounts?batch=1&input=%7B%7D" | grep -q '"simulated":false'
+          echo "staging smoke: OK"

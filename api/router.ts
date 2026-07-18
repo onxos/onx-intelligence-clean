@@ -24,6 +24,7 @@ import { modelFederationRouter } from "./model-federation-router";
 import { healthRouter } from "./health-router";
 import { evidenceRegistryRouter } from "./evidence-registry-router";
 import { voiceRouter } from "./voice-router";
+import { agentRuntimeRouter } from "./agent-runtime-router";
 import { gpsRouter } from "./gps-router";
 import { revenueEngineRouter } from "./revenue-engine-router";
 import { domainServicesRouter } from "./domain-services-router";
@@ -108,6 +109,7 @@ export const appRouter = createRouter({
   health: healthRouter,
   evidenceRegistry: evidenceRegistryRouter,
   voice: voiceRouter,
+  agentRuntime: agentRuntimeRouter,
   gps: gpsRouter,
   revenueEngine: revenueEngineRouter,
   // Phase 2: Advanced Engines

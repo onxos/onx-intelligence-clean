@@ -222,6 +222,42 @@ export const healthRouter = createRouter({
     };
   }),
 
+  // HT-05: metrics history — persisted snapshots (survive redeploys)
+  metricsHistory: publicQuery.query(async () => {
+    const cs = process.env.DATABASE_URL ?? "";
+    if (!cs.startsWith("postgres")) return { persisted: false, snapshots: [] };
+    const { Pool } = await import("pg");
+    const pool = new Pool({ connectionString: cs, max: 1, ...(cs.includes("render.com") ? { ssl: { rejectUnauthorized: false } } : {}) });
+    try {
+      await pool.query(`CREATE TABLE IF NOT EXISTS onx_health_metrics (
+        id SERIAL PRIMARY KEY, "totalRequests" INT, "errorRequests" INT,
+        "errorRate" DOUBLE PRECISION, "avgDuration" INT, "snapshotAt" TIMESTAMPTZ DEFAULT now())`);
+      const { rows } = await pool.query(
+        `SELECT * FROM onx_health_metrics ORDER BY "snapshotAt" DESC LIMIT 60`);
+      return { persisted: true, snapshots: rows };
+    } finally { await pool.end().catch(() => undefined); }
+  }),
+
+  // HT-06: snapshot — persist current counters (called by pulse rhythm/ops)
+  snapshotMetrics: publicQuery.mutation(async () => {
+    const cs = process.env.DATABASE_URL ?? "";
+    if (!cs.startsWith("postgres")) return { persisted: false };
+    const { Pool } = await import("pg");
+    const pool = new Pool({ connectionString: cs, max: 1, ...(cs.includes("render.com") ? { ssl: { rejectUnauthorized: false } } : {}) });
+    try {
+      await pool.query(`CREATE TABLE IF NOT EXISTS onx_health_metrics (
+        id SERIAL PRIMARY KEY, "totalRequests" INT, "errorRequests" INT,
+        "errorRate" DOUBLE PRECISION, "avgDuration" INT, "snapshotAt" TIMESTAMPTZ DEFAULT now())`);
+      const recent = requestMetrics.slice(-100);
+      const avg = recent.length > 0 ? Math.round(recent.reduce((s, m) => s + m.duration, 0) / recent.length) : 0;
+      const rate = totalRequests > 0 ? (errorRequests / totalRequests) : 0;
+      await pool.query(
+        `INSERT INTO onx_health_metrics ("totalRequests","errorRequests","errorRate","avgDuration") VALUES ($1,$2,$3,$4)`,
+        [totalRequests, errorRequests, rate, avg]);
+      return { persisted: true, totalRequests, errorRequests };
+    } finally { await pool.end().catch(() => undefined); }
+  }),
+
   // HT-04: metrics — Request metrics
   metrics: publicQuery
     .input(z.object({ router: z.string().optional() }).optional())

@@ -5,8 +5,7 @@
 // ============================================================
 import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
-import { getDb } from "./queries/connection";
-import { consciousnessCycles } from "../db/schema";
+import { persistCycle } from "./lib/scheduler-cycle-store";
 import { recordPgFailure, recordPgSuccess } from "./lib/pg-diagnostics";
 
 // --- Rhythm Definitions ---
@@ -205,24 +204,20 @@ function executeRhythm(rhythmId: string): { actions: number; duration: number; s
   // a broken audit-cycle write is observable. The in-memory executionLogs
   // remain authoritative (deliberate fail-open).
   try {
-    const db = getDb();
-    void db.insert(consciousnessCycles).values({
+    void persistCycle({
       rhythmId,
       rhythmName: rhythm.name,
       cycleNumber: rhythm.runCount,
       status: log.status === "SUCCESS" ? "COMPLETED" : log.status === "PARTIAL" ? "COMPLETED" : "FAILED",
-      actionsExecuted: JSON.stringify(rhythm.actions),
-      metricsSnapshot: JSON.stringify({ actions: Object.keys(results).length, duration }),
-      healthScore: String(rhythm.status === "HEALTHY" ? "0.95" : rhythm.status === "DEGRADED" ? "0.70" : "0.40"),
+      actionsExecuted: rhythm.actions,
+      metricsSnapshot: { actions: Object.keys(results).length, duration },
+      healthScore: rhythm.status === "HEALTHY" ? 0.95 : rhythm.status === "DEGRADED" ? 0.70 : 0.40,
       anomaliesDetected: rhythm.status === "FAILING" ? 1 : 0,
-      completedAt: new Date(),
       durationMs: duration,
-    }).execute()
-      .then(() => recordPgSuccess("scheduler.consciousnessCycle"))
+    })
+      .then((ok) => (ok ? recordPgSuccess("scheduler.consciousnessCycle") : recordPgFailure("scheduler.consciousnessCycle", new Error("cycle-store unavailable"))))
       .catch((error) => recordPgFailure("scheduler.consciousnessCycle", error));
   } catch (error) {
-    // getDb()/insert construction failed (e.g. DB not configured) — observe
-    // it instead of blind-swallowing, then continue in-memory.
     recordPgFailure("scheduler.consciousnessCycle", error);
   }
 

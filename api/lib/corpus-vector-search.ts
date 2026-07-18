@@ -76,6 +76,33 @@ export interface CorpusSemanticHit {
   similarity: number;
 }
 
+/**
+ * RRF fusion helper — merges vector rank with lexical (pg full-text) rank.
+ * Reciprocal Rank Fusion (k=60) needs no score normalisation between the
+ * two incomparable score spaces; robust for Arabic templated text where
+ * pure cosine flattens (observed 0.45-0.60 paraphrase band).
+ */
+function rrfMerge(
+  vectorRows: CorpusSemanticHit[],
+  lexicalRows: CorpusSemanticHit[],
+  limit: number,
+): CorpusSemanticHit[] {
+  const K = 60;
+  const scores = new Map<string, { row: CorpusSemanticHit; score: number }>();
+  vectorRows.forEach((row, i) => {
+    scores.set(row.id, { row, score: (scores.get(row.id)?.score ?? 0) + 1 / (K + i + 1) });
+  });
+  lexicalRows.forEach((row, i) => {
+    const cur = scores.get(row.id);
+    if (cur) cur.score += 1 / (K + i + 1);
+    else scores.set(row.id, { row, score: 1 / (K + i + 1) });
+  });
+  return [...scores.values()]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((s) => s.row);
+}
+
 /** EV-P1-03: بحث دلالي حقيقي بالـ embeddings — يفوق 80% في الاستعلامات السريرية */
 export async function semanticSearchCorpus(
   query: string,
@@ -105,6 +132,22 @@ export async function semanticSearchCorpus(
         LIMIT $2`,
       domain ? [vec, limit, domain] : [vec, limit],
     );
+    // Hybrid: lexical candidates (websearch full-text, 'simple' config is
+    // language-agnostic and safe for Arabic) fused with vector via RRF.
+    if (res.rows.length > 0) {
+      const lex = await client.query(
+        `SELECT id, domain, category, title, body,
+                ts_rank(to_tsvector('simple', title||' '||body), websearch_to_tsquery('simple', $1)) AS similarity
+           FROM onx_knowledge_corpus
+          WHERE embedding IS NOT NULL ${domain ? "AND domain = $3" : ""}
+            AND to_tsvector('simple', title||' '||body) @@ websearch_to_tsquery('simple', $1)
+          ORDER BY similarity DESC LIMIT $2`,
+        domain ? [query, limit * 2, domain] : [query, limit * 2],
+      );
+      if (lex.rows.length > 0) {
+        res = { ...res, rows: rrfMerge(res.rows as CorpusSemanticHit[], lex.rows as CorpusSemanticHit[], limit) };
+      }
+    }
     await client.query("COMMIT");
   } catch (e) {
     await client.query("ROLLBACK").catch(() => undefined);
