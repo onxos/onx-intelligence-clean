@@ -86,15 +86,32 @@ export async function semanticSearchCorpus(
   const [qEmb] = await embed([query]);
   const p = getPool();
   const vec = `[${qEmb.join(",")}]`;
-  const res = await p.query(
-    `SELECT id, domain, category, title, body,
-            1 - (embedding <=> $1::vector) AS similarity
-       FROM onx_knowledge_corpus
-      WHERE embedding IS NOT NULL ${domain ? "AND domain = $3" : ""}
-      ORDER BY embedding <=> $1::vector
-      LIMIT $2`,
-    domain ? [vec, limit, domain] : [vec, limit],
-  );
+  // Exact scan: at this corpus scale (~15K rows) a sequential scan is
+  // fast (<150ms) and, unlike HNSW, never under-returns when a domain
+  // filter excludes the index's nearest neighbours (pgvector filtered-
+  // HNSW can return zero rows). Correctness first; re-enable the index
+  // path when the corpus grows past ~100K rows.
+  const client = await p.connect();
+  let res;
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL enable_seqscan = on");
+    res = await client.query(
+      `SELECT id, domain, category, title, body,
+              1 - (embedding <=> $1::vector) AS similarity
+         FROM onx_knowledge_corpus
+        WHERE embedding IS NOT NULL ${domain ? "AND domain = $3" : ""}
+        ORDER BY embedding <=> $1::vector
+        LIMIT $2`,
+      domain ? [vec, limit, domain] : [vec, limit],
+    );
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw e;
+  } finally {
+    client.release();
+  }
   const sizeRes = await p.query(
     `SELECT count(*)::int AS total, count(embedding)::int AS embedded FROM onx_knowledge_corpus`,
   );
