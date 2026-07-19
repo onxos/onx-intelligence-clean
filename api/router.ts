@@ -30,6 +30,7 @@ import { revenueEngineRouter } from "./revenue-engine-router";
 import { domainServicesRouter } from "./domain-services-router";
 import { corpusQueryRouter } from "./corpus-query-router";
 import { aiBridgeRouter } from "./ai-bridge-router";
+import { agenticLoopRouter } from "./agentic-loop-router";
 import { intentEngineRouter } from "./intent-engine-router";
 import { providersRouter } from "./providers-router";
 import { onxRouter } from "./onx-router";
@@ -166,6 +167,8 @@ export const appRouter = createRouter({
   corpusQuery: corpusQueryRouter,
   // Federation: sibling services run real LLM completions via this brain over the secured bridge
   aiBridge: aiBridgeRouter,
+  // Agentic loop: the brain as an agent — goal->tools->grounded answer, persisted + governed
+  agentic: agenticLoopRouter,
   intentEngine: intentEngineRouter,
   providers: providersRouter,
   onx: onxRouter,
