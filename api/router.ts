@@ -29,6 +29,7 @@ import { gpsRouter } from "./gps-router";
 import { revenueEngineRouter } from "./revenue-engine-router";
 import { domainServicesRouter } from "./domain-services-router";
 import { corpusQueryRouter } from "./corpus-query-router";
+import { aiBridgeRouter } from "./ai-bridge-router";
 import { intentEngineRouter } from "./intent-engine-router";
 import { providersRouter } from "./providers-router";
 import { onxRouter } from "./onx-router";
@@ -163,6 +164,8 @@ export const appRouter = createRouter({
   // Platform contract aliases
   bridge: titanBridgeRouter,
   corpusQuery: corpusQueryRouter,
+  // Federation: sibling services run real LLM completions via this brain over the secured bridge
+  aiBridge: aiBridgeRouter,
   intentEngine: intentEngineRouter,
   providers: providersRouter,
   onx: onxRouter,
