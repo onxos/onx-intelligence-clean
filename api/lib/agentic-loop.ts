@@ -20,7 +20,13 @@ import { Pool } from "pg";
 let pool: Pool | null = null;
 function getPool(): Pool {
   if (!pool) {
-    pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    const connectionString = process.env.DATABASE_URL ?? "";
+    const isExternalHost = connectionString.includes("render.com");
+    pool = new Pool({
+      connectionString,
+      max: 3,
+      ...(isExternalHost ? { ssl: { rejectUnauthorized: false } } : {}),
+    });
     void ensureSchema().catch(() => undefined);
   }
   return pool;
