@@ -68,6 +68,23 @@ export interface AgenticRun {
 }
 
 // ---------- tools ----------
+/** Common Arabic→Latin veterinary/brand aliases for cross-language retrieval. */
+const ARABIC_ALIASES: Record<string, string> = {
+  "بارفو": "parvovirus", "البارفو": "parvovirus", "بارفو الكلاب": "canine parvovirus",
+  "تطعيم": "vaccination", "تطعيمات": "vaccination", "لقاح": "vaccine",
+  "كلاب": "dog canine", "الكلاب": "dog canine", "قطط": "cat feline", "القطط": "cat feline",
+  "كلى": "kidney renal ckd", "الكلى": "kidney renal ckd",
+  "طوارئ": "emergency", "تيليفيت": "televet", "مخزون": "inventory",
+  "اونكس": "ONX", "أونكس": "ONX",
+};
+function expandArabicAliases(query: string): string {
+  let out = query;
+  for (const [ar, en] of Object.entries(ARABIC_ALIASES)) {
+    if (out.includes(ar)) out = out.split(ar).join(`${ar} ${en}`);
+  }
+  return out;
+}
+
 interface ToolDef {
   name: string;
   description: string;
@@ -89,7 +106,16 @@ const TOOLS: ToolDef[] = [
       required: ["query"],
     },
     execute: async (a) => {
-      const res = await semanticSearchCorpus(String(a.query), Math.min(8, Number(a.limit) || 4), a.domain ? String(a.domain) : undefined);
+      const limit = Math.min(8, Number(a.limit) || 4);
+      const domain = a.domain ? String(a.domain) : undefined;
+      const query = String(a.query);
+      let res = await semanticSearchCorpus(query, limit, domain);
+      // Cross-language fallback: the corpus is mostly Latin-script — expand
+      // common Arabic veterinary terms and retry once when the first pass misses.
+      if (res.rows.length === 0) {
+        const expanded = expandArabicAliases(query);
+        if (expanded !== query) res = await semanticSearchCorpus(expanded, limit, domain);
+      }
       return res.rows.map((r: { id: string; title: string; body: string; similarity?: number }) => ({
         id: r.id, title: r.title, excerpt: String(r.body).slice(0, 400), similarity: r.similarity,
       }));
