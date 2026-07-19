@@ -118,11 +118,11 @@ const TOOLS: ToolDef[] = [
       let res = await semanticSearchCorpus(query, limit, domain);
       // Cross-language fallback: the corpus is mostly Latin-script — expand
       // common Arabic veterinary terms and retry once when the first pass misses.
-      if (res.rows.length === 0) {
+      if (res.results.length === 0) {
         const expanded = expandArabicAliases(query);
         if (expanded !== query) res = await semanticSearchCorpus(expanded, limit, domain);
       }
-      return res.rows.map((r: { id: string; title: string; body: string; similarity?: number }) => ({
+      return res.results.map((r) => ({
         id: r.id, title: r.title, excerpt: String(r.body).slice(0, 400), similarity: r.similarity,
       }));
     },
