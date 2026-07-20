@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getProviderKey } from "./provider-keys-router";
 import { createRouter, protectedQuery } from "./middleware";
 
 /**
@@ -154,7 +155,7 @@ export const aiBridgeRouter = createRouter({
       model: z.string().max(80).default("gemini-3-pro-image-preview"),
     }))
     .mutation(async ({ input }) => {
-      const apiKey = process.env.GEMINI_API_KEY;
+      const apiKey = await getProviderKey("GEMINI_API_KEY", "GEMINI_API_KEY");
       if (!apiKey) {
         return { ok: false as const, reason: "GEMINI_API_KEY_NOT_CONFIGURED", imageBase64: "", mime: "" };
       }
@@ -198,7 +199,7 @@ export const aiBridgeRouter = createRouter({
       model: z.string().max(80).default("veo-3.1-generate-preview"),
     }))
     .mutation(async ({ input }) => {
-      const apiKey = process.env.GEMINI_API_KEY;
+      const apiKey = await getProviderKey("GEMINI_API_KEY", "GEMINI_API_KEY");
       if (!apiKey) {
         return { ok: false as const, reason: "GEMINI_API_KEY_NOT_CONFIGURED", operationName: "" };
       }
@@ -228,7 +229,7 @@ export const aiBridgeRouter = createRouter({
   videoStatus: protectedQuery
     .input(z.object({ operationName: z.string().min(1).max(500) }))
     .query(async ({ input }) => {
-      const apiKey = process.env.GEMINI_API_KEY;
+      const apiKey = await getProviderKey("GEMINI_API_KEY", "GEMINI_API_KEY");
       if (!apiKey) {
         return { ok: false as const, reason: "GEMINI_API_KEY_NOT_CONFIGURED", done: false, videoBase64: "" };
       }
@@ -279,7 +280,7 @@ export const aiBridgeRouter = createRouter({
       style: z.number().min(0).max(1).default(0.35),
     }))
     .mutation(async ({ input }) => {
-      const apiKey = process.env.ELEVENLABS_API_KEY;
+      const apiKey = await getProviderKey("ELEVENLABS_API_KEY", "ELEVENLABS_API_KEY");
       if (!apiKey) {
         return { ok: false as const, reason: "ELEVENLABS_API_KEY_NOT_CONFIGURED", audioBase64: "" };
       }
@@ -312,7 +313,7 @@ export const aiBridgeRouter = createRouter({
   /** List available ElevenLabs voices (to pick/clone the brand voice). */
   elevenLabsVoices: protectedQuery
     .query(async () => {
-      const apiKey = process.env.ELEVENLABS_API_KEY;
+      const apiKey = await getProviderKey("ELEVENLABS_API_KEY", "ELEVENLABS_API_KEY");
       if (!apiKey) return { ok: false as const, reason: "ELEVENLABS_API_KEY_NOT_CONFIGURED", voices: [] as Array<{ voiceId: string; name: string; category: string }> };
       try {
         const res = await fetch("https://api.elevenlabs.io/v1/voices", { headers: { "xi-api-key": apiKey } });
