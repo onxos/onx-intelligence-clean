@@ -49,4 +49,37 @@ export const opsRouter = createRouter({
         return { ok: false, status: 0, deployId: null, deployStatus: null, commit: null, reason: (err as Error).message };
       }
     }),
+
+  deployLog: protectedQuery
+    .input(z.object({
+      serviceId: z.string().min(1).max(64),
+      deployId: z.string().min(1).max(64),
+      renderApiKey: z.string().min(10).max(128),
+    }))
+    .query(async ({ input }) => {
+      const headers = { Authorization: `Bearer ${input.renderApiKey}` };
+      try {
+        const svcRes = await fetch(`https://api.render.com/v1/services/${input.serviceId}`, { headers });
+        const svc = (await svcRes.json().catch(() => ({}))) as Record<string, unknown>;
+        const ownerId = (svc as { ownerId?: string }).ownerId
+          ?? ((svc as { service?: { ownerId?: string } }).service?.ownerId)
+          ?? null;
+
+        const depRes = await fetch(`https://api.render.com/v1/services/${input.serviceId}/deploys/${input.deployId}`, { headers });
+        const dep = (await depRes.json().catch(() => ({}))) as Record<string, unknown>;
+
+        let logLines: string[] = [];
+        if (ownerId) {
+          const logsRes = await fetch(
+            `https://api.render.com/v1/logs?ownerId=${ownerId}&resource=${input.serviceId}&limit=300&direction=backward`,
+            { headers },
+          );
+          const logs = (await logsRes.json().catch(() => ({}))) as { logs?: Array<{ message?: string }> };
+          logLines = (logs.logs ?? []).map((l) => l.message ?? "").filter(Boolean).slice(0, 300);
+        }
+        return { ok: true, ownerId, deploy: dep, logLines };
+      } catch (err) {
+        return { ok: false, ownerId: null, deploy: null, logLines: [], reason: (err as Error).message };
+      }
+    }),
 });
