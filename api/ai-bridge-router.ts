@@ -92,4 +92,37 @@ export const aiBridgeRouter = createRouter({
         return { ok: false as const, reason: `PROVIDER_ERROR: ${(err as Error).message}`, imageBase64: "", mime: "" };
       }
     }),
+
+  /**
+   * Real Arabic-capable speech synthesis (OpenAI TTS) for sibling services.
+   * Returns base64 MP3 audio. Used by the marketing video pipeline for
+   * voiceovers — again without the caller needing its own key.
+   */
+  speech: protectedQuery
+    .input(z.object({
+      text: z.string().min(1).max(4000),
+      voice: z.enum(["alloy", "echo", "fable", "onyx", "nova", "shimmer"]).default("onyx"),
+      speed: z.number().min(0.25).max(4).default(1.0),
+    }))
+    .mutation(async ({ input }) => {
+      const apiKey = process.env.OPENAI_API_KEY;
+      if (!apiKey) {
+        return { ok: false as const, reason: "OPENAI_API_KEY_NOT_CONFIGURED", audioBase64: "" };
+      }
+      try {
+        const { default: OpenAI } = await import("openai");
+        const openai = new OpenAI({ apiKey });
+        const res = await openai.audio.speech.create({
+          model: "tts-1",
+          voice: input.voice,
+          input: input.text,
+          speed: input.speed,
+          response_format: "mp3",
+        });
+        const buf = Buffer.from(await res.arrayBuffer());
+        return { ok: true as const, audioBase64: buf.toString("base64"), mime: "audio/mpeg", model: "tts-1" };
+      } catch (err) {
+        return { ok: false as const, reason: `PROVIDER_ERROR: ${(err as Error).message}`, audioBase64: "" };
+      }
+    }),
 });
