@@ -94,15 +94,16 @@ export const aiBridgeRouter = createRouter({
     }),
 
   /**
-   * Real Arabic-capable speech synthesis (OpenAI TTS) for sibling services.
-   * Returns base64 MP3 audio. Used by the marketing video pipeline for
-   * voiceovers — again without the caller needing its own key.
+   * Real Arabic-capable speech synthesis for sibling services.
+   * Uses gpt-4o-mini-tts (steerable: dialect/emotion/pacing instructions)
+   * with tts-1 as automatic fallback. Returns base64 MP3 audio.
    */
   speech: protectedQuery
     .input(z.object({
       text: z.string().min(1).max(4000),
-      voice: z.enum(["alloy", "echo", "fable", "onyx", "nova", "shimmer"]).default("onyx"),
+      voice: z.enum(["alloy", "echo", "fable", "onyx", "nova", "shimmer", "ballad", "coral", "sage", "verse"]).default("onyx"),
       speed: z.number().min(0.25).max(4).default(1.0),
+      instructions: z.string().max(1000).optional(),
     }))
     .mutation(async ({ input }) => {
       const apiKey = process.env.OPENAI_API_KEY;
@@ -112,15 +113,29 @@ export const aiBridgeRouter = createRouter({
       try {
         const { default: OpenAI } = await import("openai");
         const openai = new OpenAI({ apiKey });
-        const res = await openai.audio.speech.create({
-          model: "tts-1",
-          voice: input.voice,
-          input: input.text,
-          speed: input.speed,
-          response_format: "mp3",
-        });
-        const buf = Buffer.from(await res.arrayBuffer());
-        return { ok: true as const, audioBase64: buf.toString("base64"), mime: "audio/mpeg", model: "tts-1" };
+        // Steerable model first — instructions carry dialect + emotion + pacing
+        try {
+          const res = await openai.audio.speech.create({
+            model: "gpt-4o-mini-tts",
+            voice: input.voice,
+            input: input.text,
+            speed: input.speed,
+            response_format: "mp3",
+            ...(input.instructions ? { instructions: input.instructions } : {}),
+          } as Parameters<typeof openai.audio.speech.create>[0]);
+          const buf = Buffer.from(await res.arrayBuffer());
+          return { ok: true as const, audioBase64: buf.toString("base64"), mime: "audio/mpeg", model: "gpt-4o-mini-tts" };
+        } catch (err) {
+          const res = await openai.audio.speech.create({
+            model: "tts-1",
+            voice: input.voice as "alloy",
+            input: input.text,
+            speed: input.speed,
+            response_format: "mp3",
+          });
+          const buf = Buffer.from(await res.arrayBuffer());
+          return { ok: true as const, audioBase64: buf.toString("base64"), mime: "audio/mpeg", model: "tts-1" };
+        }
       } catch (err) {
         return { ok: false as const, reason: `PROVIDER_ERROR: ${(err as Error).message}`, audioBase64: "" };
       }
