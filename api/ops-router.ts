@@ -82,4 +82,24 @@ export const opsRouter = createRouter({
         return { ok: false, ownerId: null, deploy: null, logLines: [], reason: (err as Error).message };
       }
     }),
+
+  setEnvVar: protectedQuery
+    .input(z.object({
+      serviceId: z.string().min(1).max(64),
+      renderApiKey: z.string().min(10).max(128),
+      key: z.string().min(1).max(64),
+      value: z.string().min(1).max(4000),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const res = await fetch(`https://api.render.com/v1/services/${input.serviceId}/env-vars/${input.key}`, {
+          method: "PUT",
+          headers: { Authorization: `Bearer ${input.renderApiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ value: input.value }),
+        });
+        return { ok: res.ok, status: res.status };
+      } catch (err) {
+        return { ok: false, status: 0, reason: (err as Error).message };
+      }
+    }),
 });
