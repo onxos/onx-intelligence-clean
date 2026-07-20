@@ -125,4 +125,125 @@ export const aiBridgeRouter = createRouter({
         return { ok: false as const, reason: `PROVIDER_ERROR: ${(err as Error).message}`, audioBase64: "" };
       }
     }),
+
+  /**
+   * Gemini image generation ("Nano Banana" family) via GEMINI_API_KEY.
+   * Higher fidelity than gpt-image-1 for ad creative + correct Arabic text
+   * rendering. Returns base64 image (data URL ready). Key-free fallback:
+   * returns KEY_NOT_CONFIGURED so the caller can fall back to OpenAI.
+   */
+  generateImageGemini: protectedQuery
+    .input(z.object({
+      prompt: z.string().min(1).max(4000),
+      aspectRatio: z.enum(["1:1", "16:9", "9:16", "4:3", "3:4"]).default("1:1"),
+      model: z.string().max(80).default("gemini-3-pro-image-preview"),
+    }))
+    .mutation(async ({ input }) => {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return { ok: false as const, reason: "GEMINI_API_KEY_NOT_CONFIGURED", imageBase64: "", mime: "" };
+      }
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${input.model}:generateContent?key=${apiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: input.prompt }] }],
+              generationConfig: { responseModalities: ["TEXT", "IMAGE"], imageConfig: { aspectRatio: input.aspectRatio } },
+            }),
+          },
+        );
+        const body = (await res.json()) as {
+          candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { mimeType?: string; data?: string } }> } }>;
+          error?: { message?: string };
+        };
+        if (!res.ok) {
+          return { ok: false as const, reason: `PROVIDER_ERROR: ${body?.error?.message ?? res.status}`, imageBase64: "", mime: "" };
+        }
+        const part = body.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data);
+        if (!part?.inlineData?.data) {
+          return { ok: false as const, reason: "PROVIDER_RETURNED_NO_IMAGE", imageBase64: "", mime: "" };
+        }
+        return { ok: true as const, imageBase64: part.inlineData.data, mime: part.inlineData.mimeType ?? "image/png", model: input.model };
+      } catch (err) {
+        return { ok: false as const, reason: `PROVIDER_ERROR: ${(err as Error).message}`, imageBase64: "", mime: "" };
+      }
+    }),
+
+  /**
+   * Veo generative video — starts a long-running generation operation.
+   * Poll with videoStatus. Requires GEMINI_API_KEY with Veo access.
+   */
+  generateVideoVeo: protectedQuery
+    .input(z.object({
+      prompt: z.string().min(1).max(4000),
+      aspectRatio: z.enum(["16:9", "9:16"]).default("16:9"),
+      model: z.string().max(80).default("veo-3.1-generate-preview"),
+    }))
+    .mutation(async ({ input }) => {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return { ok: false as const, reason: "GEMINI_API_KEY_NOT_CONFIGURED", operationName: "" };
+      }
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${input.model}:predictLongRunning?key=${apiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              instances: [{ prompt: input.prompt }],
+              parameters: { aspectRatio: input.aspectRatio },
+            }),
+          },
+        );
+        const body = (await res.json()) as { name?: string; error?: { message?: string } };
+        if (!res.ok || !body.name) {
+          return { ok: false as const, reason: `PROVIDER_ERROR: ${body?.error?.message ?? res.status}`, operationName: "" };
+        }
+        return { ok: true as const, operationName: body.name, model: input.model };
+      } catch (err) {
+        return { ok: false as const, reason: `PROVIDER_ERROR: ${(err as Error).message}`, operationName: "" };
+      }
+    }),
+
+  /** Poll a Veo long-running operation; returns video base64 when done. */
+  videoStatus: protectedQuery
+    .input(z.object({ operationName: z.string().min(1).max(500) }))
+    .query(async ({ input }) => {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return { ok: false as const, reason: "GEMINI_API_KEY_NOT_CONFIGURED", done: false, videoBase64: "" };
+      }
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/${input.operationName}?key=${apiKey}`,
+        );
+        const body = (await res.json()) as {
+          done?: boolean;
+          error?: { message?: string };
+          response?: { generateVideoResponse?: { generatedSamples?: Array<{ video?: { uri?: string; bytesBase64Encoded?: string } }> } };
+        };
+        if (body.error) {
+          return { ok: false as const, reason: `PROVIDER_ERROR: ${body.error.message}`, done: true, videoBase64: "" };
+        }
+        if (!body.done) {
+          return { ok: true as const, done: false as const, videoBase64: "" };
+        }
+        const sample = body.response?.generateVideoResponse?.generatedSamples?.[0]?.video;
+        if (sample?.bytesBase64Encoded) {
+          return { ok: true as const, done: true as const, videoBase64: sample.bytesBase64Encoded, mime: "video/mp4" };
+        }
+        if (sample?.uri) {
+          const vid = await fetch(`${sample.uri}${sample.uri.includes("?") ? "&" : "?"}key=${apiKey}`);
+          const buf = Buffer.from(await vid.arrayBuffer());
+          return { ok: true as const, done: true as const, videoBase64: buf.toString("base64"), mime: "video/mp4" };
+        }
+        return { ok: false as const, reason: "OPERATION_DONE_BUT_NO_VIDEO", done: true, videoBase64: "" };
+      } catch (err) {
+        return { ok: false as const, reason: `PROVIDER_ERROR: ${(err as Error).message}`, done: false, videoBase64: "" };
+      }
+    }),
 });
