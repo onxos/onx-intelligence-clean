@@ -261,4 +261,66 @@ export const aiBridgeRouter = createRouter({
         return { ok: false as const, reason: `PROVIDER_ERROR: ${(err as Error).message}`, done: false, videoBase64: "" };
       }
     }),
+
+  /**
+   * Premium voice path — ElevenLabs (v3 / Multilingual v2).
+   * The most expressive Arabic-capable voices available, plus optional
+   * voice cloning of a real (consented) Saudi voiceover artist as the
+   * permanent brand voice. Activated by ELEVENLABS_API_KEY; callers fall
+   * back to the steerable OpenAI path when not configured.
+   */
+  speechElevenLabs: protectedQuery
+    .input(z.object({
+      text: z.string().min(1).max(5000),
+      voiceId: z.string().max(64).default("21m00Tcm4TlvDq8ikWAM"),
+      modelId: z.string().max(64).default("eleven_multilingual_v2"),
+      stability: z.number().min(0).max(1).default(0.45),
+      similarityBoost: z.number().min(0).max(1).default(0.75),
+      style: z.number().min(0).max(1).default(0.35),
+    }))
+    .mutation(async ({ input }) => {
+      const apiKey = process.env.ELEVENLABS_API_KEY;
+      if (!apiKey) {
+        return { ok: false as const, reason: "ELEVENLABS_API_KEY_NOT_CONFIGURED", audioBase64: "" };
+      }
+      try {
+        const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${input.voiceId}`, {
+          method: "POST",
+          headers: { "xi-api-key": apiKey, "Content-Type": "application/json", Accept: "audio/mpeg" },
+          body: JSON.stringify({
+            text: input.text,
+            model_id: input.modelId,
+            voice_settings: {
+              stability: input.stability,
+              similarity_boost: input.similarityBoost,
+              style: input.style,
+              use_speaker_boost: true,
+            },
+          }),
+        });
+        if (!res.ok) {
+          const errBody = (await res.text().catch(() => "")).slice(0, 300);
+          return { ok: false as const, reason: `PROVIDER_ERROR_${res.status}: ${errBody}`, audioBase64: "" };
+        }
+        const buf = Buffer.from(await res.arrayBuffer());
+        return { ok: true as const, audioBase64: buf.toString("base64"), mime: "audio/mpeg", model: input.modelId };
+      } catch (err) {
+        return { ok: false as const, reason: `PROVIDER_ERROR: ${(err as Error).message}`, audioBase64: "" };
+      }
+    }),
+
+  /** List available ElevenLabs voices (to pick/clone the brand voice). */
+  elevenLabsVoices: protectedQuery
+    .query(async () => {
+      const apiKey = process.env.ELEVENLABS_API_KEY;
+      if (!apiKey) return { ok: false as const, reason: "ELEVENLABS_API_KEY_NOT_CONFIGURED", voices: [] as Array<{ voiceId: string; name: string; category: string }> };
+      try {
+        const res = await fetch("https://api.elevenlabs.io/v1/voices", { headers: { "xi-api-key": apiKey } });
+        const body = (await res.json()) as { voices?: Array<{ voice_id: string; name: string; category?: string }> };
+        const voices = (body.voices ?? []).map((v) => ({ voiceId: v.voice_id, name: v.name, category: v.category ?? "" }));
+        return { ok: true as const, voices };
+      } catch (err) {
+        return { ok: false as const, reason: `PROVIDER_ERROR: ${(err as Error).message}`, voices: [] as Array<{ voiceId: string; name: string; category: string }> };
+      }
+    }),
 });
