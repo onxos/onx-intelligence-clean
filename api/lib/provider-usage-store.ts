@@ -57,6 +57,9 @@ function getPool(): Pool {
  *  PROVIDER_PRICE_OVERRIDES='{"model":[in,out]}'. */
 const PRICE_TABLE: Record<string, { in: number; out: number; asOf: string }> = {
   "gpt-4o-mini": { in: 0.15, out: 0.6, asOf: "2026-01" },
+  // Official Moonshot platform pricing (cache-miss input / output), verified 2026-07-21
+  "kimi-k2.6": { in: 0.95, out: 4.0, asOf: "2026-07" },
+  "kimi-k2.7-code": { in: 0.95, out: 4.0, asOf: "2026-07" },
 };
 
 function priceFor(model: string): { in: number; out: number } | null {
