@@ -14,6 +14,7 @@
 import { semanticSearchCorpus, corpusRealCounts } from "./corpus-vector-search";
 import { agentLiveness, taskStats, submitTask } from "./agent-runtime-store";
 import { recordGovernanceDecision } from "./governance-log-store";
+import { recordUsage } from "./provider-usage-store";
 import { Pool } from "pg";
 
 // ---------- persistence ----------
@@ -146,6 +147,20 @@ const TOOLS: ToolDef[] = [
     execute: async () => taskStats(),
   },
   {
+    name: "provider_capital",
+    description: "Live AI-ledger: per-provider consumption (calls, tokens, cost, latency, reliability) and evidence-grounded capital profiles. Use when asked about AI spend, provider comparison, or which model is performing best.",
+    parameters: { type: "object", properties: {} },
+    execute: async () => {
+      const { usageAggregates } = await import("./provider-usage-store");
+      const { providerCapitalProfiles } = await import("./provider-capital-engine");
+      const [usage, profiles] = await Promise.all([usageAggregates(24 * 30), providerCapitalProfiles(24 * 30)]);
+      return {
+        usage,
+        capital: profiles.map((p) => ({ provider: p.provider, total: p.total, coveragePct: p.coveragePct, calls: p.calls })),
+      };
+    },
+  },
+  {
     name: "delegate_task",
     description: "Delegate a concrete work item to the standing agent workforce (queued, processed by the rhythm loop).",
     parameters: {
@@ -216,13 +231,33 @@ export async function runAgenticLoop(goal: string, maxSteps = 8): Promise<Agenti
 
   try {
     for (let step = 0; step < maxSteps; step++) {
-      const res = await openai.chat.completions.create({
-        model: cfg.model,
-        messages: messages as never,
-        tools: toolSpecs as never,
-        tool_choice: "auto",
-        temperature: 1, // kimi-k2.x reasoning models accept only temperature=1
-      });
+      const llmT0 = Date.now();
+      let res;
+      try {
+        res = await openai.chat.completions.create({
+          model: cfg.model,
+          messages: messages as never,
+          tools: toolSpecs as never,
+          tool_choice: "auto",
+          temperature: 1, // kimi-k2.x reasoning models accept only temperature=1
+        });
+        void recordUsage({
+          provider: cfg.provider === "custom" ? "kimi" : cfg.provider,
+          model: cfg.model, kind: "chat",
+          promptTokens: res.usage?.prompt_tokens ?? 0,
+          completionTokens: res.usage?.completion_tokens ?? 0,
+          latencyMs: Date.now() - llmT0, success: true,
+          purpose: `agentic-loop:${id}`,
+        });
+      } catch (llmErr) {
+        void recordUsage({
+          provider: cfg.provider === "custom" ? "kimi" : cfg.provider,
+          model: cfg.model, kind: "chat",
+          latencyMs: Date.now() - llmT0, success: false,
+          purpose: `agentic-loop:${id}`, error: (llmErr as Error).message.slice(0, 200),
+        });
+        throw llmErr;
+      }
       const msg = res.choices[0]?.message;
       if (!msg) throw new Error("empty provider response");
 

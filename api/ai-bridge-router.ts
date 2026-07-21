@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { getProviderKey } from "./provider-keys-router";
+import { recordUsage } from "./lib/provider-usage-store";
 import { createRouter, protectedQuery } from "./middleware";
 
 /**
@@ -36,6 +37,12 @@ export const aiBridgeRouter = createRouter({
           messages,
           temperature: input.temperature,
           max_tokens: input.maxTokens,
+        });
+        void recordUsage({
+          provider: "openai", model: input.model, kind: "chat",
+          promptTokens: res.usage?.prompt_tokens ?? 0,
+          completionTokens: res.usage?.completion_tokens ?? 0,
+          success: true, purpose: "ai-bridge.chat",
         });
         return {
           ok: true as const,
@@ -159,6 +166,9 @@ export const aiBridgeRouter = createRouter({
       if (!apiKey) {
         return { ok: false as const, reason: "GEMINI_API_KEY_NOT_CONFIGURED", imageBase64: "", mime: "" };
       }
+      const t0 = Date.now();
+      const meter = (success: boolean, error?: string) =>
+        void recordUsage({ provider: "google", model: input.model, kind: "image", latencyMs: Date.now() - t0, success, purpose: "ai-bridge.generateImageGemini", error });
       try {
         const res = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${input.model}:generateContent?key=${apiKey}`,
@@ -176,14 +186,18 @@ export const aiBridgeRouter = createRouter({
           error?: { message?: string };
         };
         if (!res.ok) {
+          meter(false, (body?.error?.message ?? String(res.status)).slice(0, 200));
           return { ok: false as const, reason: `PROVIDER_ERROR: ${body?.error?.message ?? res.status}`, imageBase64: "", mime: "" };
         }
         const part = body.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data);
         if (!part?.inlineData?.data) {
+          meter(false, "PROVIDER_RETURNED_NO_IMAGE");
           return { ok: false as const, reason: "PROVIDER_RETURNED_NO_IMAGE", imageBase64: "", mime: "" };
         }
+        meter(true);
         return { ok: true as const, imageBase64: part.inlineData.data, mime: part.inlineData.mimeType ?? "image/png", model: input.model };
       } catch (err) {
+        meter(false, (err as Error).message.slice(0, 200));
         return { ok: false as const, reason: `PROVIDER_ERROR: ${(err as Error).message}`, imageBase64: "", mime: "" };
       }
     }),
@@ -217,10 +231,13 @@ export const aiBridgeRouter = createRouter({
         );
         const body = (await res.json()) as { name?: string; error?: { message?: string } };
         if (!res.ok || !body.name) {
+          void recordUsage({ provider: "google", model: input.model, kind: "video", success: false, purpose: "ai-bridge.generateVideoVeo", error: (body?.error?.message ?? String(res.status)).slice(0, 200) });
           return { ok: false as const, reason: `PROVIDER_ERROR: ${body?.error?.message ?? res.status}`, operationName: "" };
         }
+        void recordUsage({ provider: "google", model: input.model, kind: "video", success: true, purpose: "ai-bridge.generateVideoVeo" });
         return { ok: true as const, operationName: body.name, model: input.model };
       } catch (err) {
+        void recordUsage({ provider: "google", model: input.model, kind: "video", success: false, purpose: "ai-bridge.generateVideoVeo", error: (err as Error).message.slice(0, 200) });
         return { ok: false as const, reason: `PROVIDER_ERROR: ${(err as Error).message}`, operationName: "" };
       }
     }),

@@ -32,6 +32,7 @@ import { corpusQueryRouter } from "./corpus-query-router";
 import { aiBridgeRouter } from "./ai-bridge-router";
 import { opsRouter } from "./ops-router";
 import { providerKeysRouter } from "./provider-keys-router";
+import { providerCapitalRouter } from "./provider-capital-router";
 import { agenticLoopRouter } from "./agentic-loop-router";
 import { intentEngineRouter } from "./intent-engine-router";
 import { providersRouter } from "./providers-router";
@@ -171,6 +172,7 @@ export const appRouter = createRouter({
   aiBridge: aiBridgeRouter,
   ops: opsRouter,
   providerKeys: providerKeysRouter,
+  providerCapital: providerCapitalRouter,
   // Agentic loop: the brain as an agent — goal->tools->grounded answer, persisted + governed
   agentic: agenticLoopRouter,
   intentEngine: intentEngineRouter,
