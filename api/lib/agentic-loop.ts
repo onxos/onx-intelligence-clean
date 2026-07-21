@@ -371,7 +371,7 @@ export async function runAgenticLoop(goal: string, maxSteps = 8, history: Conver
   if (status === "completed" && answer && history.length === 0) {
     // Volatile answers (grounded in live-state tools) expire in minutes;
     // knowledge answers live for a week (D17: never serve stale truth as fresh).
-    const VOLATILE_TOOLS = new Set(["agents_liveness", "task_queue_stats", "corpus_stats", "provider_capital"]);
+    const VOLATILE_TOOLS = new Set(["agents_liveness", "task_queue_stats", "corpus_stats", "provider_capital", "marketing_ops"]);
     const usedVolatile = steps.some((s) => s.kind === "tool_call" && s.tool && VOLATILE_TOOLS.has(s.tool));
     void learnAnswer(goal, answer, cfg.model, usedVolatile ? "volatile" : "stable");
   }
