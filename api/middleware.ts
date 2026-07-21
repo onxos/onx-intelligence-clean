@@ -5,6 +5,8 @@ import type { TrpcContext } from "./context";
 import { Guardian, USFIPv2Engine } from "@onx/intelligence-runtime";
 import { env } from "./lib/env";
 import { recordGovernanceDecision } from "./lib/governance-log-store";
+import { evaluateSech } from "./lib/sech-gate";
+import { roleHasPermission, type Permission } from "./lib/rbac";
 
 // Shared runtime instances
 export const guardian = new Guardian();
@@ -37,7 +39,7 @@ const requireAuth = t.middleware(async (opts) => {
 const constitutionalCheck = t.middleware(async (opts) => {
   const { ctx, next, path } = opts;
 
-  // Run USFIP v2 audit
+  // Run USFIP v2 audit to obtain the constitutional score.
   const audit = usfip.fullAudit({
     path,
     userId: ctx.user?.unionId ?? "anonymous",
@@ -45,47 +47,59 @@ const constitutionalCheck = t.middleware(async (opts) => {
     timestamp: new Date().toISOString(),
   });
 
-  // Guardian Amanah check
-  const amanahResult = guardian.checkAmanah(audit.score);
-
-  // Log governance decision (non-blocking — best effort)
-  recordGovernanceDecision({
-    auditId: `gov-${Date.now()}`,
-    path,
-    userId: ctx.user?.unionId ?? "anonymous",
-    role: ctx.user?.role ?? "user",
-    amanahScore: audit.score,
-    passed: amanahResult.passed,
-    level: amanahResult.passed ? "GREEN" : "RED",
-    shadowTrusted: true,
-  });
-  if (!amanahResult.passed) {
-    process.stderr.write(
-      `[Guardian] BLOCKED ${path} — Amanah: ${audit.score} < 0.5 (user: ${ctx.user?.unionId ?? "anon"})\n`
-    );
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: `Constitutional violation: Amanah score ${audit.score} below required threshold (0.5). Principle: ${amanahResult.message}`,
-    });
-  }
-
-  // Shadow validation
+  // Shadow / provenance validation feeds the gate.
   const shadowResult = guardian.validateShadow(
     ctx.user ? "L1_VERIFIED" : "L8_GENERAL"
   );
 
-  if (!shadowResult.trusted) {
-    process.stderr.write(`[Guardian] SHADOW WARNING: ${path} — ${shadowResult.message}\n`);
+  // C-1: fail-closed SECH gate. DENY-BY-DEFAULT — a request is only
+  // allowed when it positively clears every constitutional gate. Missing
+  // identity, an uncomputable audit, a sub-floor score, or unverified
+  // provenance are refused/escalated (never silently approved), and the
+  // machine-readable reason is persisted for accountability.
+  const auditId = `gov-${Date.now()}`;
+  const verdict = evaluateSech({
+    path,
+    userId: ctx.user?.unionId,
+    role: ctx.user?.role,
+    amanahScore: audit.score,
+    shadowTrusted: shadowResult.trusted,
+  });
+
+  // Log governance decision (non-blocking — best effort).
+  recordGovernanceDecision({
+    auditId,
+    path,
+    userId: ctx.user?.unionId ?? "anonymous",
+    role: ctx.user?.role ?? "user",
+    amanahScore: verdict.amanahScore,
+    passed: verdict.allowed,
+    level: verdict.level,
+    shadowTrusted: shadowResult.trusted,
+  });
+
+  if (!verdict.allowed) {
+    process.stderr.write(
+      `[SECH] ${verdict.decision} ${path} — ${verdict.reasonCode}: ${verdict.reason} ` +
+        `(user: ${ctx.user?.unionId ?? "anon"})\n`
+    );
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        `Constitutional gate ${verdict.decision} (${verdict.reasonCode}): ${verdict.reason}`,
+    });
   }
 
   return next({
     ctx: {
       ...ctx,
       constitutional: {
-        amanahScore: audit.score,
-        passed: amanahResult.passed,
+        amanahScore: verdict.amanahScore,
+        passed: verdict.allowed,
+        decision: verdict.decision,
+        reasonCode: verdict.reasonCode,
         shadowValidated: shadowResult.trusted,
-        auditId: `gov-${Date.now()}`,
+        auditId,
       },
     },
   });
@@ -110,6 +124,37 @@ export const authedQuery = t.procedure.use(requireAuth);
 export const adminQuery = authedQuery.use(requireRole("admin"));
 // Protected + Constitutional — all sensitive procedures use this
 export const constitutionalProcedure = authedQuery.use(constitutionalCheck);
+
+// ============================================================
+// RBAC ENFORCEMENT (M-11)
+// Binds the shared role/permission model to the request path. Unlike
+// the reporting-only auth-hardening router, this middleware actually
+// blocks: an authenticated principal whose role lacks the required
+// permission is rejected with FORBIDDEN (deny-by-default).
+// ============================================================
+function requirePermission(permission: Permission) {
+  return t.middleware(async (opts) => {
+    const { ctx, next } = opts;
+    if (!ctx.user) {
+      throw new TRPCError({
+        code: "UNAUTHORIZED",
+        message: ErrorMessages.unauthenticated,
+      });
+    }
+    if (!roleHasPermission(ctx.user.role, permission)) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: `${ErrorMessages.insufficientRole} (missing permission: ${permission})`,
+      });
+    }
+    return next({ ctx: { ...ctx, user: ctx.user } });
+  });
+}
+
+/** Build an authenticated procedure that enforces a specific permission. */
+export function permissionProcedure(permission: Permission) {
+  return authedQuery.use(requirePermission(permission));
+}
 
 
 
@@ -147,3 +192,48 @@ const requireUserOrBridge = t.middleware(async (opts) => {
 });
 
 export const protectedQuery = t.procedure.use(requireUserOrBridge);
+
+// ============================================================
+// PROTECTED + RBAC GUARD (M-11)
+// Same server-to-server bridge acceptance as protectedQuery, but a
+// *human* principal must additionally hold the required permission.
+// Bridge machines (already authenticated by shared secret) bypass the
+// per-user permission check; anonymous callers are always rejected.
+// ============================================================
+function requireUserPermissionOrBridge(permission: Permission) {
+  return t.middleware(async (opts) => {
+    const { ctx, next, path } = opts;
+    if (ctx.user) {
+      if (!roleHasPermission(ctx.user.role, permission)) {
+        recordGovernanceDecision({
+          auditId: `gov-${Date.now()}`,
+          path,
+          userId: ctx.user.unionId,
+          role: ctx.user.role,
+          amanahScore: 0,
+          passed: false,
+          level: "RED",
+          shadowTrusted: true,
+        });
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: `${ErrorMessages.insufficientRole} (missing permission: ${permission})`,
+        });
+      }
+      return next({ ctx: { ...ctx, user: ctx.user } });
+    }
+    const key = ctx.req.headers.get("x-onx-bridge-key");
+    if (env.bridgeSharedSecret && key && key === env.bridgeSharedSecret) {
+      return next({ ctx: { ...ctx, bridgeMachine: true as const } });
+    }
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: ErrorMessages.unauthenticated,
+    });
+  });
+}
+
+/** Protected (user-or-bridge) procedure that also enforces a permission for human users. */
+export function protectedPermissionProcedure(permission: Permission) {
+  return t.procedure.use(requireUserPermissionOrBridge(permission));
+}

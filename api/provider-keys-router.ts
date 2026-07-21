@@ -1,6 +1,10 @@
 import { z } from "zod";
-import { createRouter, protectedQuery } from "./middleware";
+import { createRouter, protectedQuery, protectedPermissionProcedure } from "./middleware";
 import { Pool } from "pg";
+
+// M-11: writing/removing third-party provider secrets requires runtime:admin
+// for human principals (bridge machines remain accepted server-to-server).
+const adminKeysProcedure = protectedPermissionProcedure("runtime:admin");
 
 /**
  * Provider Keys Vault — runtime-managed third-party API keys.
@@ -49,7 +53,7 @@ export async function getProviderKey(provider: string, envVar?: string): Promise
 }
 
 export const providerKeysRouter = createRouter({
-  set: protectedQuery
+  set: adminKeysProcedure
     .input(z.object({
       provider: z.string().min(2).max(64),
       keyValue: z.string().min(4).max(4000),
@@ -75,7 +79,7 @@ export const providerKeysRouter = createRouter({
     }
   }),
 
-  remove: protectedQuery
+  remove: adminKeysProcedure
     .input(z.object({ provider: z.string().min(2).max(64) }))
     .mutation(async ({ input }) => {
       await getPool().query("DELETE FROM onx_provider_keys WHERE provider = $1", [input.provider]);

@@ -5,95 +5,7 @@
 // ============================================================
 import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
-
-// --- RBAC v2 Permission System ---
-type Permission =
-  | "intelligence:read" | "intelligence:write" | "intelligence:admin"
-  | "runtime:read" | "runtime:execute" | "runtime:admin"
-  | "titan:ask" | "titan:council" | "titan:admin"
-  | "constitution:validate" | "constitution:admin"
-  | "user:read" | "user:manage"
-  | "system:admin" | "system:audit";
-
-interface RoleDef {
-  id: string;
-  nameAr: string;
-  nameEn: string;
-  permissions: Permission[];
-  level: number; // Higher = more privileged
-  maxRequestsPerMinute: number;
-  maxTokensPerDay: number;
-}
-
-const ROLES: Record<string, RoleDef> = {
-  guest: {
-    id: "guest",
-    nameAr: "ضيف",
-    nameEn: "Guest",
-    permissions: ["intelligence:read"],
-    level: 0,
-    maxRequestsPerMinute: 10,
-    maxTokensPerDay: 1000,
-  },
-  user: {
-    id: "user",
-    nameAr: "مستخدم",
-    nameEn: "User",
-    permissions: ["intelligence:read", "intelligence:write", "titan:ask", "constitution:validate"],
-    level: 1,
-    maxRequestsPerMinute: 30,
-    maxTokensPerDay: 10000,
-  },
-  operator: {
-    id: "operator",
-    nameAr: "مشغل",
-    nameEn: "Operator",
-    permissions: [
-      "intelligence:read", "intelligence:write", "intelligence:admin",
-      "runtime:read", "runtime:execute",
-      "titan:ask", "titan:council",
-      "constitution:validate",
-      "user:read",
-    ],
-    level: 2,
-    maxRequestsPerMinute: 60,
-    maxTokensPerDay: 50000,
-  },
-  admin: {
-    id: "admin",
-    nameAr: "مدير",
-    nameEn: "Administrator",
-    permissions: [
-      "intelligence:read", "intelligence:write", "intelligence:admin",
-      "runtime:read", "runtime:execute", "runtime:admin",
-      "titan:ask", "titan:council", "titan:admin",
-      "constitution:validate", "constitution:admin",
-      "user:read", "user:manage",
-      "system:audit",
-    ],
-    level: 3,
-    maxRequestsPerMinute: 120,
-    maxTokensPerDay: 200000,
-  },
-  founder: {
-    id: "founder",
-    nameAr: "المؤسس",
-    nameEn: "Founder",
-    permissions: [
-      "intelligence:read", "intelligence:write", "intelligence:admin",
-      "runtime:read", "runtime:execute", "runtime:admin",
-      "titan:ask", "titan:council", "titan:admin",
-      "constitution:validate", "constitution:admin",
-      "user:read", "user:manage",
-      "system:admin", "system:audit",
-    ],
-    level: 4,
-    maxRequestsPerMinute: 1000,
-    maxTokensPerDay: 1000000,
-  },
-};
-
-// --- Rate Limiting (in-memory) ---
+import { ROLES, roleHasPermission, type Permission } from "./lib/rbac";
 const rateLimits: Map<string, { count: number; resetAt: number }> = new Map();
 const tokenUsage: Map<string, { tokens: number; resetAt: number }> = new Map();
 
@@ -134,12 +46,9 @@ function checkTokenLimit(userId: string, tokens: number, maxDaily: number): { al
   return { allowed: true, remaining: maxDaily - newTotal };
 }
 
-// --- Permission Checker ---
-function hasPermission(roleId: string, permission: Permission): boolean {
-  const role = ROLES[roleId];
-  if (!role) return false;
-  return role.permissions.includes(permission);
-}
+// --- Permission Checker (delegates to shared RBAC model) ---
+const hasPermission = (roleId: string, permission: Permission): boolean =>
+  roleHasPermission(roleId, permission);
 
 // --- Audit Log ---
 const auditLog: Array<{
