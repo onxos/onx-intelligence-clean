@@ -139,7 +139,24 @@ export async function recallAnswer(goal: string): Promise<CacheHit | null> {
       [literal, SEMANTIC_THRESHOLD],
     );
     const row = sem.rows[0];
-    if (!row) return null;
+    if (!row) {
+      // Calibration visibility: meter the best similarity found (even below
+      // threshold) so the ledger shows how close the miss was.
+      const best = await p.query(
+        `SELECT 1 - (embedding <=> $1::vector) AS sim
+           FROM onx_answer_cache WHERE embedding IS NOT NULL
+           ORDER BY embedding <=> $1::vector LIMIT 1`,
+        [literal],
+      );
+      const sim = best.rows[0]?.sim;
+      if (typeof sim === "number") {
+        void recordUsage({
+          provider: "onx-cache", model: "onx-knowledge-store", kind: "probe",
+          success: false, purpose: `cache-miss:best-sim:${sim.toFixed(3)}`,
+        });
+      }
+      return null;
+    }
     await p.query(
       `UPDATE onx_answer_cache SET hits = hits + 1, last_hit_at = now() WHERE goal_norm = $1`,
       [normalizeGoal(row.goal)],
