@@ -181,7 +181,7 @@ const TOOLS: ToolDef[] = [
         const data = (await res.json()) as Record<string, unknown>;
         if (MUTATING.has(action)) {
           recordGovernanceDecision({
-            auditId: `marketing-ops-${id}`, path: `marketing_ops.${action}${args.jobId ? `:${args.jobId}` : ""}`,
+            auditId: `marketing-ops-${Date.now()}`, path: `marketing_ops.${action}${args.jobId ? `:${args.jobId}` : ""}`,
             userId: "agentic-loop", role: "system",
             amanahScore: res.ok ? 1 : 0.5, passed: res.ok,
             level: res.ok ? "GREEN" : "YELLOW", shadowTrusted: true,

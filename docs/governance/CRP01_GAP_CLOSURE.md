@@ -75,3 +75,73 @@ green. This fix only guarantees a working `npm ci` on **this branch**; the
 same unreachable-mirror problem still affects `main` and any other branch
 built from a lockfile with the old host — worth a follow-up outside this
 PR's scope to fully purge the mirror host repo-wide.
+
+### Additional pre-existing CI breakage found and fixed while verifying green CI
+
+After the mirror fix, real GitHub Actions CI on this PR still showed two
+more failing jobs (`codex-guard`, `truth-gates`), both for reasons unrelated
+to the npm mirror and **confirmed pre-existing on `origin/main`** (verified
+by checking out `origin/main` into a scratch worktree and running the exact
+failing command there):
+
+1. **`codex-guard` — a real, un-baselined `FAIL_OPEN` violation.** The
+   scanner (`scripts/codex-guard-scan.ts`) re-scans the *whole content* of
+   every file touched by a PR's diff (not just changed lines), so touching
+   any part of `api/provider-keys-router.ts` for M-11 (RBAC on `set`/
+   `remove`) also re-surfaced a pre-existing, never-baselined fail-open
+   pattern in that file's untouched `list` query: on a vault read failure it
+   silently returned `{ ok: true, keys: [] }`, masking an outage as "zero
+   keys configured." **Fixed properly** (not baselined, since this PR's
+   whole mandate is fail-closed): the catch now throws
+   `TRPCError({ code: "INTERNAL_SERVER_ERROR" })` instead of masking the
+   failure as success. No caller depended on the old shape (grepped the
+   repo — no frontend/test consumer of `providerKeys.list` existed yet).
+
+2. **`truth-gates` — pre-existing whole-repo breakage, unrelated to any file
+   in this PR's diff:**
+   - `npm run check` (`tsc -b`, a strict whole-project build gate) failed on
+     dead/unused code in `api/agent-runtime-router.ts` (a duplicated,
+     unused `executeTask`/unused imports left over from a refactor to
+     `agent-runtime-store.agentTick`), a stray undefined `id` reference in
+     `api/lib/agentic-loop.ts`, an unused React import in
+     `src/mobile/App.tsx`, a reference to a non-existent `totalStaff` field
+     in `src/pages/AdminPilot.tsx`, and several `unknown`-typed field
+     renders in `src/pages/EvidenceRegistry.tsx` (the `evidenceRegistry`
+     router returns `Record<string, unknown>` rows). None of these files
+     were touched by this PR's gap-closure commits — confirmed identical
+     failures when running `npm run check` against a clean `origin/main`
+     checkout. Fixed all of them (dead-code removal, a `Date.now()` id, an
+     unused import removal, dropping the non-existent field, and
+     `String(...)` casts at the render sites) since `truth-gates` is a
+     whole-repo gate that blocks *any* PR until it's clean.
+   - `npm test` (`vitest run`) had one pre-existing failing assertion in
+     `api/__tests__/programs.test.ts` (`OCPP — Prosperity Program`):
+     expected `dimensions` to have length 7, but the router
+     (`api/ocpp-router.ts`) defines 9 dimensions whose weights already sum
+     to `1.00` — the test's literal `7` was simply stale from before the
+     dimension set was expanded. Updated the assertion to `9` to match the
+     current, intentional implementation. Confirmed identical failure on
+     `origin/main`.
+   - `npm run guard:scan` (codex-guard's script run with **no** `--base`,
+     i.e. scanning the *entire* `api/`/`src/` tree unconditionally) found 3
+     more un-baselined pre-existing deviations in files never touched by
+     this PR (`api/ai-bridge-router.ts` — a legitimate fallback-succeeded
+     path flagged by the scanner's simple heuristic, not a real fail-open;
+     `api/lib/agent-runtime-store.ts` and `api/lib/scheduler-cycle-store.ts`
+     — both just doc-comment references to the existing
+     "consciousness-rhythm" scheduler terminology, already accepted
+     elsewhere in the baseline for sibling files). Regenerated
+     `docs/codex-guard-baseline.json` via the tool's own supported
+     `--emit-baseline` flag to capture this pre-existing debt as
+     known-legacy (still reported, never silently muted) — the officially
+     designed remediation path for exactly this situation. This also
+     dropped one stale entry (`api/health-router.ts`) that no longer has
+     the violation, confirming the baseline was simply out of date (likely
+     because `codex-guard`/`truth-gates` had never completed a clean run on
+     `main`, due to the same npm-mirror breakage described above).
+
+All of the above (build gate, test suite, both guard-scan invocations) were
+re-verified locally after these fixes: `npm run check`, `npm test` (1428/1428
+passing, 9 intentionally skipped), `npm run guard:scan`,
+`npm run guard:scan -- --base=origin/main`, `npm run verify:self`,
+`npm run eval:golden`, and `npm run verify:corpus` all exit 0.

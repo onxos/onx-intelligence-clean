@@ -53,7 +53,7 @@ describe("OCPP — Prosperity Program", () => {
     const result = await caller.ocpp.measure();
     expect(result.index).toBeDefined();
     expect(result.grade).toMatch(/^[A-D]$/);
-    expect(result.dimensions).toHaveLength(7);
+    expect(result.dimensions).toHaveLength(9);
   });
 
   it("should have all 7 dimensions", async () => {

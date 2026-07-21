@@ -1,5 +1,4 @@
 // ONX Mobile — root shell. Shares the AppRouter tRPC contract with the web app.
-import React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const queryClient = new QueryClient();

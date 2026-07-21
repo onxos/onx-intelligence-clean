@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { createRouter, protectedQuery, protectedPermissionProcedure } from "./middleware";
 import { Pool } from "pg";
 
@@ -75,7 +76,13 @@ export const providerKeysRouter = createRouter({
       const res = await getPool().query("SELECT provider, label, updated_at FROM onx_provider_keys ORDER BY provider");
       return { ok: true as const, keys: res.rows as Array<{ provider: string; label: string; updated_at: string }> };
     } catch {
-      return { ok: true as const, keys: [] as Array<{ provider: string; label: string; updated_at: string }> };
+      // Fail-closed: a vault read failure must surface as an error, never
+      // as a silent "zero keys configured" (which could mask an outage as
+      // an empty/misconfigured vault to the caller).
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Provider keys vault temporarily unavailable",
+      });
     }
   }),
 
