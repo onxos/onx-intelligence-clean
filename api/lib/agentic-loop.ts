@@ -221,7 +221,7 @@ export async function runAgenticLoop(goal: string, maxSteps = 8): Promise<Agenti
         messages: messages as never,
         tools: toolSpecs as never,
         tool_choice: "auto",
-        temperature: 0.3,
+        temperature: 1, // kimi-k2.x reasoning models accept only temperature=1
       });
       const msg = res.choices[0]?.message;
       if (!msg) throw new Error("empty provider response");
