@@ -15,6 +15,7 @@ import { semanticSearchCorpus, corpusRealCounts } from "./corpus-vector-search";
 import { agentLiveness, taskStats, submitTask } from "./agent-runtime-store";
 import { recordGovernanceDecision } from "./governance-log-store";
 import { recordUsage } from "./provider-usage-store";
+import { recallAnswer, learnAnswer } from "./answer-cache";
 import { Pool } from "pg";
 
 // ---------- persistence ----------
@@ -209,6 +210,24 @@ export async function runAgenticLoop(goal: string, maxSteps = 8): Promise<Agenti
   const cfg = providerConfig();
   const steps: AgenticStep[] = [];
 
+  // Knowledge sovereignty: a learned answer is never purchased twice.
+  const cached = await recallAnswer(goal);
+  if (cached) {
+    void recordUsage({
+      provider: "onx-cache", model: "onx-knowledge-store", kind: "chat",
+      promptTokens: 0, completionTokens: 0,
+      latencyMs: Date.now() - started, success: true,
+      purpose: `agentic-loop:cache-hit:${id}`,
+    });
+    return {
+      id, goal, status: "completed",
+      answer: cached.answer,
+      model: "onx-knowledge-store", provider: "cache",
+      steps: [{ step: 1, kind: "final" }], toolCalls: 0,
+      durationMs: Date.now() - started,
+    };
+  }
+
   if (!cfg.apiKey) {
     return { id, goal, status: "failed", answer: "AGENTIC provider not configured (OPENAI_API_KEY or AGENTIC_API_KEY+AGENTIC_BASE_URL missing)", model: cfg.model, provider: cfg.provider, steps, toolCalls: 0, durationMs: Date.now() - started };
   }
@@ -297,6 +316,10 @@ export async function runAgenticLoop(goal: string, maxSteps = 8): Promise<Agenti
   } catch (err) {
     status = "failed";
     answer = `Agentic loop failed: ${(err as Error).message}`;
+  }
+
+  if (status === "completed" && answer) {
+    void learnAnswer(goal, answer, cfg.model);
   }
 
   const run: AgenticRun = {

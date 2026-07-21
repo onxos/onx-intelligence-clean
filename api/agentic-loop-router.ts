@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createRouter, protectedQuery } from "./middleware";
 import { runAgenticLoop, listAgenticRuns, getAgenticRun } from "./lib/agentic-loop";
+import { cacheStats, clearCache } from "./lib/answer-cache";
 
 /**
  * Agentic Loop router — the brain as an agent: goal in, grounded answer out,
@@ -22,6 +23,12 @@ export const agenticLoopRouter = createRouter({
   get: protectedQuery
     .input(z.object({ id: z.string().min(4) }))
     .query(async ({ input }) => getAgenticRun(input.id)),
+
+  /** Knowledge-sovereignty cache: entries, hits, estimated tokens saved. */
+  cacheStats: protectedQuery.query(async () => cacheStats()),
+
+  /** Flush the learned-answer cache (founder command). */
+  cacheClear: protectedQuery.mutation(async () => clearCache()),
 
   capabilities: protectedQuery.query(async () => ({
     tools: ["corpus_search", "corpus_stats", "agents_liveness", "task_queue_stats", "delegate_task"],
