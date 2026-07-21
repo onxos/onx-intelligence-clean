@@ -77,10 +77,26 @@ const AR_STOPWORDS = new Set([
   "ما", "ماهي", "ماذا", "التي", "الذي", "على", "الي", "الى", "ان", "في", "من", "عن",
   "هو", "هي", "كيف", "ايش", "عند", "هل", "او", "ثم", "قد", "لا", "لم", "لن", "كان",
   "هذا", "هذه", "ذلك", "مع", "كل", "بعد", "قبل", "عندما", "اذا", "يا", "ياي",
+  "وش", "اللي", "تدل", "علي", "بسبب", "ضد", "حتى", "لقد", "انه", "انها", "يكون",
 ]);
 
+/** Light Arabic stemming for token comparison: drop the definite article and
+ *  single-letter prefixes (و ب ل ف ك س) so «بمرض» = «مرض» = «والمرض». */
+function stemToken(t: string): string {
+  let s = t;
+  if (s.startsWith("ال") && s.length > 4) s = s.slice(2);
+  if (s.length > 3 && "وبلفكس".includes(s[0])) s = s.slice(1);
+  if (s.startsWith("ال") && s.length > 4) s = s.slice(2);
+  return s;
+}
+
 function contentTokens(norm: string): Set<string> {
-  return new Set(norm.split(" ").filter((t) => t.length > 1 && !AR_STOPWORDS.has(t)));
+  return new Set(
+    norm.split(" ")
+      .filter((t) => t.length > 1 && !AR_STOPWORDS.has(t))
+      .map(stemToken)
+      .filter((t) => t.length > 1 && !AR_STOPWORDS.has(t)),
+  );
 }
 
 function tokenOverlap(a: Set<string>, b: Set<string>): number {
