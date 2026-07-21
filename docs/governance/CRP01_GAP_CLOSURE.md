@@ -55,3 +55,23 @@ shipped in the production bundle) bundling its own internal, outdated
 `0.18.1`** — 13+ minor versions back, which is a functional regression, not
 a safe fix. This residual risk is accepted and documented here; revisit when
 `drizzle-kit` ships a release with an updated internal esbuild.
+
+### Unreachable private npm mirror (pre-existing on `main`, was blocking CI)
+
+While bumping `esbuild`/`@sentry/node`, `npm audit fix` and `npm install`
+rewrote 62 of 63 `package-lock.json` `resolved` URLs that pointed at a
+private mirror host, `npm.mirrors.msh.team`, back to the public
+`registry.npmjs.org` (that mirror is unreachable from both this sandbox and
+GitHub Actions runners — confirmed via CI logs on this PR and on `main`
+itself, where every push has been failing `ONX CI Gate` / `Codex Guard` /
+`UEP Full Validation` with `npm error code ENOTFOUND ... npm.mirrors.msh.team`
+for several commits already, unrelated to this PR). One straggler reference
+(`@opentelemetry/api@1.9.1`) was left pointing at the dead mirror and was
+rewritten to `registry.npmjs.org` as well — same package/version/integrity
+hash, only the resolution host changed. Verified with a clean
+`rm -rf node_modules && npm ci` (no registry override flags, matching CI
+exactly), followed by `npm run build` and the gap-closure test suite: all
+green. This fix only guarantees a working `npm ci` on **this branch**; the
+same unreachable-mirror problem still affects `main` and any other branch
+built from a lockfile with the old host — worth a follow-up outside this
+PR's scope to fully purge the mirror host repo-wide.
