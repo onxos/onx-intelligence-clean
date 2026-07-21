@@ -73,6 +73,23 @@ export function normalizeGoal(goal: string): string {
     .trim();
 }
 
+const AR_STOPWORDS = new Set([
+  "ما", "ماهي", "ماذا", "التي", "الذي", "على", "الي", "الى", "ان", "في", "من", "عن",
+  "هو", "هي", "كيف", "ايش", "عند", "هل", "او", "ثم", "قد", "لا", "لم", "لن", "كان",
+  "هذا", "هذه", "ذلك", "مع", "كل", "بعد", "قبل", "عندما", "اذا", "يا", "ياي",
+]);
+
+function contentTokens(norm: string): Set<string> {
+  return new Set(norm.split(" ").filter((t) => t.length > 1 && !AR_STOPWORDS.has(t)));
+}
+
+function tokenOverlap(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let inter = 0;
+  for (const t of a) if (b.has(t)) inter++;
+  return inter / Math.min(a.size, b.size);
+}
+
 let openaiClient: import("openai").default | null = null;
 async function embedQuery(text: string): Promise<number[] | null> {
   try {
@@ -133,28 +150,36 @@ export async function recallAnswer(goal: string): Promise<CacheHit | null> {
          FROM onx_answer_cache
         WHERE embedding IS NOT NULL
           AND (expires_at IS NULL OR expires_at > now())
-          AND 1 - (embedding <=> $1::vector) >= $2
+          AND 1 - (embedding <=> $1::vector) >= 0.55
         ORDER BY embedding <=> $1::vector
-        LIMIT 1`,
-      [literal, SEMANTIC_THRESHOLD],
+        LIMIT 5`,
+      [literal],
     );
-    const row = sem.rows[0];
-    if (!row) {
-      // Calibration visibility: meter the best similarity found (even below
-      // threshold) so the ledger shows how close the miss was.
-      const best = await p.query(
-        `SELECT 1 - (embedding <=> $1::vector) AS sim
-           FROM onx_answer_cache WHERE embedding IS NOT NULL
-           ORDER BY embedding <=> $1::vector LIMIT 1`,
-        [literal],
-      );
-      const sim = best.rows[0]?.sim;
-      if (typeof sim === "number") {
-        void recordUsage({
-          provider: "onx-cache", model: "onx-knowledge-store", kind: "probe",
-          success: false, purpose: `cache-miss:best-sim:${sim.toFixed(3)}`,
-        });
+    // Hybrid acceptance: high cosine alone, OR moderate cosine + strong
+    // Arabic content-token overlap. text-embedding-3-small under-scores
+    // Arabic paraphrases (~0.68 for same-meaning questions), so pure-cosine
+    // thresholds either miss everything or serve wrong answers. The token
+    // gate keeps same-topic-different-intent questions out (symptoms vs
+    // treatment share embedding space but not content tokens).
+    const queryTokens = contentTokens(norm);
+    let row: (typeof sem.rows)[0] | null = null;
+    let bestSim = 0;
+    let bestOverlap = 0;
+    for (const cand of sem.rows) {
+      const sim = Number(cand.similarity);
+      const overlap = tokenOverlap(queryTokens, contentTokens(normalizeGoal(cand.goal)));
+      if (sim > bestSim) { bestSim = sim; bestOverlap = overlap; }
+      if (sim >= SEMANTIC_THRESHOLD || (sim >= 0.6 && overlap >= 0.5)) {
+        row = { ...cand, similarity: sim };
+        bestOverlap = overlap;
+        break;
       }
+    }
+    if (!row) {
+      void recordUsage({
+        provider: "onx-cache", model: "onx-knowledge-store", kind: "probe",
+        success: false, purpose: `cache-miss:best-sim:${bestSim.toFixed(3)}:overlap:${bestOverlap.toFixed(2)}`,
+      });
       return null;
     }
     await p.query(
@@ -163,7 +188,8 @@ export async function recallAnswer(goal: string): Promise<CacheHit | null> {
     );
     return {
       goal: row.goal, answer: row.answer, model: row.model, hits: row.hits + 1,
-      createdAt: row.created_at, match: "semantic", similarity: Math.round(row.similarity * 1000) / 1000,
+      createdAt: row.created_at, match: "semantic",
+      similarity: Math.round(Number(row.similarity) * 1000) / 1000,
     };
   } catch {
     return null; // cache failure must never block the paid path
