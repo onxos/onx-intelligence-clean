@@ -6,6 +6,12 @@ import { z } from "zod";
 import OpenAI from "openai";
 import { createRouter, publicQuery } from "./middleware";
 import { env } from "./lib/env";
+import {
+  recordAiDecision,
+  deriveEvidenceTier,
+  listAiDecisions,
+  aiDecisionStats,
+} from "./lib/ai-decision-log";
 
 // --- Lazy OpenAI ---
 let openai: OpenAI | null = null;
@@ -407,8 +413,20 @@ export const aiBrainRouter = createRouter({
       const titanMeta = TITAN_PERSONAS[titanId] || TITAN_PERSONAS.prometheus;
       const systemPrompt = titanMeta.prompt;
 
+      // H-7 explainability: capture the exact sampling parameters used so
+      // the logged decision matches the real invocation (no magic numbers).
+      const AB_MODEL = "gpt-4o";
+      const AB_TEMPERATURE = 0.7;
+      const AB_MAX_TOKENS = 1500;
+
+      // Evidence backing this answer — how much grounded context was
+      // retrieved from memory for this query/titan.
+      const evidenceItems =
+        retrieveMemories(input.query, undefined, 5).length +
+        retrieveMemories(titanId, undefined, 3).length;
+
       const completion = await ai.chat.completions.create({
-        model: "gpt-4o",
+        model: AB_MODEL,
         messages: [
           {
             role: "system",
@@ -416,8 +434,8 @@ export const aiBrainRouter = createRouter({
           },
           { role: "user", content: input.query },
         ],
-        max_tokens: 1500,
-        temperature: 0.7,
+        max_tokens: AB_MAX_TOKENS,
+        temperature: AB_TEMPERATURE,
       });
 
       const response = completion.choices[0]?.message.content || "لم أتمكن من المعالجة";
@@ -429,6 +447,26 @@ export const aiBrainRouter = createRouter({
       state.lastTitanUsed = titanId;
       state.totalInteractions++;
 
+      // H-7: record an explainable, accountable decision record.
+      const evidenceTier = deriveEvidenceTier({
+        contextItems: evidenceItems,
+        grounded: evidenceItems > 0,
+      });
+      const reasoning =
+        `titan=${titanId} (${titanMeta.domain}); routed by ` +
+        `${input.titanHint === "auto" ? "semantic-router" : "explicit"}; ` +
+        `${evidenceItems} memory item(s) grounded the answer (tier ${evidenceTier}).`;
+      recordAiDecision({
+        operation: "aiBrain.ask",
+        userId: input.userId,
+        model: AB_MODEL,
+        temperature: AB_TEMPERATURE,
+        tokensUsed,
+        evidenceTier,
+        reasoning,
+        meta: { titanId, routedBy: input.titanHint === "auto" ? "semantic-router" : "explicit" },
+      });
+
       return {
         response,
         titanUsed: titanId,
@@ -439,10 +477,31 @@ export const aiBrainRouter = createRouter({
           routedBy: input.titanHint === "auto" ? "semantic-router" : "explicit",
         },
         tokensUsed,
-        model: "gpt-4o",
+        model: AB_MODEL,
         memoryStored: true,
         constitutionalStatus: "COMPLIANT",
         understandingRung: state.understandingRung,
+        // H-7: explainability envelope attached to every answer.
+        explainability: {
+          model: AB_MODEL,
+          temperature: AB_TEMPERATURE,
+          maxTokens: AB_MAX_TOKENS,
+          tokensUsed,
+          evidenceTier,
+          evidenceItems,
+          reasoning,
+        },
       };
     }),
+
+  // AB-12: decisionLog — explainable AI decision trail (H-7)
+  decisionLog: publicQuery
+    .input(z.object({ limit: z.number().min(1).max(200).default(50) }))
+    .query(({ input }) => ({
+      entries: listAiDecisions(input.limit),
+      stats: aiDecisionStats(),
+    })),
+
+  // AB-13: decisionStats — aggregate explainability stats (H-7)
+  decisionStats: publicQuery.query(() => aiDecisionStats()),
 });
