@@ -148,6 +148,47 @@ const TOOLS: ToolDef[] = [
     execute: async () => taskStats(),
   },
   {
+    name: "marketing_ops",
+    description: "ACT on the ONX marketing platform on the founder's behalf: list video jobs (inspect failures), retry a failed video job, read today's content productions, or trigger the autonomous daily-run. Use this when asked to check/fix video generation or content production. Mutating actions are governance-logged.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list_video_jobs", "retry_video_job", "content_today", "trigger_daily_run"] },
+        jobId: { type: "string", description: "required for retry_video_job" },
+      },
+      required: ["action"],
+    },
+    execute: async (args) => {
+      const mktUrl = (process.env.ONX_MARKETING_API_URL ?? "https://onx-marketing-api.onrender.com").replace(/\/$/, "");
+      const bridgeKey = process.env.ONX_BRIDGE_KEY ?? process.env.BRIDGE_SHARED_SECRET ?? "";
+      const businessId = process.env.ONX_BUSINESS_ID ?? "";
+      if (!bridgeKey || !businessId) return { error: "marketing_ops not configured (ONX_BRIDGE_KEY / ONX_BUSINESS_ID missing)" };
+      const action = String(args.action ?? "");
+      const pathMap: Record<string, string> = {
+        list_video_jobs: "video-jobs", retry_video_job: "video-retry",
+        content_today: "content-today", trigger_daily_run: "daily-run",
+      };
+      const path = pathMap[action];
+      if (!path) return { error: `unknown action ${action}` };
+      if (action === "retry_video_job" && !args.jobId) return { error: "jobId required for retry_video_job" };
+      const MUTATING = new Set(["retry_video_job", "trigger_daily_run"]);
+      try {
+        const res = await fetch(`${mktUrl}/api/v1/internal/bridge/${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ bridgeKey, businessId, ...(args.jobId ? { jobId: args.jobId } : {}) }),
+        });
+        const data = (await res.json()) as Record<string, unknown>;
+        if (MUTATING.has(action)) {
+          void recordGovernanceDecision(id, "marketing_ops", `${action}${args.jobId ? `:${args.jobId}` : ""} -> ${res.status}`, "allowed", "founder-delegated action via resident brain");
+        }
+        return { status: res.status, ...data };
+      } catch (err) {
+        return { error: `marketing_api unreachable: ${(err as Error).message}` };
+      }
+    },
+  },
+  {
     name: "provider_capital",
     description: "Live AI-ledger: per-provider consumption (calls, tokens, cost, latency, reliability) and evidence-grounded capital profiles. Use when asked about AI spend, provider comparison, or which model is performing best.",
     parameters: { type: "object", properties: {} },
@@ -204,14 +245,17 @@ You have REAL tools backed by live production data. Rules:
 - Be concise: synthesize, don't dump raw tool output.
 - When a follow-up action would help, you may delegate_task to the workforce.`;
 
-export async function runAgenticLoop(goal: string, maxSteps = 8): Promise<AgenticRun> {
+export interface ConversationTurn { role: "user" | "assistant"; content: string }
+
+export async function runAgenticLoop(goal: string, maxSteps = 8, history: ConversationTurn[] = []): Promise<AgenticRun> {
   const started = Date.now();
   const id = `ar-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const cfg = providerConfig();
   const steps: AgenticStep[] = [];
 
   // Knowledge sovereignty: a learned answer is never purchased twice.
-  const cached = await recallAnswer(goal);
+  // Multi-turn conversations skip the cache — context changes meaning.
+  const cached = history.length === 0 ? await recallAnswer(goal) : null;
   if (cached) {
     void recordUsage({
       provider: "onx-cache", model: "onx-knowledge-store", kind: "chat",
@@ -237,6 +281,7 @@ export async function runAgenticLoop(goal: string, maxSteps = 8): Promise<Agenti
 
   const messages: Array<Record<string, unknown>> = [
     { role: "system", content: SYSTEM_PROMPT },
+    ...history.slice(-12).map((t) => ({ role: t.role, content: t.content.slice(0, 2000) })),
     { role: "user", content: goal },
   ];
   const toolSpecs = TOOLS.map((t) => ({
@@ -318,7 +363,7 @@ export async function runAgenticLoop(goal: string, maxSteps = 8): Promise<Agenti
     answer = `Agentic loop failed: ${(err as Error).message}`;
   }
 
-  if (status === "completed" && answer) {
+  if (status === "completed" && answer && history.length === 0) {
     // Volatile answers (grounded in live-state tools) expire in minutes;
     // knowledge answers live for a week (D17: never serve stale truth as fresh).
     const VOLATILE_TOOLS = new Set(["agents_liveness", "task_queue_stats", "corpus_stats", "provider_capital"]);

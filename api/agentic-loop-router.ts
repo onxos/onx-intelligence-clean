@@ -13,8 +13,9 @@ export const agenticLoopRouter = createRouter({
     .input(z.object({
       goal: z.string().min(3).max(4000),
       maxSteps: z.number().min(1).max(12).default(8),
+      history: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(4000) })).max(16).default([]),
     }))
-    .mutation(async ({ input }) => runAgenticLoop(input.goal, input.maxSteps)),
+    .mutation(async ({ input }) => runAgenticLoop(input.goal, input.maxSteps, input.history)),
 
   list: protectedQuery
     .input(z.object({ limit: z.number().min(1).max(100).default(20) }))
