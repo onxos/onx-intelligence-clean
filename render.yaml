@@ -45,6 +45,11 @@ services:
       # DOCUMENTED-ONLY: not read by code yet (no process.env.DATABASE_PROVIDER)
       - key: DATABASE_PROVIDER
         value: postgres
+      # C-4 Data residency: declared region (read by api/lib/env.ts). Keep in
+      # sync with the `region:` of this service. See DEPLOYMENT_GUIDE.md for
+      # the in-Kingdom residency plan / legal transfer basis.
+      - key: DATA_REGION
+        value: ksa-central
       - key: OPENAI_API_KEY
         sync: false
       - key: OWNER_UNION_ID
@@ -146,6 +151,9 @@ services:
       # DOCUMENTED-ONLY: not read by code yet
       - key: DATABASE_PROVIDER
         value: postgres
+      # C-4 Data residency: declared region (read by api/lib/env.ts).
+      - key: DATA_REGION
+        value: ksa-central
       - key: OPENAI_API_KEY
         sync: false
       # DOCUMENTED-ONLY: not read by code yet (sessions sign with APP_SECRET)

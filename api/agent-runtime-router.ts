@@ -7,55 +7,7 @@
 // ============================================================
 import { z } from "zod";
 import { createRouter, protectedQuery } from "./middleware";
-import {
-  agentLiveness,
-  beat,
-  claimTask,
-  completeTask,
-  ensureAgentSchema,
-  submitTask,
-  taskStats,
-} from "./lib/agent-runtime-store";
-import { Pool } from "pg";
-
-function getPool(): Pool {
-  const connectionString = process.env.DATABASE_URL ?? "";
-  const isExternalHost = connectionString.includes("render.com");
-  return new Pool({
-    connectionString,
-    max: 1,
-    ...(isExternalHost ? { ssl: { rejectUnauthorized: false } } : {}),
-  });
-}
-
-/** Built-in task handlers — real work against the live system. */
-async function executeTask(kind: string, payload: unknown): Promise<unknown> {
-  const p = getPool();
-  try {
-    switch (kind) {
-      case "health.snapshot": {
-        const { rows } = await p.query(
-          `SELECT count(*)::int AS corpus FROM onx_knowledge_corpus`);
-        return { corpusRecords: rows[0].corpus, at: new Date().toISOString() };
-      }
-      case "governance.digest": {
-        const { rows } = await p.query(
-          `SELECT count(*)::int AS decisions, count(*) FILTER (WHERE NOT passed)::int AS blocked
-             FROM onx_governance_decisions WHERE "createdAt" > now() - interval '1 hour'`);
-        return rows[0];
-      }
-      case "corpus.embed.check": {
-        const { rows } = await p.query(
-          `SELECT count(*)::int AS total, count(embedding)::int AS embedded FROM onx_knowledge_corpus`);
-        return rows[0];
-      }
-      default:
-        return { echo: payload, note: "no built-in handler — echoed" };
-    }
-  } finally {
-    await p.end().catch(() => undefined);
-  }
-}
+import { agentLiveness, submitTask, taskStats } from "./lib/agent-runtime-store";
 
 export const agentRuntimeRouter = createRouter({
   // Live view: 50 registered agents × latest heartbeat

@@ -7,6 +7,8 @@ import { Cron } from "croner";
 import { appRouter } from "./router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
+import { assertProductionSecrets, validateDataResidency } from "./lib/env";
+import { logger } from "./lib/structured-logger";
 import { createOAuthCallbackHandler } from "./kimi/auth";
 import { Paths } from "@contracts/constants";
 import { serveStaticFiles } from "./lib/vite";
@@ -83,14 +85,31 @@ export default app;
 process.stderr.write(`[boot] NODE_ENV=${process.env.NODE_ENV} isProduction=${env.isProduction} PORT=${process.env.PORT}\n`);
 
 if (env.isProduction) {
+  // H-5: fail-closed — refuse to start in production without strong,
+  // present security secrets. Better a loud crash than silent insecurity.
+  try {
+    assertProductionSecrets();
+  } catch (err) {
+    logger.error("boot.secrets_failclosed", { error: String(err) });
+    process.exit(1);
+  }
+  // C-4: surface the configured data residency at boot; a non-approved
+  // region is a loud warning (residency is enforced at the infra layer,
+  // documented in DEPLOYMENT_GUIDE.md).
+  const residency = validateDataResidency();
+  logger.info("boot.data_residency", {
+    region: residency.region,
+    approved: residency.ok,
+    message: residency.message,
+  });
   // Safety net: a single unhandled rejection must never kill the service.
   // (The living-loop cron used to crash the whole process every 5 minutes
   // when the dead mysql2 layer timed out against the Postgres DATABASE_URL.)
   process.on("unhandledRejection", (reason) => {
-    console.error("[boot] unhandledRejection (survived):", reason);
+    logger.error("boot.unhandledRejection", { survived: true, reason: String(reason) });
   });
   process.on("uncaughtException", (err) => {
-    console.error("[boot] uncaughtException (survived):", err);
+    logger.error("boot.uncaughtException", { survived: true, error: String(err) });
   });
   try {
     setIucCronStatus("active");
@@ -99,21 +118,21 @@ if (env.isProduction) {
         await runLivingLoopTick();
         markIucTick();
       } catch (err) {
-        console.error("[living-loop] tick failed (non-fatal):", err);
+        logger.error("living_loop.tick_failed", { fatal: false, error: String(err) });
       }
       // Wave 5-b: feed inbox events into the IUC graph as PERCEPTIONs.
       // runPerceptionSyncTick never throws by design; guarded anyway.
       try {
         await runPerceptionSyncTick();
       } catch (err) {
-        console.error("[perception-adapter] tick failed (non-fatal):", err);
+        logger.error("perception_adapter.tick_failed", { fatal: false, error: String(err) });
       }
       // Wave 7-c: derive INSIGHTs from accumulated PERCEPTIONs.
       // runReflectionTick never throws by design; guarded anyway.
       try {
         await runReflectionTick();
       } catch (err) {
-        console.error("[reflection-cycle] tick failed (non-fatal):", err);
+        logger.error("reflection_cycle.tick_failed", { fatal: false, error: String(err) });
       }
       // G6: living mind cycle — inbox → B5 contradictions → B7 proposals.
       // runMindTick never throws by design; a catch here is itself a
@@ -144,14 +163,14 @@ if (env.isProduction) {
       // Wave 7-c: reflect once at boot over the freshly replayed perceptions.
       .then(() => runReflectionTick())
       .catch((err) => {
-        console.error("[boot] hydration/perception boot sync failed (non-fatal):", err);
+        logger.error("boot.hydration_sync_failed", { fatal: false, error: String(err) });
       });
     serveStaticFiles(app);
     const port = parseInt(process.env.PORT || "3000");
     process.stderr.write(`[boot] Starting server on port ${port}...\n`);
     serve({ fetch: app.fetch, port }, () => {
       process.stderr.write(`[boot] Server listening on http://localhost:${port}/\n`);
-      console.log(`Server running on http://localhost:${port}/`);
+      logger.info("boot.server_listening", { url: `http://localhost:${port}/`, port });
     });
   } catch (err) {
     process.stderr.write(`[boot] FATAL: ${err}\n`);

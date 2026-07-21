@@ -147,19 +147,19 @@ export default function EvidenceRegistry() {
                   const cat = CATEGORY_CONFIG[r.category as keyof typeof CATEGORY_CONFIG];
                   const st = STATUS_CONFIG[r.status as keyof typeof STATUS_CONFIG];
                   return (
-                    <tr key={r.id} className="hover:bg-gray-50 transition-colors">
+                    <tr key={String(r.id)} className="hover:bg-gray-50 transition-colors">
                       <td className="px-4 py-2.5">
-                        <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded font-mono">{r.evidenceId}</code>
+                        <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded font-mono">{String(r.evidenceId ?? "")}</code>
                       </td>
                       <td className="px-4 py-2.5">
                         <span className={`text-xs px-2 py-0.5 rounded-full border ${cat?.color}`}>{cat?.label}</span>
                       </td>
                       <td className="px-4 py-2.5 max-w-xs">
-                        <p className="text-sm font-medium text-gray-900 truncate">{r.title}</p>
-                        <p className="text-xs text-gray-500 truncate">{r.description}</p>
+                        <p className="text-sm font-medium text-gray-900 truncate">{String(r.title ?? "")}</p>
+                        <p className="text-xs text-gray-500 truncate">{String(r.description ?? "")}</p>
                       </td>
                       <td className="px-4 py-2.5">
-                        {r.layer && <Badge variant="outline" className="text-xs">{r.layer}</Badge>}
+                        {r.layer ? <Badge variant="outline" className="text-xs">{String(r.layer)}</Badge> : null}
                       </td>
                       <td className="px-4 py-2.5">
                         <span className={`flex items-center gap-1 text-xs ${st?.color}`}>

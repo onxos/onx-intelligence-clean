@@ -253,7 +253,7 @@ export default function AdminPilot() {
           </p>
         ) : (
           <p className="text-gray-400 text-sm">
-            {branchStats.data?.total} فرع مُسجل — {branchStats.data?.totalStaff} موظف إجمالاً
+            {branchStats.data?.total} فرع مُسجل — {branchStats.data?.active} نشط
           </p>
         )}
       </div>

@@ -1,12 +1,17 @@
 {
   "note": "Codex Guard baseline — pre-existing (legacy) charter deviations tracked as debt to be closed in a dedicated later wave. NOT muted: still reported. New deviations are NOT accepted here.",
-  "generatedAt": "2026-07-11T04:51:51.258Z",
-  "total": 16,
+  "generatedAt": "2026-07-21T18:38:41.951Z",
+  "total": 18,
   "deviations": [
     {
       "filename": "api/advanced-engines-router.ts",
       "rule": "FORBIDDEN_LABEL",
       "match": "consciousness"
+    },
+    {
+      "filename": "api/ai-bridge-router.ts",
+      "rule": "FAIL_OPEN",
+      "match": "return { ok: true as const, audioBase64: buf.toString(\"base64\"), mime: \"audio/mp"
     },
     {
       "filename": "api/cos-router.ts",
@@ -19,14 +24,19 @@
       "match": "consciousness"
     },
     {
-      "filename": "api/health-router.ts",
+      "filename": "api/knowledge-router.ts",
+      "rule": "FAKE_LIVE_METRIC",
+      "match": "confidence: Math.round((0.5 + Math.random() * 0.5) * 100) / 100,"
+    },
+    {
+      "filename": "api/lib/agent-runtime-store.ts",
       "rule": "FORBIDDEN_LABEL",
       "match": "consciousness"
     },
     {
-      "filename": "api/knowledge-router.ts",
-      "rule": "FAKE_LIVE_METRIC",
-      "match": "confidence: Math.round((0.5 + Math.random() * 0.5) * 100) / 100,"
+      "filename": "api/lib/scheduler-cycle-store.ts",
+      "rule": "FORBIDDEN_LABEL",
+      "match": "consciousness"
     },
     {
       "filename": "api/scheduler-router.ts",
