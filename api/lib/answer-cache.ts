@@ -23,7 +23,10 @@ let pool: Pool | null = null;
 let schemaReady = false;
 
 const EMBED_MODEL = "text-embedding-3-small";
-const SEMANTIC_THRESHOLD = 0.93;
+/** Cosine floor for serving a cached answer to a differently-worded question.
+ *  0.88 balances savings vs. correctness for Arabic paraphrases on
+ *  text-embedding-3-small; tighten/loosen via CACHE_SEMANTIC_THRESHOLD. */
+const SEMANTIC_THRESHOLD = Number(process.env.CACHE_SEMANTIC_THRESHOLD ?? 0.88);
 
 function getPool(): Pool {
   if (!pool) {
