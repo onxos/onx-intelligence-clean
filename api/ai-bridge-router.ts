@@ -210,7 +210,7 @@ export const aiBridgeRouter = createRouter({
     .input(z.object({
       prompt: z.string().min(1).max(4000),
       aspectRatio: z.enum(["16:9", "9:16"]).default("16:9"),
-      model: z.string().max(80).default("veo-3.1-generate-preview"),
+      model: z.string().max(80).default("veo-3.1-fast-generate-preview"),
     }))
     .mutation(async ({ input }) => {
       const apiKey = await getProviderKey("GEMINI_API_KEY", "GEMINI_API_KEY");
