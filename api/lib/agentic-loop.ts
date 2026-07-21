@@ -180,7 +180,12 @@ const TOOLS: ToolDef[] = [
         });
         const data = (await res.json()) as Record<string, unknown>;
         if (MUTATING.has(action)) {
-          void recordGovernanceDecision(id, "marketing_ops", `${action}${args.jobId ? `:${args.jobId}` : ""} -> ${res.status}`, "allowed", "founder-delegated action via resident brain");
+          recordGovernanceDecision({
+            auditId: `marketing-ops-${id}`, path: `marketing_ops.${action}${args.jobId ? `:${args.jobId}` : ""}`,
+            userId: "agentic-loop", role: "system",
+            amanahScore: res.ok ? 1 : 0.5, passed: res.ok,
+            level: res.ok ? "GREEN" : "YELLOW", shadowTrusted: true,
+          });
         }
         return { status: res.status, ...data };
       } catch (err) {
