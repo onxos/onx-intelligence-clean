@@ -211,6 +211,10 @@ export const aiBridgeRouter = createRouter({
       prompt: z.string().min(1).max(4000),
       aspectRatio: z.enum(["16:9", "9:16"]).default("16:9"),
       model: z.string().max(80).default("veo-3.1-fast-generate-preview"),
+      /** Optional art-directed keyframe (base64) — image-to-video: Veo animates
+       * THIS frame instead of imagining one from text. Cinematic-control path. */
+      imageBase64: z.string().max(15_000_000).optional(),
+      imageMime: z.string().max(40).default("image/png"),
     }))
     .mutation(async ({ input }) => {
       const apiKey = await getProviderKey("GEMINI_API_KEY", "GEMINI_API_KEY");
@@ -224,7 +228,12 @@ export const aiBridgeRouter = createRouter({
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              instances: [{ prompt: input.prompt }],
+              instances: [{
+                prompt: input.prompt,
+                ...(input.imageBase64
+                  ? { image: { bytesBase64Encoded: input.imageBase64, mimeType: input.imageMime } }
+                  : {}),
+              }],
               parameters: { aspectRatio: input.aspectRatio },
             }),
           },
