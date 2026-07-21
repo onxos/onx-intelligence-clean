@@ -22,7 +22,12 @@ import { recordUsage } from "./provider-usage-store";
 let pool: Pool | null = null;
 let schemaReady = false;
 
-const EMBED_MODEL = "text-embedding-3-small";
+/** v3: gemini-embedding-001 — top MTEB multilingual (strong Arabic), 3072 dims.
+ *  Falls back to OpenAI text-embedding-3-small if Gemini is unavailable.
+ *  Embeddings of different models are never mixed: entries carry embed_model
+ *  and recall compares only within the active model. */
+const EMBED_MODEL = process.env.CACHE_EMBED_MODEL ?? "gemini-embedding-001";
+const OPENAI_EMBED_FALLBACK = "text-embedding-3-small";
 /** Cosine floor for serving a cached answer to a differently-worded question.
  *  0.88 balances savings vs. correctness for Arabic paraphrases on
  *  text-embedding-3-small; tighten/loosen via CACHE_SEMANTIC_THRESHOLD. */
@@ -53,7 +58,23 @@ function getPool(): Pool {
         )`,
       )
       .then(() => pool!.query(`CREATE EXTENSION IF NOT EXISTS vector`))
-      .then(() => pool!.query(`ALTER TABLE onx_answer_cache ADD COLUMN IF NOT EXISTS embedding vector(1536)`))
+      // v3: undimensioned vector — gemini-embedding-001 is 3072-dim vs the old
+      // 1536-dim OpenAI column. Old 1536 entries are incompatible, so the
+      // column is rebuilt; the cache re-learns them on next paid refresh
+      // (a handful of entries — honest one-time cost of the upgrade).
+      .then(async () => {
+        const dimCheck = await pool!.query(
+          `SELECT atttypmod FROM pg_attribute WHERE attrelid = 'onx_answer_cache'::regclass AND attname = 'embedding'`,
+        ).catch(() => ({ rows: [] as Array<{ atttypmod: number }> }));
+        const dims = dimCheck.rows[0]?.atttypmod ?? -1;
+        if (dims === 1536) {
+          await pool!.query(`ALTER TABLE onx_answer_cache DROP COLUMN embedding`);
+          await pool!.query(`ALTER TABLE onx_answer_cache ADD COLUMN embedding vector`);
+        } else if (dims === -1) {
+          await pool!.query(`ALTER TABLE onx_answer_cache ADD COLUMN IF NOT EXISTS embedding vector`);
+        }
+      })
+      .then(() => pool!.query(`ALTER TABLE onx_answer_cache ADD COLUMN IF NOT EXISTS embed_model TEXT`))
       .then(() => pool!.query(`ALTER TABLE onx_answer_cache ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ`))
       .catch(() => undefined);
   }
@@ -106,23 +127,65 @@ function tokenOverlap(a: Set<string>, b: Set<string>): number {
   return inter / Math.min(a.size, b.size);
 }
 
-let openaiClient: import("openai").default | null = null;
-async function embedQuery(text: string): Promise<number[] | null> {
-  try {
-    const key = process.env.OPENAI_API_KEY;
-    if (!key) return null;
-    if (!openaiClient) {
-      const { default: OpenAI } = await import("openai");
-      openaiClient = new OpenAI({ apiKey: key });
-    }
-    const t0 = Date.now();
-    const res = await openaiClient.embeddings.create({ model: EMBED_MODEL, input: text });
+async function embedWithGemini(text: string, apiKey: string): Promise<number[] | null> {
+  const t0 = Date.now();
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: { parts: [{ text }] } }),
+    },
+  );
+  const body = (await res.json()) as { embedding?: { values?: number[] }; error?: { message?: string } };
+  if (!res.ok || !body.embedding?.values) {
     void recordUsage({
-      provider: "openai", model: EMBED_MODEL, kind: "embedding",
-      promptTokens: res.usage?.prompt_tokens ?? 0, completionTokens: 0,
-      latencyMs: Date.now() - t0, success: true, purpose: "answer-cache.embed",
+      provider: "google", model: "gemini-embedding-001", kind: "embedding",
+      latencyMs: Date.now() - t0, success: false, purpose: "answer-cache.embed",
+      error: (body.error?.message ?? String(res.status)).slice(0, 200),
     });
-    return res.data[0]?.embedding ?? null;
+    return null;
+  }
+  void recordUsage({
+    provider: "google", model: "gemini-embedding-001", kind: "embedding",
+    promptTokens: Math.ceil(text.length / 4), completionTokens: 0,
+    latencyMs: Date.now() - t0, success: true, purpose: "answer-cache.embed",
+  });
+  return body.embedding.values;
+}
+
+let openaiClient: import("openai").default | null = null;
+async function embedWithOpenAI(text: string, apiKey: string, model: string): Promise<number[] | null> {
+  if (!openaiClient) {
+    const { default: OpenAI } = await import("openai");
+    openaiClient = new OpenAI({ apiKey });
+  }
+  const t0 = Date.now();
+  const res = await openaiClient.embeddings.create({ model, input: text });
+  void recordUsage({
+    provider: "openai", model, kind: "embedding",
+    promptTokens: res.usage?.prompt_tokens ?? 0, completionTokens: 0,
+    latencyMs: Date.now() - t0, success: true, purpose: "answer-cache.embed",
+  });
+  return res.data[0]?.embedding ?? null;
+}
+
+/** Embed via the active model (Gemini first, OpenAI fallback). Returns model+vector. */
+async function embedQuery(text: string): Promise<{ model: string; vector: number[] } | null> {
+  try {
+    if (EMBED_MODEL === "gemini-embedding-001") {
+      const gKey = process.env.GEMINI_API_KEY;
+      if (gKey) {
+        const vec = await embedWithGemini(text, gKey);
+        if (vec) return { model: "gemini-embedding-001", vector: vec };
+      }
+    }
+    const oKey = process.env.OPENAI_API_KEY;
+    if (oKey) {
+      const vec = await embedWithOpenAI(text, oKey, OPENAI_EMBED_FALLBACK);
+      if (vec) return { model: OPENAI_EMBED_FALLBACK, vector: vec };
+    }
+    return null;
   } catch {
     return null; // degrade to exact-only matching
   }
@@ -158,18 +221,18 @@ export async function recallAnswer(goal: string): Promise<CacheHit | null> {
     }
 
     // Tier 2 — semantic, one tiny embedding call
-    const vec = await embedQuery(norm);
-    if (!vec) return null;
-    const literal = `[${vec.join(",")}]`;
+    const embedded = await embedQuery(norm);
+    if (!embedded) return null;
+    const literal = `[${embedded.vector.join(",")}]`;
     const sem = await p.query(
       `SELECT goal, answer, model, hits, created_at, 1 - (embedding <=> $1::vector) AS similarity
          FROM onx_answer_cache
         WHERE embedding IS NOT NULL
+          AND embed_model = $2
           AND (expires_at IS NULL OR expires_at > now())
-          AND 1 - (embedding <=> $1::vector) >= 0.55
         ORDER BY embedding <=> $1::vector
         LIMIT 5`,
-      [literal],
+      [literal, embedded.model],
     );
     // Hybrid acceptance: high cosine alone, OR moderate cosine + strong
     // Arabic content-token overlap. text-embedding-3-small under-scores
@@ -223,13 +286,13 @@ export async function learnAnswer(goal: string, answer: string, model: string, v
   try {
     const norm = normalizeGoal(goal);
     if (norm.length < 3 || !answer || answer.length < 10) return;
-    const vec = await embedQuery(norm);
+    const embedded = await embedQuery(norm);
     const expiresAt = new Date(Date.now() + TTL_MS[volatility]).toISOString();
     await getPool().query(
-      `INSERT INTO onx_answer_cache (goal_norm, goal, answer, model, embedding, expires_at)
-       VALUES ($1, $2, $3, $4, $5::vector, $6)
-       ON CONFLICT (goal_norm) DO UPDATE SET answer = $3, model = $4, goal = $2, embedding = $5::vector, expires_at = $6`,
-      [norm, goal, answer, model, vec ? `[${vec.join(",")}]` : null, expiresAt],
+      `INSERT INTO onx_answer_cache (goal_norm, goal, answer, model, embedding, embed_model, expires_at)
+       VALUES ($1, $2, $3, $4, $5::vector, $6, $7)
+       ON CONFLICT (goal_norm) DO UPDATE SET answer = $3, model = $4, goal = $2, embedding = $5::vector, embed_model = $6, expires_at = $7`,
+      [norm, goal, answer, model, embedded ? `[${embedded.vector.join(",")}]` : null, embedded?.model ?? null, expiresAt],
     );
   } catch { /* learning must never break the answering path */ }
 }
