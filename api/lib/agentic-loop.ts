@@ -217,7 +217,7 @@ export async function runAgenticLoop(goal: string, maxSteps = 8): Promise<Agenti
       provider: "onx-cache", model: "onx-knowledge-store", kind: "chat",
       promptTokens: 0, completionTokens: 0,
       latencyMs: Date.now() - started, success: true,
-      purpose: `agentic-loop:cache-hit:${id}`,
+      purpose: `agentic-loop:cache-hit:${cached.match}${cached.similarity ? `:${cached.similarity}` : ""}:${id}`,
     });
     return {
       id, goal, status: "completed",
@@ -319,7 +319,11 @@ export async function runAgenticLoop(goal: string, maxSteps = 8): Promise<Agenti
   }
 
   if (status === "completed" && answer) {
-    void learnAnswer(goal, answer, cfg.model);
+    // Volatile answers (grounded in live-state tools) expire in minutes;
+    // knowledge answers live for a week (D17: never serve stale truth as fresh).
+    const VOLATILE_TOOLS = new Set(["agents_liveness", "task_queue_stats", "corpus_stats", "provider_capital"]);
+    const usedVolatile = steps.some((s) => s.kind === "tool_call" && s.tool && VOLATILE_TOOLS.has(s.tool));
+    void learnAnswer(goal, answer, cfg.model, usedVolatile ? "volatile" : "stable");
   }
 
   const run: AgenticRun = {
