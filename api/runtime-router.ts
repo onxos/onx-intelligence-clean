@@ -27,6 +27,11 @@ import type {
   ContinuityLayer,
   CapitalCategory,
 } from "@onx/intelligence-runtime";
+import {
+  loadEngineState,
+  persistEngineAsync,
+  isEngineStatePersistenceConfigured,
+} from "./lib/engine-state-store";
 
 // --- Singleton instances (initialized once, shared across requests) ---
 const usfipv2 = new USFIPv2Engine({
@@ -59,6 +64,50 @@ const understandingLadder = new UnderstandingLadder();
 const shadowRuntime = new ShadowRuntime();
 const continuityEngine = new ContinuityEngine();
 const causalGraph = new CausalGraph();
+
+// --- Line I / Phase 1: durable mind — hydrate engine state from Postgres ---
+// On boot the mind wakes with its memory intact (CCOP), not with amnesia.
+// Fail-open on any single engine: a corrupt snapshot never blocks boot
+// (except the continuity chain, which is fail-closed BY DESIGN).
+let enginesHydrated = false;
+const PERSISTED_ENGINES = [
+  "goals", "graph", "continuity", "auditor", "ladder",
+  "shadow", "reinforcement", "flourishing", "institution",
+] as const;
+const hydration = (async () => {
+  if (!isEngineStatePersistenceConfigured()) return;
+  const targets: Array<[string, { restore: (s: never) => void }]> = [
+    ["goals", goalEngine],
+    ["graph", causalGraph],
+    ["continuity", continuityEngine],
+    ["auditor", auditor],
+    ["ladder", understandingLadder],
+    ["shadow", shadowRuntime],
+    ["reinforcement", reinforcementLoop],
+    ["flourishing", flourishingEngine],
+    ["institution", institutionalOS],
+  ];
+  for (const [name, engine] of targets) {
+    try {
+      const state = await loadEngineState(name);
+      if (state !== null) engine.restore(state as never);
+    } catch {
+      /* honest degradation: engine boots empty rather than crashing the mind */
+    }
+  }
+  enginesHydrated = true;
+})();
+
+// Convenience persisters (fire-and-forget; DB hiccups never break mutations)
+const persistGoals = () => persistEngineAsync("goals", () => goalEngine.snapshot());
+const persistGraph = () => persistEngineAsync("graph", () => causalGraph.snapshot());
+const persistContinuity = () => persistEngineAsync("continuity", () => continuityEngine.snapshot());
+const persistAuditor = () => persistEngineAsync("auditor", () => auditor.snapshot());
+const persistLadder = () => persistEngineAsync("ladder", () => understandingLadder.snapshot());
+const persistShadow = () => persistEngineAsync("shadow", () => shadowRuntime.snapshot());
+const persistReinforcement = () => persistEngineAsync("reinforcement", () => reinforcementLoop.snapshot());
+const persistFlourishing = () => persistEngineAsync("flourishing", () => flourishingEngine.snapshot());
+const persistInstitution = () => persistEngineAsync("institution", () => institutionalOS.snapshot());
 
 // --- Register health checks ---
 healthMonitor.registerCheck("usfipv2", () => ({ healthy: usfipv2.isActive() }));
@@ -119,9 +168,11 @@ export const runtimeRouter = createRouter({
         entityId: z.string(),
         data: z.record(z.string(), z.any()),
       }))
-      .mutation(({ input }) =>
-        continuityEngine.record(input.layer as ContinuityLayer, input.eventType, input.entityId, input.data)
-      ),
+      .mutation(({ input }) => {
+        const result = continuityEngine.record(input.layer as ContinuityLayer, input.eventType, input.entityId, input.data);
+        persistContinuity();
+        return result;
+      }),
     verify: publicQuery.query(() => continuityEngine.verifyChain()),
     stats: publicQuery.query(() => continuityEngine.getStats()),
   }),
@@ -138,12 +189,18 @@ export const runtimeRouter = createRouter({
         unit: z.string(),
         deadline: z.string().datetime().optional(),
       }))
-      .mutation(({ input }) =>
-        goalEngine.createGoal(input.title, input.description, input.target, input.unit, input.deadline ? new Date(input.deadline) : undefined)
-      ),
+      .mutation(({ input }) => {
+        const goal = goalEngine.createGoal(input.title, input.description, input.target, input.unit, input.deadline ? new Date(input.deadline) : undefined);
+        persistGoals();
+        return goal;
+      }),
     updateProgress: publicQuery
       .input(z.object({ goalId: z.string(), current: z.number() }))
-      .mutation(({ input }) => goalEngine.updateProgress(input.goalId, input.current)),
+      .mutation(({ input }) => {
+        const result = goalEngine.updateProgress(input.goalId, input.current);
+        persistGoals();
+        return result;
+      }),
     getActive: publicQuery.query(() => goalEngine.getActiveGoals()),
     stats: publicQuery.query(() => goalEngine.getStats()),
   }),
@@ -154,10 +211,18 @@ export const runtimeRouter = createRouter({
   flourishing: createRouter({
     registerDimension: publicQuery
       .input(z.object({ dimension: z.string(), weight: z.number().min(0).max(1) }))
-      .mutation(({ input }) => flourishingEngine.registerDimension(input.dimension, input.weight)),
+      .mutation(({ input }) => {
+        const result = flourishingEngine.registerDimension(input.dimension, input.weight);
+        persistFlourishing();
+        return result;
+      }),
     updateScore: publicQuery
       .input(z.object({ dimension: z.string(), score: z.number().min(0).max(1) }))
-      .mutation(({ input }) => flourishingEngine.updateScore(input.dimension, input.score)),
+      .mutation(({ input }) => {
+        const result = flourishingEngine.updateScore(input.dimension, input.score);
+        persistFlourishing();
+        return result;
+      }),
     index: publicQuery.query(() => ({ index: flourishingEngine.calculateIndex(), metrics: flourishingEngine.getMetrics() })),
   }),
 
@@ -183,12 +248,14 @@ export const runtimeRouter = createRouter({
           privacyLevel: "INSTITUTIONAL", trustScore: "0.50", shadowStatus: "NOT_SHADOW",
           customAttributes: null, createdAt: new Date(), updatedAt: new Date(),
         });
+        persistGraph();
         return { added: true };
       }),
     addEdge: publicQuery
       .input(z.object({ fromId: z.string(), toId: z.string(), type: z.string(), strength: z.number() }))
       .mutation(({ input }) => {
         causalGraph.addEdge(input.fromId, input.toId, input.type, input.strength);
+        persistGraph();
         return { added: true };
       }),
     lineage: publicQuery
@@ -210,6 +277,7 @@ export const runtimeRouter = createRouter({
       }))
       .mutation(({ input }) => {
         reinforcementLoop.recordEpisode(input);
+        persistReinforcement();
         return { recorded: true };
       }),
     selectAction: publicQuery
@@ -229,16 +297,24 @@ export const runtimeRouter = createRouter({
     })),
     ascend: publicQuery
       .input(z.object({ trigger: z.string() }))
-      .mutation(({ input }) => ({
-        rung: understandingLadder.ascend(input.trigger),
-        name: understandingLadder.getRungName(),
-      })),
+      .mutation(({ input }) => {
+        const result = {
+          rung: understandingLadder.ascend(input.trigger),
+          name: understandingLadder.getRungName(),
+        };
+        persistLadder();
+        return result;
+      }),
     descend: publicQuery
       .input(z.object({ trigger: z.string() }))
-      .mutation(({ input }) => ({
-        rung: understandingLadder.descend(input.trigger),
-        name: understandingLadder.getRungName(),
-      })),
+      .mutation(({ input }) => {
+        const result = {
+          rung: understandingLadder.descend(input.trigger),
+          name: understandingLadder.getRungName(),
+        };
+        persistLadder();
+        return result;
+      }),
     definitions: publicQuery.query(() => understandingLadder.constructor.name),
   }),
 
@@ -248,10 +324,18 @@ export const runtimeRouter = createRouter({
   shadow: createRouter({
     submit: publicQuery
       .input(z.object({ content: z.string(), source: z.string(), trustScore: z.number() }))
-      .mutation(({ input }) => shadowRuntime.submit(input.content, input.source, input.trustScore)),
+      .mutation(({ input }) => {
+        const result = shadowRuntime.submit(input.content, input.source, input.trustScore);
+        persistShadow();
+        return result;
+      }),
     verify: publicQuery
       .input(z.object({ entryId: z.string(), validatorTrust: z.number() }))
-      .mutation(({ input }) => shadowRuntime.verify(input.entryId, input.validatorTrust)),
+      .mutation(({ input }) => {
+        const result = shadowRuntime.verify(input.entryId, input.validatorTrust);
+        persistShadow();
+        return result;
+      }),
     pending: publicQuery.query(() => shadowRuntime.getPending()),
     stats: publicQuery.query(() => shadowRuntime.getStats()),
   }),
@@ -267,9 +351,11 @@ export const runtimeRouter = createRouter({
         amount: z.string(),
         reason: z.string(),
       }))
-      .mutation(({ input }) =>
-        institutionalOS.credit(input.objectId, input.category as CapitalCategory, input.amount, input.reason)
-      ),
+      .mutation(({ input }) => {
+        const result = institutionalOS.credit(input.objectId, input.category as CapitalCategory, input.amount, input.reason);
+        persistInstitution();
+        return result;
+      }),
     getBalance: publicQuery
       .input(z.object({ objectId: z.number() }))
       .query(({ input }) => ({ balance: institutionalOS.getBalance(input.objectId) })),
@@ -342,12 +428,40 @@ export const runtimeRouter = createRouter({
   }),
 
   // ==========================================================
+  // Persistence — Line I / Phase 1 honest status
+  // ==========================================================
+  persistence: createRouter({
+    status: publicQuery.query(async () => {
+      await hydration; // report post-hydration truth, never a guess
+      return {
+        configured: isEngineStatePersistenceConfigured(),
+        hydrated: enginesHydrated,
+        engines: [...PERSISTED_ENGINES],
+        counts: {
+          goals: goalEngine.getStats().total,
+          graphNodes: causalGraph.getStats().nodes,
+          continuityRecords: continuityEngine.getStats().totalRecords,
+          auditorEntries: auditor.getSummary().total,
+          shadowEntries: shadowRuntime.getStats().total,
+          reinforcementEpisodes: reinforcementLoop.getStats().episodes,
+          institutionCapital: institutionalOS.getInstitutionalCapital(),
+          ladderRung: understandingLadder.getCurrentRung(),
+        },
+      };
+    }),
+  }),
+
+  // ==========================================================
   // Auditor — Constitutional Audit
   // ==========================================================
   auditor: createRouter({
     audit: publicQuery
       .input(z.object({ entity: z.string(), type: z.string(), details: z.record(z.string(), z.any()) }))
-      .mutation(({ input }) => auditor.audit(input.entity, input.type, input.details)),
+      .mutation(({ input }) => {
+        const result = auditor.audit(input.entity, input.type, input.details);
+        persistAuditor();
+        return result;
+      }),
     summary: publicQuery.query(() => auditor.getSummary()),
     log: publicQuery.query(() => auditor.getAuditLog()),
   }),

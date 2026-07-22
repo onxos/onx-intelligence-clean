@@ -1,7 +1,11 @@
 // ============================================================
-// @onx/intelligence-runtime — Local stub implementation
-// Provides all 18 engines used by the ONX Intelligence platform
+// @onx/intelligence-runtime — engine implementations
+// Line I / Phase 1: snapshot()/restore() on all stateful engines
+// so the mind hydrates from Postgres (onx_engine_state) at boot
+// instead of waking with amnesia. ContinuityEngine now uses a
+// REAL sha256 hash chain (was Date.now-random placebo).
 // ============================================================
+import { createHash } from "node:crypto";
 
 export type ContinuityLayer = "L1_SOURCE" | "L2_OBJECT" | "L3_EVENT" | "L4_DECISION" | "L5_SYSTEM";
 export type CapitalCategory = "WISDOM" | "JUDGMENT" | "UNDERSTANDING" | "FLOURISHING";
@@ -42,6 +46,8 @@ export class Auditor {
   }
   getSummary() { return { total: this.log.length, entities: [...new Set(this.log.map(e => e.entity))] }; }
   getAuditLog() { return this.log.slice(-50); }
+  snapshot() { return { log: this.log }; }
+  restore(state: { log?: Array<{ entity: string; type: string; details: Record<string, unknown>; ts: string }> }) { if (Array.isArray(state?.log)) this.log = state.log; }
 }
 
 // --- HealthMonitor ---
@@ -118,6 +124,21 @@ export class InstitutionalOS {
     for (const bal of this.capital.values()) total += Object.values(bal).reduce((a, b) => a + b, 0n);
     return total.toString();
   }
+  snapshot() {
+    const capital: Record<string, Record<string, string>> = {};
+    for (const [id, bal] of this.capital) {
+      capital[String(id)] = Object.fromEntries(Object.entries(bal).map(([k, v]) => [k, v.toString()]));
+    }
+    return { capital };
+  }
+  restore(state: { capital?: Record<string, Record<string, string>> }) {
+    if (!state?.capital) return;
+    for (const [id, bal] of Object.entries(state.capital)) {
+      this.capital.set(Number(id), Object.fromEntries(
+        Object.entries(bal).map(([k, v]) => [k, BigInt(v)]),
+      ) as Record<CapitalCategory, bigint>);
+    }
+  }
 }
 
 // --- GoalEngine ---
@@ -136,6 +157,11 @@ export class GoalEngine {
   }
   getActiveGoals() { return [...this.goals.values()].filter(g => g.active); }
   getStats() { return { total: this.goals.size, active: [...this.goals.values()].filter(g => g.active).length }; }
+  snapshot() { return { goals: [...this.goals.values()] }; }
+  restore(state: { goals?: Goal[] }) {
+    if (!Array.isArray(state?.goals)) return;
+    for (const g of state.goals) this.goals.set(g.id, g);
+  }
 }
 
 // --- FlourishingEngine ---
@@ -152,6 +178,11 @@ export class FlourishingEngine {
     return totalWeight > 0 ? total / totalWeight : 0;
   }
   getMetrics() { return Object.fromEntries(this.dimensions); }
+  snapshot() { return { dimensions: Object.fromEntries(this.dimensions) }; }
+  restore(state: { dimensions?: Record<string, { weight: number; score: number }> }) {
+    if (!state?.dimensions) return;
+    for (const [k, v] of Object.entries(state.dimensions)) this.dimensions.set(k, v);
+  }
 }
 
 // --- ReinforcementLoop ---
@@ -168,6 +199,19 @@ export class ReinforcementLoop {
     return best;
   }
   getStats() { return { episodes: this.episodes.length, states: this.qTable.size }; }
+  snapshot() {
+    const qTable: Record<string, Record<string, number>> = {};
+    for (const [state, actions] of this.qTable) qTable[state] = Object.fromEntries(actions);
+    return { episodes: this.episodes, qTable };
+  }
+  restore(state: { episodes?: Episode[]; qTable?: Record<string, Record<string, number>> }) {
+    if (Array.isArray(state?.episodes)) this.episodes = state.episodes;
+    if (state?.qTable) {
+      for (const [st, actions] of Object.entries(state.qTable)) {
+        this.qTable.set(st, new Map(Object.entries(actions)));
+      }
+    }
+  }
 }
 
 // --- UnderstandingLadder ---
@@ -179,6 +223,10 @@ export class UnderstandingLadder {
   getProgress() { return (this.rung / (RUNG_NAMES.length - 1)) * 100; }
   ascend(_trigger: string) { if (this.rung < RUNG_NAMES.length - 1) this.rung++; return this.rung; }
   descend(_trigger: string) { if (this.rung > 0) this.rung--; return this.rung; }
+  snapshot() { return { rung: this.rung }; }
+  restore(state: { rung?: number }) {
+    if (typeof state?.rung === "number") this.rung = Math.max(0, Math.min(RUNG_NAMES.length - 1, state.rung));
+  }
 }
 
 // --- ShadowRuntime ---
@@ -199,24 +247,51 @@ export class ShadowRuntime {
   }
   getPending() { return [...this.entries.values()].filter(e => !e.verified); }
   getStats() { return { total: this.entries.size, verified: [...this.entries.values()].filter(e => e.verified).length }; }
+  snapshot() { return { entries: [...this.entries.values()] }; }
+  restore(state: { entries?: ShadowEntry[] }) {
+    if (!Array.isArray(state?.entries)) return;
+    for (const e of state.entries) this.entries.set(e.id, e);
+  }
 }
 
 // --- ContinuityEngine ---
 interface ContinuityRecord { layer: ContinuityLayer; eventType: string; entityId: string; data: Record<string, unknown>; hash: string; prev?: string; ts: string; }
 export class ContinuityEngine {
   private records: ContinuityRecord[] = [];
+
+  private computeHash(layer: ContinuityLayer, eventType: string, entityId: string, data: Record<string, unknown>, prev: string | undefined, ts: string): string {
+    // REAL tamper-evidence: sha256 over the canonical record payload.
+    // Any mutation of any field of any record breaks the chain here.
+    const canonical = JSON.stringify({ layer, eventType, entityId, data, prev: prev ?? null, ts });
+    return createHash("sha256").update(canonical).digest("hex");
+  }
+
   record(layer: ContinuityLayer, eventType: string, entityId: string, data: Record<string, unknown>) {
     const prev = this.records.length > 0 ? this.records[this.records.length - 1].hash : undefined;
-    const hash = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    this.records.push({ layer, eventType, entityId, data, hash, prev, ts: new Date().toISOString() });
+    const ts = new Date().toISOString();
+    const hash = this.computeHash(layer, eventType, entityId, data, prev, ts);
+    this.records.push({ layer, eventType, entityId, data, hash, prev, ts });
     return { hash, layer };
   }
   verifyChain() {
-    const valid = this.records.every((r, i) => i === 0 || r.prev === this.records[i - 1].hash);
+    const valid = this.records.every((r, i) => {
+      if (i > 0 && r.prev !== this.records[i - 1].hash) return false;
+      return r.hash === this.computeHash(r.layer, r.eventType, r.entityId, r.data, r.prev, r.ts);
+    });
     return { valid, totalRecords: this.records.length };
   }
   getStats() {
-    return { integrity: true, totalRecords: this.records.length };
+    return { integrity: this.verifyChain().valid, totalRecords: this.records.length };
+  }
+  snapshot() { return { records: this.records }; }
+  restore(state: { records?: ContinuityRecord[] }) {
+    if (!Array.isArray(state?.records)) return;
+    this.records = state.records;
+    // Refuse to hydrate a corrupted chain — continuity is fail-closed.
+    if (!this.verifyChain().valid) {
+      this.records = [];
+      throw new Error("CONTINUITY_CHAIN_CORRUPT: persisted chain failed verification");
+    }
   }
 }
 
@@ -243,6 +318,11 @@ export class CausalGraph {
     return { objectId, lineage: result };
   }
   getStats() { return { nodes: this.nodes.size, edges: this.edges.length }; }
+  snapshot() { return { nodes: [...this.nodes.values()], edges: this.edges }; }
+  restore(state: { nodes?: GraphNode[]; edges?: GraphEdge[] }) {
+    if (Array.isArray(state?.nodes)) for (const n of state.nodes) this.nodes.set(n.objectId, n);
+    if (Array.isArray(state?.edges)) this.edges = state.edges;
+  }
 }
 
 // --- CompanionRuntime ---
