@@ -15,10 +15,12 @@ jobs:
         run: |
           SID="${{ secrets.RENDER_STAGING_SERVICE_ID }}"
           if [ -z "$SID" ]; then
-            SID=$(curl -sf -H "Authorization: Bearer $RENDER_API_KEY" \
-              "https://api.render.com/v1/services?limit=50" | python3 -c "
+            curl -s -H "Authorization: Bearer $RENDER_API_KEY" \
+              "https://api.render.com/v1/services?limit=50" -o /tmp/svcs.json -w "list-http:%{http_code}\n"
+          head -c 300 /tmp/svcs.json; echo
+          SID=$(python3 -c "
 import sys, json
-svcs = [s['service'] for s in json.load(sys.stdin)]
+svcs = [s['service'] for s in json.load(open('/tmp/svcs.json'))]
 c = [s for s in svcs if 'staging' in s['name'].lower() and 'intelligence' in s['name'].lower()] or \
     [s for s in svcs if 'staging' in s['name'].lower()]
 print(c[0]['id'] if c else '')")
