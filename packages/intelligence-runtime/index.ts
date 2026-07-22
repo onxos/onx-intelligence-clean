@@ -259,10 +259,21 @@ interface ContinuityRecord { layer: ContinuityLayer; eventType: string; entityId
 export class ContinuityEngine {
   private records: ContinuityRecord[] = [];
 
+  // Stable canonical form: JSONB (Postgres) does not preserve key
+  // order, so hashing JSON.stringify output directly would break
+  // verification after a store/load round-trip. Sort keys recursively.
+  private stableStringify(value: unknown): string {
+    if (value === null || typeof value !== "object") return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map((v) => this.stableStringify(v)).join(",")}]`;
+    const obj = value as Record<string, unknown>;
+    const keys = Object.keys(obj).sort();
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${this.stableStringify(obj[k])}`).join(",")}}`;
+  }
+
   private computeHash(layer: ContinuityLayer, eventType: string, entityId: string, data: Record<string, unknown>, prev: string | undefined, ts: string): string {
     // REAL tamper-evidence: sha256 over the canonical record payload.
     // Any mutation of any field of any record breaks the chain here.
-    const canonical = JSON.stringify({ layer, eventType, entityId, data, prev: prev ?? null, ts });
+    const canonical = this.stableStringify({ layer, eventType, entityId, data, prev: prev ?? null, ts });
     return createHash("sha256").update(canonical).digest("hex");
   }
 

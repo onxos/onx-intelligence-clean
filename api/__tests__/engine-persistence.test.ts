@@ -69,6 +69,17 @@ describe("ContinuityEngine — REAL sha256 tamper-evidence", () => {
     expect(b.verifyChain().valid).toBe(true);
   });
 
+  it("survives JSONB key-reordering (Postgres does not preserve key order)", () => {
+    const a = new ContinuityEngine();
+    a.record("L3_EVENT", "INGEST", "doc-1", { alpha: 1, beta: 2, gamma: 3 });
+    const snapshot = JSON.parse(JSON.stringify(a.snapshot()));
+    // Simulate JSONB reordering the keys of the data payload.
+    snapshot.records[0].data = { gamma: 3, alpha: 1, beta: 2 };
+    const b = new ContinuityEngine();
+    b.restore(snapshot); // must NOT throw
+    expect(b.verifyChain().valid).toBe(true);
+  });
+
   it("detects tampering with any historical record", () => {
     const a = new ContinuityEngine();
     a.record("L3_EVENT", "INGEST", "doc-1", { count: 1 });
