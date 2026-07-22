@@ -1,0 +1,13 @@
+name: render-ops
+on:
+  workflow_dispatch:
+jobs:
+  ops:
+    runs-on: ubuntu-latest
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+    steps:
+      - name: trigger staging deploy
+        run: |
+          echo CmltcG9ydCBqc29uLCBvcywgdGltZSwgdXJsbGliLnJlcXVlc3QKS0VZID0gb3MuZW52aXJvblsiUkVOREVSX0FQSV9LRVkiXQpkZWYgYXBpKG1ldGhvZCwgcGF0aCwgYm9keT1Ob25lKToKICAgIHJlcSA9IHVybGxpYi5yZXF1ZXN0LlJlcXVlc3QoImh0dHBzOi8vYXBpLnJlbmRlci5jb20vdjEiICsgcGF0aCwKICAgICAgICBkYXRhPWpzb24uZHVtcHMoYm9keSkuZW5jb2RlKCkgaWYgYm9keSBpcyBub3QgTm9uZSBlbHNlIE5vbmUsCiAgICAgICAgaGVhZGVycz17IkF1dGhvcml6YXRpb24iOiAiQmVhcmVyICIgKyBLRVksICJDb250ZW50LVR5cGUiOiAiYXBwbGljYXRpb24vanNvbiJ9LCBtZXRob2Q9bWV0aG9kKQogICAgcmV0dXJuIGpzb24ubG9hZHModXJsbGliLnJlcXVlc3QudXJsb3BlbihyZXEsIHRpbWVvdXQ9NjApLnJlYWQoKSkKU1JWID0gInNydi1kOWRwbXZicmpsaHM3M2I0OTA4MCIKZCA9IGFwaSgiUE9TVCIsIGYiL3NlcnZpY2VzL3tTUlZ9L2RlcGxveXMiLCB7ImNsZWFyQ2FjaGUiOiAiZG9fbm90X2NsZWFyIn0pCnByaW50KCJkZXBsb3kgdHJpZ2dlcmVkOiIsIGRbImlkIl0sIGRbInN0YXR1cyJdKQo= | base64 -d > /tmp/c.py
+          python3 /tmp/c.py
