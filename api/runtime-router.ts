@@ -145,6 +145,7 @@ export const engineEvents = {
   noteIngestion(source: string, count: number) {
     ingestionPipeline.noteSource(source);
     ingestionPipeline.noteProcessed(count);
+    persistIngestion(); // counters are part of the durable mind too
   },
   /** Wait for boot hydration before reading engine state. */
   ready() { return hydration; },
