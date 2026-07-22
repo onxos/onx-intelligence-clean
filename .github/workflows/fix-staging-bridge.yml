@@ -1,6 +1,8 @@
 name: Fix Staging Bridge Env
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
 jobs:
   fix:
     runs-on: ubuntu-latest
