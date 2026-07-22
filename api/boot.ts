@@ -70,6 +70,11 @@ app.get("/commit", (c) =>
   }),
 );
 app.get(Paths.oauthCallback, createOAuthCallbackHandler());
+// Phase 4: founder truth page — one honest live view, no login wall.
+app.get("/truth", async (c) => {
+  const { founderTruthPageHtml } = await import("./lib/founder-truth-page");
+  return c.html(founderTruthPageHtml());
+});
 app.use("/api/trpc/*", async (c) => {
   return fetchRequestHandler({
     endpoint: "/api/trpc",

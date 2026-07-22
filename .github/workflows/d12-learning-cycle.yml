@@ -1,0 +1,15 @@
+name: d12-learning-cycle
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 4 * * *"   # daily 04:00 UTC
+jobs:
+  learn:
+    runs-on: ubuntu-latest
+    env:
+      ONX_BRIDGE_KEY: ${{ secrets.ONX_BRIDGE_KEY }}
+    steps:
+      - name: run D12 learning cycle
+        run: |
+          echo CmltcG9ydCBqc29uLCBvcywgdXJsbGliLnJlcXVlc3QKS0VZID0gb3MuZW52aXJvblsiT05YX0JSSURHRV9LRVkiXQpyZXEgPSB1cmxsaWIucmVxdWVzdC5SZXF1ZXN0KAogICAgImh0dHBzOi8vb254LWludGVsbGlnZW5jZS1jbGVhbi5vbnJlbmRlci5jb20vYXBpL3RycGMvcnVudGltZS5sZWFybmluZy5ydW5DeWNsZT9iYXRjaD0xIiwKICAgIGRhdGE9anNvbi5kdW1wcyh7IjAiOiB7Impzb24iOiB7fX19KS5lbmNvZGUoKSwKICAgIGhlYWRlcnM9eyJDb250ZW50LVR5cGUiOiAiYXBwbGljYXRpb24vanNvbiIsICJ4LW9ueC1icmlkZ2Uta2V5IjogS0VZfSwgbWV0aG9kPSJQT1NUIikKcHJpbnQodXJsbGliLnJlcXVlc3QudXJsb3BlbihyZXEsIHRpbWVvdXQ9MTIwKS5yZWFkKCkuZGVjb2RlKClbOjUwMF0pCg== | base64 -d > /tmp/c.py
+          python3 /tmp/c.py

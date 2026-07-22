@@ -32,6 +32,7 @@ import {
   persistEngineAsync,
   isEngineStatePersistenceConfigured,
 } from "./lib/engine-state-store";
+import { assertBridgeAccess } from "./bridge-guard";
 
 // --- Singleton instances (initialized once, shared across requests) ---
 const usfipv2 = new USFIPv2Engine({
@@ -474,6 +475,145 @@ export const runtimeRouter = createRouter({
   ingestion: createRouter({
     stats: publicQuery.query(() => ingestionPipeline.getSourceStats()),
   }),
+
+  // ==========================================================
+  // learning — Phase 4 / D12: the mind digests its own ledger.
+  // Scans the continuity chain, detects patterns (>=3 occurrences
+  // per the constitutional SC rule), promotes them up the
+  // understanding ladder, and credits IUC (UNDERSTANDING capital).
+  // Idempotent: detected patterns + cursor persist in engine state.
+  // ==========================================================
+  learning: createRouter({
+    runCycle: publicQuery
+      .mutation(async ({ ctx }) => {
+        assertBridgeAccess(ctx);
+        await hydration;
+        type LearningState = { detected: Record<string, { count: number; firstSeen: string; promotedAt: string }> };
+        const state = (await loadEngineState<LearningState>("learning")) ?? { detected: {} };
+
+        const records = (continuityEngine.snapshot() as { records: Array<{ eventType: string; ts: string }> }).records;
+        // Tally occurrences per eventType across the whole ledger.
+        const tally = new Map<string, { count: number; firstSeen: string }>();
+        for (const r of records) {
+          const cur = tally.get(r.eventType);
+          if (cur) cur.count++;
+          else tally.set(r.eventType, { count: 1, firstSeen: r.ts });
+        }
+
+        const newPatterns: string[] = [];
+        for (const [eventType, info] of tally) {
+          // Constitutional promotion rule: 3+ repetitions = pattern (SC).
+          if (info.count >= 3 && !state.detected[eventType]) {
+            const patternId = `pattern-${eventType.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+            engineEvents.recordContinuity("L3_EVENT", "PATTERN_DETECTED", patternId, {
+              eventType, occurrences: info.count, firstSeen: info.firstSeen,
+            });
+            understandingLadder.ascend(`pattern:${eventType}`);
+            persistLadder();
+            institutionalOS.credit(1, "UNDERSTANDING", "1", `pattern detected: ${eventType}`);
+            persistInstitution();
+            engineEvents.audit("learning", "PATTERN_DETECTED", { eventType, occurrences: info.count });
+            state.detected[eventType] = { count: info.count, firstSeen: info.firstSeen, promotedAt: new Date().toISOString() };
+            newPatterns.push(eventType);
+          }
+        }
+        persistEngineAsync("learning", () => state);
+        return {
+          scanned: records.length,
+          patternsTotal: Object.keys(state.detected).length,
+          newPatterns,
+          ladderRung: understandingLadder.getCurrentRung(),
+          iucTotal: institutionalOS.getInstitutionalCapital(),
+        };
+      }),
+    status: publicQuery.query(async () => {
+      await hydration;
+      const state = (await loadEngineState<{ detected: Record<string, unknown> }>("learning")) ?? { detected: {} };
+      return {
+        patterns: Object.keys(state.detected),
+        ladderRung: understandingLadder.getCurrentRung(),
+        ladderName: understandingLadder.getRungName(),
+        iucTotal: institutionalOS.getInstitutionalCapital(),
+      };
+    }),
+  }),
+
+  // ==========================================================
+  // founderTruth — Phase 4: one honest aggregate for the founder page
+  // ==========================================================
+  founderTruth: createRouter({
+    summary: publicQuery.query(async () => {
+      await hydration;
+      const learning = (await loadEngineState<{ detected: Record<string, { count: number; promotedAt: string }> }>("learning")) ?? { detected: {} };
+      let marketing: { reachable: boolean; database?: string } = { reachable: false };
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        const res = await fetch("https://onx-marketing-api.onrender.com/api/v1/health", { signal: controller.signal });
+        clearTimeout(timer);
+        const body = (await res.json()) as { data?: { info?: { database?: { status?: string } } } };
+        marketing = { reachable: res.ok, database: body.data?.info?.database?.status };
+      } catch {
+        marketing = { reachable: false };
+      }
+      return {
+        timestamp: new Date().toISOString(),
+        mind: {
+          persistenceConfigured: isEngineStatePersistenceConfigured(),
+          hydrated: enginesHydrated,
+          continuity: continuityEngine.getStats(),
+          graph: causalGraph.getStats(),
+          goals: goalEngine.getStats(),
+          guardian: guardian.getStats(),
+          auditor: auditor.getSummary().total,
+          ingestion: ingestionPipeline.getSourceStats(),
+          usfipv2: usfipv2.getStatus(),
+        },
+        learning: {
+          patterns: Object.entries(learning.detected).map(([eventType, info]) => ({
+            eventType, occurrences: info.count, promotedAt: info.promotedAt,
+          })),
+          ladderRung: understandingLadder.getCurrentRung(),
+          ladderName: understandingLadder.getRungName(),
+          iucTotal: institutionalOS.getInstitutionalCapital(),
+        },
+        body: { marketing },
+      };
+    }),
+  }),
+
+  // ==========================================================
+  // feedEvent — Phase 4: the body feeds the mind (bridge-guarded)
+  // Marketing/Platform events enter: continuity + causal graph +
+  // auditor + ingestion counters. This is the B-line in motion.
+  // ==========================================================
+  feedEvent: publicQuery
+    .input(z.object({
+      source: z.string().min(1).max(60), // e.g. "marketing-api"
+      eventType: z.string().min(1).max(80), // e.g. "CAMPAIGN_CREATED"
+      entityId: z.string().min(1).max(120),
+      data: z.record(z.string(), z.any()).default({}),
+    }))
+    .mutation(({ ctx, input }) => {
+      assertBridgeAccess(ctx);
+      const continuity = engineEvents.recordContinuity(
+        "L3_EVENT",
+        `${input.source}:${input.eventType}`,
+        input.entityId,
+        input.data,
+      );
+      engineEvents.addCausalNode(input.entityId, {
+        objectType: input.eventType,
+        amanahScore: "0.85",
+        content: JSON.stringify(input.data).slice(0, 500),
+      });
+      engineEvents.audit(input.source, input.eventType, {
+        entityId: input.entityId,
+        ...input.data,
+      });
+      engineEvents.noteIngestion(input.source, 1);
+      return { fed: true, hash: continuity.hash };
+    }),
 
   // ==========================================================
   // Persistence — Line I / Phase 1 honest status
