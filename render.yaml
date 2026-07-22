@@ -174,7 +174,7 @@ services:
         value: "true"
       # Platform↔Intelligence Bridge (locked by default until V6 gate approval)
       - key: BRIDGE_ENABLED
-        value: "false"
+        value: "true"
       - key: BRIDGE_SHARED_SECRET
         sync: false
 
