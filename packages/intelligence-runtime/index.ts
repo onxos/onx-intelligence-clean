@@ -11,16 +11,54 @@ export type ContinuityLayer = "L1_SOURCE" | "L2_OBJECT" | "L3_EVENT" | "L4_DECIS
 export type CapitalCategory = "WISDOM" | "JUDGMENT" | "UNDERSTANDING" | "FLOURISHING";
 
 // --- Guardian ---
+interface GuardianAlert {
+  id: string;
+  kind: "AMANAH_FLOOR_VIOLATION" | "UNTRUSTED_SHADOW";
+  severity: "RED" | "AMBER";
+  details: Record<string, unknown>;
+  ts: string;
+}
 export class Guardian {
+  private alerts: GuardianAlert[] = [];
+  private checked = 0;
+  private violations = 0;
+
   checkAmanah(score: number) {
+    this.checked++;
     const passed = score >= 0.5;
+    if (!passed) {
+      this.violations++;
+      this.alerts.push({
+        id: `alert-${this.checked}`,
+        kind: "AMANAH_FLOOR_VIOLATION",
+        severity: "RED",
+        details: { score, floor: 0.5 },
+        ts: new Date().toISOString(),
+      });
+    }
     return { score, passed, message: passed ? "Amanah threshold met" : "Below Amanah floor", level: passed ? "GREEN" : "RED" };
   }
   validateShadow(originSource: string) {
     const trusted = originSource === "L1_FOUNDER" || originSource === "L1_VERIFIED";
+    if (!trusted) {
+      this.alerts.push({
+        id: `alert-shadow-${this.alerts.length + 1}`,
+        kind: "UNTRUSTED_SHADOW",
+        severity: "AMBER",
+        details: { originSource },
+        ts: new Date().toISOString(),
+      });
+    }
     return { originSource, trusted, message: trusted ? "Shadow validated" : "Shadow requires verification" };
   }
-  getAlerts() { return []; }
+  getAlerts() { return this.alerts.slice(-100); }
+  getStats() { return { checked: this.checked, violations: this.violations, alerts: this.alerts.length }; }
+  snapshot() { return { alerts: this.alerts, checked: this.checked, violations: this.violations }; }
+  restore(state: { alerts?: GuardianAlert[]; checked?: number; violations?: number }) {
+    if (Array.isArray(state?.alerts)) this.alerts = state.alerts;
+    if (typeof state?.checked === "number") this.checked = state.checked;
+    if (typeof state?.violations === "number") this.violations = state.violations;
+  }
 }
 
 // --- USFIPv2Engine ---
@@ -34,7 +72,45 @@ export class USFIPv2Engine {
     return { active: this.active, version: "2.0", constitution: "ONX-7P", amanahFloor: 0.50 };
   }
   fullAudit(input: Record<string, unknown>) {
-    return { passed: true, score: 0.85, input, timestamp: new Date().toISOString() };
+    // REAL constitutional audit — every check computed, none hardcoded:
+    // 1) Amanah floor (HC: HARD_BLOCK below 0.50, even for the founder)
+    // 2) Privacy/accessor coherence (RESTRICTED requires ADMIN role)
+    // 3) Shadow objects require trusted origin
+    // Score = mean of check outcomes; passed = no HARD failure.
+    const failures: string[] = [];
+    const warnings: string[] = [];
+    let points = 0;
+    let checks = 0;
+
+    if (typeof input.amanahScore === "number") {
+      checks++;
+      if (input.amanahScore >= 0.5) points++;
+      else failures.push(`AMANAH_FLOOR: ${input.amanahScore} < 0.50 (HARD_BLOCK)`);
+    }
+    if (typeof input.privacyLevel === "string") {
+      checks++;
+      const role = typeof input.accessorRole === "string" ? input.accessorRole : "PUBLIC";
+      if (input.privacyLevel === "RESTRICTED" && role !== "ADMIN" && role !== "OWNER") {
+        failures.push(`PRIVACY: RESTRICTED object accessed with role ${role}`);
+      } else points++;
+    }
+    if (input.type === "SHADOW" || input.shadowStatus === "SHADOW") {
+      checks++;
+      const origin = typeof input.originSource === "string" ? input.originSource : "";
+      if (origin === "L1_FOUNDER" || origin === "L1_VERIFIED") points++;
+      else warnings.push("SHADOW_UNVERIFIED: requires founder/verified origin");
+    }
+    const score = checks === 0 ? 0 : Math.round((points / checks) * 100) / 100;
+    const passed = failures.length === 0 && (checks === 0 || score >= 0.5);
+    return {
+      passed,
+      score,
+      checks,
+      failures,
+      warnings,
+      input,
+      timestamp: new Date().toISOString(),
+    };
   }
 }
 
@@ -101,8 +177,23 @@ export class BoundaryGuard {
 
 // --- IngestionPipeline ---
 export class IngestionPipeline {
+  private sourceSet = new Set<string>();
+  private processed = 0;
+  private pending = 0;
   constructor(_guardian?: Guardian) {}
-  getSourceStats() { return { sources: 0, processed: 0, pending: 0 }; }
+  noteSource(source: string) { this.sourceSet.add(source); }
+  noteProcessed(count: number) { this.processed += count; }
+  notePending(count: number) { this.pending += count; }
+  resolvePending(count: number) { this.pending = Math.max(0, this.pending - count); }
+  getSourceStats() {
+    return { sources: this.sourceSet.size, processed: this.processed, pending: this.pending };
+  }
+  snapshot() { return { sources: [...this.sourceSet], processed: this.processed, pending: this.pending }; }
+  restore(state: { sources?: string[]; processed?: number; pending?: number }) {
+    if (Array.isArray(state?.sources)) this.sourceSet = new Set(state.sources);
+    if (typeof state?.processed === "number") this.processed = state.processed;
+    if (typeof state?.pending === "number") this.pending = state.pending;
+  }
 }
 
 // --- InstitutionalOS ---

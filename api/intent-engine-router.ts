@@ -62,6 +62,13 @@ export const intentEngineRouter = createRouter({
       });
 
       const objectId = created.object.objectId;
+      // D11 feeding: every analyzed intent is a decision in the ledger.
+      import("./runtime-router").then(({ engineEvents }) => {
+        engineEvents.recordContinuity("L4_DECISION", "INTENT_ANALYZED", objectId, {
+          source: input.source, targetContext: input.targetContext, priority: input.priority,
+        });
+        engineEvents.audit("intentEngine", "ANALYZE", { objectId, source: input.source });
+      }).catch(() => { /* feeding never breaks the mutation */ });
       const routeDecision = await caller.route({
         objectId,
         targetContext: input.targetContext,

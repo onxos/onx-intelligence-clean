@@ -443,6 +443,14 @@ export const knowledgeRouter = createRouter({
     }))
     .mutation(({ input }) => {
       const id = `kn_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      // D11 feeding: every explicit knowledge addition enters the engines.
+      import("./runtime-router").then(({ engineEvents }) => {
+        engineEvents.recordContinuity("L2_OBJECT", "KNOWLEDGE_ADD", id, {
+          domain: input.domain, title: input.title, source: input.source,
+        });
+        engineEvents.addCausalNode(id, { objectType: "KNOWLEDGE", amanahScore: String(input.confidence) });
+        engineEvents.audit("knowledge", "ADD", { id, domain: input.domain });
+      }).catch(() => { /* feeding never breaks the mutation */ });
       const record: KnowledgeRecord = {
         id,
         title: input.title,

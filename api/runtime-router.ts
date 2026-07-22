@@ -73,6 +73,7 @@ let enginesHydrated = false;
 const PERSISTED_ENGINES = [
   "goals", "graph", "continuity", "auditor", "ladder",
   "shadow", "reinforcement", "flourishing", "institution",
+  "guardian", "ingestion",
 ] as const;
 const hydration = (async () => {
   if (!isEngineStatePersistenceConfigured()) return;
@@ -86,6 +87,8 @@ const hydration = (async () => {
     ["reinforcement", reinforcementLoop],
     ["flourishing", flourishingEngine],
     ["institution", institutionalOS],
+    ["guardian", guardian],
+    ["ingestion", ingestionPipeline],
   ];
   for (const [name, engine] of targets) {
     try {
@@ -108,6 +111,43 @@ const persistShadow = () => persistEngineAsync("shadow", () => shadowRuntime.sna
 const persistReinforcement = () => persistEngineAsync("reinforcement", () => reinforcementLoop.snapshot());
 const persistFlourishing = () => persistEngineAsync("flourishing", () => flourishingEngine.snapshot());
 const persistInstitution = () => persistEngineAsync("institution", () => institutionalOS.snapshot());
+const persistGuardian = () => persistEngineAsync("guardian", () => guardian.snapshot());
+const persistIngestion = () => persistEngineAsync("ingestion", () => ingestionPipeline.snapshot());
+
+// --- D11 feeding: real events from anywhere in the API enter the engines ---
+// Corpus ingest, knowledge additions, intent analysis and future sources
+// all flow through here → continuity ledger + causal graph + auditor +
+// ingestion counters. This is the blood stream of Line I / Phase 2.
+export const engineEvents = {
+  recordContinuity(
+    layer: ContinuityLayer,
+    eventType: string,
+    entityId: string,
+    data: Record<string, unknown>,
+  ) {
+    const result = continuityEngine.record(layer, eventType, entityId, data);
+    persistContinuity();
+    return result;
+  },
+  addCausalNode(objectId: string, attrs: Record<string, unknown>) {
+    causalGraph.addNode({ id: 0, objectId, ...attrs });
+    persistGraph();
+  },
+  addCausalEdge(fromId: string, toId: string, type: string, strength: number) {
+    causalGraph.addEdge(fromId, toId, type, strength);
+    persistGraph();
+  },
+  audit(entity: string, type: string, details: Record<string, unknown>) {
+    auditor.audit(entity, type, details);
+    persistAuditor();
+  },
+  noteIngestion(source: string, count: number) {
+    ingestionPipeline.noteSource(source);
+    ingestionPipeline.noteProcessed(count);
+  },
+  /** Wait for boot hydration before reading engine state. */
+  ready() { return hydration; },
+};
 
 // --- Register health checks ---
 healthMonitor.registerCheck("usfipv2", () => ({ healthy: usfipv2.isActive() }));
@@ -142,10 +182,18 @@ export const runtimeRouter = createRouter({
   guardian: createRouter({
     checkAmanah: publicQuery
       .input(z.object({ score: z.number().min(0).max(1) }))
-      .query(({ input }) => guardian.checkAmanah(input.score)),
+      .query(({ input }) => {
+        const result = guardian.checkAmanah(input.score);
+        persistGuardian();
+        return result;
+      }),
     checkShadow: publicQuery
       .input(z.object({ originSource: z.string() }))
-      .query(({ input }) => guardian.validateShadow(input.originSource)),
+      .query(({ input }) => {
+        const result = guardian.validateShadow(input.originSource);
+        persistGuardian();
+        return result;
+      }),
     alerts: publicQuery.query(() => guardian.getAlerts()),
   }),
 
@@ -446,6 +494,8 @@ export const runtimeRouter = createRouter({
           reinforcementEpisodes: reinforcementLoop.getStats().episodes,
           institutionCapital: institutionalOS.getInstitutionalCapital(),
           ladderRung: understandingLadder.getCurrentRung(),
+          guardianAlerts: guardian.getStats().alerts,
+          ingestionProcessed: ingestionPipeline.getSourceStats().processed,
         },
       };
     }),

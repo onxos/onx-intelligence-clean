@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createRouter, publicQuery } from "./middleware";
 import { enforceRateLimit } from "./lib/rate-limiter";
 import { fingerprintKnowledge, knowledgeRouter } from "./knowledge-router";
+import { engineEvents } from "./runtime-router";
 import { assertBridgeAccess } from "./bridge-guard";
 import {
   insertCorpusUnits,
@@ -138,9 +139,33 @@ export const corpusQueryRouter = createRouter({
         batch.push({ ...unit, fingerprint });
       }
 
+      // D11 feeding: every accepted ingest becomes institutional memory —
+      // continuity ledger + causal node + audit trail + counters —
+      // regardless of which persistence branch served it.
+      const feedEngines = (accepted: number, duplicates: number) => {
+        const domains = [...new Set(batch.map((u) => u.domain))];
+        const batchId = `corpus-batch-${Date.now()}`;
+        engineEvents.recordContinuity("L2_OBJECT", "CORPUS_INGEST", batchId, {
+          accepted,
+          duplicates,
+          domains,
+          source: batch[0]?.source ?? "unknown",
+        });
+        engineEvents.addCausalNode(batchId, {
+          objectType: "CORPUS_BATCH",
+          amanahScore: "0.90",
+          content: `${accepted} units [${domains.join(",")}]`,
+        });
+        engineEvents.audit("corpus", "INGEST", { batchId, accepted, domains });
+        engineEvents.noteIngestion(batch[0]?.source ?? "unknown", accepted);
+      };
+
       if (isCorpusPersistenceConfigured()) {
         const result = await insertCorpusUnits(batch);
-        if (result.accepted > 0) invalidateCorpusSearchIndex();
+        if (result.accepted > 0) {
+          invalidateCorpusSearchIndex();
+          feedEngines(result.accepted, result.duplicates + inBatchDuplicates);
+        }
         return {
           bridge: "corpusQuery",
           persistence: "POSTGRES" as const,
@@ -158,7 +183,10 @@ export const corpusQueryRouter = createRouter({
         memoryUnits.push(unit);
         accepted++;
       }
-      if (accepted > 0) invalidateCorpusSearchIndex();
+      if (accepted > 0) {
+        invalidateCorpusSearchIndex();
+        feedEngines(accepted, input.units.length - accepted);
+      }
       return {
         bridge: "corpusQuery",
         persistence: "UNPERSISTED" as const,
