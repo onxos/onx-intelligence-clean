@@ -4,43 +4,55 @@ on:
 jobs:
   fix:
     runs-on: ubuntu-latest
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      BRIDGE_KEY: ${{ secrets.BRIDGE_SHARED_SECRET }}
     steps:
-      - name: Enable bridge on staging service
-        env:
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_STAGING_ID: ${{ secrets.RENDER_STAGING_SERVICE_ID }}
-          BRIDGE_KEY: ${{ secrets.BRIDGE_SHARED_SECRET }}
+      - name: Resolve staging service id
+        id: sid
         run: |
-          set -e
-          EXISTING=$(curl -sf -H "Authorization: Bearer $RENDER_API_KEY" \
-            "https://api.render.com/v1/services/$RENDER_STAGING_ID/env-vars")
-          python3 - "$RENDER_STAGING_ID" <<'PYEOF'
+          SID="${{ secrets.RENDER_STAGING_SERVICE_ID }}"
+          if [ -z "$SID" ]; then
+            SID=$(curl -sf -H "Authorization: Bearer $RENDER_API_KEY" \
+              "https://api.render.com/v1/services?limit=50" | python3 -c "
+import sys, json
+svcs = [s['service'] for s in json.load(sys.stdin)]
+c = [s for s in svcs if 'staging' in s['name'].lower() and 'intelligence' in s['name'].lower()] or \
+    [s for s in svcs if 'staging' in s['name'].lower()]
+print(c[0]['id'] if c else '')")
+          fi
+          echo "staging id: $SID"
+          echo "sid=$SID" >> $GITHUB_OUTPUT
+      - name: Set bridge env vars
+        run: |
+          SID="${{ steps.sid.outputs.sid }}"
+          curl -sf -H "Authorization: Bearer $RENDER_API_KEY" \
+            "https://api.render.com/v1/services/$SID/env-vars" -o /tmp/env.json
+          python3 - "$SID" <<'PYEOF'
           import json, os, subprocess, sys
           sid = sys.argv[1]
-          existing = json.loads(os.environ.get("EXISTING", "[]") or "[]")
+          existing = json.load(open('/tmp/env.json'))
           env_dict = {}
           for item in existing:
-              ev = item.get("envVar") or item
-              if ev.get("key"):
-                  env_dict[ev["key"]] = ev.get("value", "")
-          env_dict["BRIDGE_ENABLED"] = "true"
-          env_dict["BRIDGE_SHARED_SECRET"] = os.environ["BRIDGE_KEY"]
-          env_dict["ONX_BRIDGE_KEY"] = os.environ["BRIDGE_KEY"]
-          payload = [{"key": k, "value": v} for k, v in env_dict.items()]
-          print("setting", len(payload), "env vars")
-          r = subprocess.run(["curl","-s","-w","\nHTTP:%{http_code}","-X","PUT",
-              "-H",f"Authorization: Bearer {os.environ['RENDER_API_KEY']}",
-              "-H","Content-Type: application/json",
-              "-d",json.dumps(payload),
-              f"https://api.render.com/v1/services/{sid}/env-vars"],
+              ev = item.get('envVar') or item
+              if ev.get('key'):
+                  env_dict[ev['key']] = ev.get('value', '')
+          env_dict['BRIDGE_ENABLED'] = 'true'
+          env_dict['BRIDGE_SHARED_SECRET'] = os.environ['BRIDGE_KEY']
+          env_dict['ONX_BRIDGE_KEY'] = os.environ['BRIDGE_KEY']
+          payload = [{'key': k, 'value': v} for k, v in env_dict.items()]
+          print('setting', len(payload), 'env vars')
+          r = subprocess.run(['curl','-s','-w','\nHTTP:%{http_code}','-X','PUT',
+              '-H', f"Authorization: Bearer {os.environ['RENDER_API_KEY']}",
+              '-H','Content-Type: application/json',
+              '-d', json.dumps(payload),
+              f'https://api.render.com/v1/services/{sid}/env-vars'],
               capture_output=True, text=True)
-          print(r.stdout[-300:])
+          print(r.stdout[-200:])
           PYEOF
       - name: Redeploy staging
-        env:
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_STAGING_ID: ${{ secrets.RENDER_STAGING_SERVICE_ID }}
         run: |
+          SID="${{ steps.sid.outputs.sid }}"
           curl -s -X POST -H "Authorization: Bearer $RENDER_API_KEY" \
             -H "Content-Type: application/json" -d '{"clearCache":"do_not_clear"}' \
-            "https://api.render.com/v1/services/$RENDER_STAGING_ID/deploys"
+            "https://api.render.com/v1/services/$SID/deploys"
