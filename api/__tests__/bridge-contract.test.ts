@@ -60,9 +60,9 @@ describe("Bridge contract security", () => {
     expect(["BRIDGE_READY", "BRIDGE_GUARDED"]).toContain(corpus.compatibility);
     expect(["BRIDGE_READY", "BRIDGE_GUARDED"]).toContain(intent.compatibility);
     expect(corpus.manifestSha256).toMatch(/^[0-9a-f]{64}$/);
-    expect(corpus.corpusDocs).toBe(22500);
+    expect(corpus.corpusDocs).toBe(0); // STE-K-REAL: no templated seed — honest empty until authentic ingest
     expect(corpus.publicSearch.probeQuery).toBe("entropy principles");
-    expect(corpus.publicSearch.indexedDocs).toBeGreaterThanOrEqual(22500);
+    expect(corpus.publicSearch.indexedDocs).toBe(0);
     expect(intent.classify.engine).toBe("RULE_BASED_SAFE");
     expect(intent.classify.mode).toBe("DETERMINISTIC_NO_KEY");
     expect(intent.classify.topIntent).toBe("PRICING");

@@ -149,8 +149,14 @@ function seedKnowledge() {
   }
 }
 
-// Seed on module load
-seedKnowledge();
+// STE-K-REAL: templated demo seed is DISABLED by default (D-19 honesty).
+// The 22,500-record synthetic scaffold ("ONX Knowledge Base v1.0") made the
+// corpus disclosure stay DEMO/MIXED forever. Authentic knowledge now comes
+// from the Postgres corpus (corpusPg source) and the authorized ingest
+// endpoint. Set ENABLE_TEMPLATED_KNOWLEDGE_SEED=true only for local demos.
+if (process.env.ENABLE_TEMPLATED_KNOWLEDGE_SEED === "true") {
+  seedKnowledge();
+}
 
 // STE-K-01: expose the in-memory knowledge store to the BM25
 // corpus search index (lazy build; invalidated on mutation).

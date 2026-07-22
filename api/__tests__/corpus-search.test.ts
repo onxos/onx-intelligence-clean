@@ -124,6 +124,18 @@ describe("corpus search engine (STE-K-01)", () => {
     });
 
     it("rankedSearch is PUBLIC read — works with no bridge key", async () => {
+      // STE-K-REAL: no templated seed — ingest a real SCIENCE unit first.
+      const bridge = appRouter.createCaller({
+        req: { headers: new Headers({ "x-onx-bridge-key": "test-bridge-secret" }) },
+      } as never);
+      await bridge.corpusQuery.ingest({
+        units: [{
+          domain: "SCIENCE",
+          title: "Entropy principles in closed systems",
+          body: "Entropy principles describe the irreversible dispersal of energy in closed systems over time.",
+          source: "ste-k-01-test",
+        }],
+      });
       const caller = appRouter.createCaller({ req: { headers: new Headers() } } as never);
       const result = await caller.corpusQuery.rankedSearch({
         query: "entropy principles",
@@ -132,7 +144,7 @@ describe("corpus search engine (STE-K-01)", () => {
       });
       expect(result.access).toBe("PUBLIC_READ");
       expect(result.engine).toBe("BM25");
-      expect(result.indexedDocs).toBeGreaterThanOrEqual(22500);
+      expect(result.indexedDocs).toBeGreaterThanOrEqual(1);
       expect(result.hits.length).toBeGreaterThan(0);
       expect(result.hits[0].domain).toBe("SCIENCE");
       expect(result.hits[0].snippet).toContain("«");

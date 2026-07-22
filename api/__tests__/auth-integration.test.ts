@@ -246,7 +246,12 @@ describe("End-to-End: Full System", () => {
     });
     expect(validation.passed).toBe(true);
 
-    // 5. Query knowledge
+    // 5. Query knowledge — add a real record first (no templated seed anymore)
+    await caller.knowledge.add({
+      title: "Strategy fundamentals",
+      content: "SWOT, Porter five forces, and strategic planning basics for clinics.",
+      domain: "STRATEGY",
+    });
     const knowledge = await caller.knowledge.search({
       query: "strategy",
       limit: 3,

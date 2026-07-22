@@ -127,14 +127,14 @@ describe("STE-K-10 corpus content manifest", () => {
     expect(findStructureIssues([seedDoc("ok", "MEDICINE", "fine")])).toHaveLength(0);
   });
 
-  it("live manifest over the shipped seed measures DEMO with 19 domains", async () => {
-    // Importing knowledge-router seeds the corpus source on load.
+  it("live manifest over the honest empty store measures EMPTY (no fake seed)", async () => {
+    // Importing knowledge-router no longer seeds the templated demo corpus.
     await import("../knowledge-router");
     const live = await getCorpusContentManifest();
-    expect(live.disclosure).toBe("DEMO");
-    expect(live.provenance).toBe("TEMPLATED_SEED");
-    expect(live.docCount).toBe(22500);
-    expect(live.domains.length).toBe(19);
+    expect(live.disclosure).toBe("DEMO"); // empty corpus still discloses DEMO honestly
+    expect(live.provenance).toBe("EMPTY");
+    expect(live.docCount).toBe(0);
+    expect(live.domains.length).toBe(0);
     expect(live.sha256).toMatch(/^[0-9a-f]{64}$/);
     // Deterministic: two live reads are identical.
     const again = await getCorpusContentManifest();

@@ -294,7 +294,9 @@ describe("Allocation durable router", () => {
     });
     expect(decided.persistence).toBe("UNPERSISTED");
     expect(decided.decision.id).toBeGreaterThan(0);
-    expect(decided.decision.executionPolicy).toBe("AUTO_EXECUTE");
+    // STE-K-REAL: with an honest empty corpus there is no evidence, so the
+    // engine must refuse to auto-execute (fail-honest, never fabricates).
+    expect(decided.decision.executionPolicy).toBe("HUMAN_REVIEW_REQUIRED");
 
     const history = await caller.allocation.history({ limit: 10 });
     expect(history.count).toBeGreaterThan(0);

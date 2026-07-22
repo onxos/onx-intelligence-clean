@@ -26,7 +26,7 @@ describe("OSVA self-verification (STE-V-01)", () => {
     expect(report.bridges.map((b) => b.id)).toEqual(["corpusQuery", "intentEngine", "titanBridge"]);
     expect(report.bridgeRuntime.bridge).toBe("titanBridge");
     expect(["BRIDGE_READY", "BRIDGE_GUARDED"]).toContain(report.bridgeRuntime.compatibility);
-    expect(report.corpus.rawTotal).toBe(22500);
+    expect(report.corpus.rawTotal).toBe(0); // STE-K-REAL: templated seed off — measured, never claimed
     expect(report.runtime.node).toBe(process.version);
     // items = 6 health + 1 corpus + 8 providers + 3 bridges + 1 runtime bridge proof + 1 runtime
     expect(report.items.length).toBe(20);

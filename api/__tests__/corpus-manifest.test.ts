@@ -14,9 +14,9 @@ import {
 describe("Corpus manifest (STE-N-01)", () => {
   it("measures the real seeded store, not a claim", () => {
     const snap = getKnowledgeHealthSnapshot();
-    // Sum of DOMAINS recordCount in knowledge-router.ts:38-56 = 22,500
-    expect(snap.records).toBe(22500);
-    expect(snap.domains).toBe(19);
+    // STE-K-REAL: templated 22,500-record demo seed is OFF by default.
+    expect(snap.records).toBe(0);
+    expect(snap.domains).toBe(19); // taxonomy intact
   });
 
   it("normalization is stable across whitespace/case variants", () => {
@@ -46,13 +46,12 @@ describe("Corpus manifest (STE-N-01)", () => {
 
   it("builds a full-store manifest with honest unique-vs-raw counts", () => {
     const manifest = buildCorpusManifest();
-    expect(manifest.rawTotal).toBe(22500);
-    // Titles are unique by construction (`topic — domain N`), so the measured
-    // unique counts must equal the raw total and duplicates must be zero.
-    expect(manifest.uniqueByTitleOnly).toBe(22500);
-    expect(manifest.uniqueByTitleBody).toBe(22500);
+    // Empty honest store: every count is measured zero, never a claim.
+    expect(manifest.rawTotal).toBe(0);
+    expect(manifest.uniqueByTitleOnly).toBe(0);
+    expect(manifest.uniqueByTitleBody).toBe(0);
     expect(manifest.duplicates).toBe(0);
-    expect(Object.keys(manifest.byDomain)).toHaveLength(19);
+    expect(Object.keys(manifest.byDomain)).toHaveLength(0);
     const domainRawSum = Object.values(manifest.byDomain).reduce((s, d) => s + d.raw, 0);
     expect(domainRawSum).toBe(manifest.rawTotal);
   });

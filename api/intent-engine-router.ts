@@ -3,7 +3,7 @@ import { createRouter, publicQuery } from "./middleware";
 import { enforceRateLimit } from "./lib/rate-limiter";
 import { intelligenceRouter } from "./intelligence-router";
 import { assertBridgeAccess } from "./bridge-guard";
-import { classifyIntent } from "./lib/intent-engine";
+import { classifyIntentHybrid } from "./lib/intent-engine-llm";
 import { getIntentBridgeSurfaceProof } from "./lib/bridge-surface-proof";
 
 export const intentEngineRouter = createRouter({
@@ -19,11 +19,14 @@ export const intentEngineRouter = createRouter({
     }))
     .query(async ({ ctx, input }) => {
       const rateLimit = await enforceRateLimit(ctx);
+      // STE-K-REAL: LLM-first (GPT-4o) with honest rule fallback —
+      // the `engine` field reports which path actually answered.
+      const classification = await classifyIntentHybrid(input.text, input.topN);
       return {
         bridge: "intentEngine",
         access: "PUBLIC_READ" as const,
         rateLimit,
-        ...classifyIntent(input.text, input.topN),
+        ...classification,
       };
     }),
 

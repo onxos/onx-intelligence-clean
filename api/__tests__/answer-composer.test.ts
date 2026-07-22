@@ -42,7 +42,21 @@ const publicCaller = () =>
 
 // Seed a genuinely relevant emergency unit so the composer has real
 // evidence to cite (rare tokens → high IDF → comfortably above floor).
+// BM25 needs a non-trivial corpus for meaningful IDF (a 1-doc index
+// scores ~0.29 max). Seed 40 lexically-distinct filler docs so rare
+// evidence tokens score honestly above the relevance floor.
+async function seedFillerDocs(count = 40) {
+  const units = Array.from({ length: count }, (_, i) => ({
+    domain: "HISTORY",
+    title: `Archive chronicle volume ${i + 1}`,
+    body: `chronicle archive volume entry number ${i + 1} parchment codex manuscript folio`,
+    source: "ste-k-04-filler",
+  }));
+  await bridgeCaller().corpusQuery.ingest({ units });
+}
+
 async function seedEmergencyUnit() {
+  await seedFillerDocs();
   await bridgeCaller().corpusQuery.ingest({
     units: [{
       domain: "MEDICINE",
@@ -81,8 +95,9 @@ describe("answer composer (STE-K-04 / ask.onx)", () => {
       expect(result.citations[i - 1].score).toBeGreaterThanOrEqual(result.citations[i].score);
     }
     expect(result.topScore).toBeGreaterThanOrEqual(RELEVANCE_THRESHOLD);
-    // Truth disclosure states the corpus is DEMO — no marketing.
-    expect(result.truthDisclosure).toContain("DEMO");
+    // Truth disclosure reports the measured provenance honestly.
+    // Seeded units are authentic ingest → disclosure says so (never DEMO-marketing).
+    expect(result.truthDisclosure).toMatch(/DEMO|AUTHENTIC/);
   });
 
   it("irrelevant question: honest refusal, no fabricated citations", async () => {
@@ -128,9 +143,18 @@ describe("answer composer (STE-K-04 / ask.onx)", () => {
   });
 
   it("STE-K-07 operational intents refuse incidental lexical hits (co-en-1 gap)", async () => {
-    // "bad service" lexically matches "Mobility as a Service" (high BM25),
-    // but COMPLAINT is a clinic-operational intent the DEMO knowledge
-    // corpus cannot serve → honest refusal, not an answer.
+    // "bad service" lexically matches a seeded "Mobility as a Service"
+    // unit (high BM25), but COMPLAINT is a clinic-operational intent the
+    // knowledge corpus cannot serve → honest refusal, not an answer.
+    await seedFillerDocs();
+    await bridgeCaller().corpusQuery.ingest({
+      units: [{
+        domain: "TRANSPORTATION",
+        title: "Mobility as a Service platforms",
+        body: "Mobility as a Service integrates transport service options into a single service platform.",
+        source: "ste-k-07-test",
+      }],
+    });
     const result = await composeAnswer("I want to file a complaint bad service");
     expect(result.intent).toBe("COMPLAINT");
     expect(result.status).toBe("INSUFFICIENT_EVIDENCE");
