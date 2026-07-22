@@ -1,0 +1,46 @@
+name: Fix Staging Bridge Env
+on:
+  workflow_dispatch:
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enable bridge on staging service
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_STAGING_ID: ${{ secrets.RENDER_STAGING_SERVICE_ID }}
+          BRIDGE_KEY: ${{ secrets.BRIDGE_SHARED_SECRET }}
+        run: |
+          set -e
+          EXISTING=$(curl -sf -H "Authorization: Bearer $RENDER_API_KEY" \
+            "https://api.render.com/v1/services/$RENDER_STAGING_ID/env-vars")
+          python3 - "$RENDER_STAGING_ID" <<'PYEOF'
+          import json, os, subprocess, sys
+          sid = sys.argv[1]
+          existing = json.loads(os.environ.get("EXISTING", "[]") or "[]")
+          env_dict = {}
+          for item in existing:
+              ev = item.get("envVar") or item
+              if ev.get("key"):
+                  env_dict[ev["key"]] = ev.get("value", "")
+          env_dict["BRIDGE_ENABLED"] = "true"
+          env_dict["BRIDGE_SHARED_SECRET"] = os.environ["BRIDGE_KEY"]
+          env_dict["ONX_BRIDGE_KEY"] = os.environ["BRIDGE_KEY"]
+          payload = [{"key": k, "value": v} for k, v in env_dict.items()]
+          print("setting", len(payload), "env vars")
+          r = subprocess.run(["curl","-s","-w","\nHTTP:%{http_code}","-X","PUT",
+              "-H",f"Authorization: Bearer {os.environ['RENDER_API_KEY']}",
+              "-H","Content-Type: application/json",
+              "-d",json.dumps(payload),
+              f"https://api.render.com/v1/services/{sid}/env-vars"],
+              capture_output=True, text=True)
+          print(r.stdout[-300:])
+          PYEOF
+      - name: Redeploy staging
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_STAGING_ID: ${{ secrets.RENDER_STAGING_SERVICE_ID }}
+        run: |
+          curl -s -X POST -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Content-Type: application/json" -d '{"clearCache":"do_not_clear"}' \
+            "https://api.render.com/v1/services/$RENDER_STAGING_ID/deploys"
