@@ -538,7 +538,16 @@ export const runtimeRouter = createRouter({
           );
           // Re-confirmed: detected earlier, grew by >=2 since, not yet judged.
           if (growth >= 2 && !alreadyJudged) {
-            const judgment: Judgment = {
+            const confidence = Math.min(0.95, Math.round((0.6 + 0.05 * current) * 100) / 100);
+            // D-059 autonomy ladder: LOW-RISK judgments (confidence ≥0.9,
+            // pattern ≥10 occurrences, zero guardian violations) are
+            // auto-validated with a full audit trail — the human gate is
+            // delegated, never abolished. Anything below the bar still
+            // waits for the founder as PROPOSED.
+            const guardianViolations = guardian.getStats().violations;
+            const autoEligible =
+              confidence >= 0.9 && current >= 10 && guardianViolations === 0;
+            const judgment: Judgment & { autoValidated?: boolean } = {
               id: `judgment-${eventType.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
               statement: `النمط «${eventType}» تكرر ${current} مرة وتأكد عبر دورتين مستقلتين — يُقترح اعتماده سلوكًا مؤسسيًا مستقرًا يستحق الاستثمار فيه.`,
               patternEventType: eventType,
@@ -547,10 +556,19 @@ export const runtimeRouter = createRouter({
                 occurrencesAtConfirmation: current,
                 firstSeen: det.firstSeen,
               },
-              confidence: Math.min(0.95, Math.round((0.6 + 0.05 * current) * 100) / 100),
-              status: "PROPOSED",
+              confidence,
+              status: autoEligible ? "VALIDATED" : "PROPOSED",
               formedAt: new Date().toISOString(),
             };
+            if (autoEligible) {
+              judgment.autoValidated = true;
+              judgment.reviewedAt = judgment.formedAt;
+              engineEvents.audit("learning", "JUDGMENT_AUTO_VALIDATED", {
+                judgmentId: judgment.id,
+                basis: { confidence, occurrences: current, guardianViolations },
+                decision: "D-059",
+              });
+            }
             jstate.judgments.push(judgment);
             newJudgments.push(judgment);
             engineEvents.recordContinuity("L4_DECISION", "JUDGMENT_FORMED", judgment.id, {

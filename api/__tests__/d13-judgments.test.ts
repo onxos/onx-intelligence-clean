@@ -48,6 +48,25 @@ describe("D13 — judgments form only from re-confirmed patterns, with a human g
     expect(c3.judgmentsTotal).toBe(1);
   });
 
+  it("D-059: low-risk judgments auto-validate, high-risk stay PROPOSED", async () => {
+    const caller = bridge();
+    // low-risk: 10+ occurrences, high confidence, no guardian violations
+    for (let i = 0; i < 3; i++) {
+      await caller.runtime.feedEvent({ source: "test", eventType: "SAFE_PATTERN", entityId: `s-${i}` });
+    }
+    await caller.runtime.learning.runCycle(); // detected
+    for (let i = 3; i < 12; i++) {
+      await caller.runtime.feedEvent({ source: "test", eventType: "SAFE_PATTERN", entityId: `s-${i}` });
+    }
+    const c = await caller.runtime.learning.runCycle(); // 12 total → growth 9 → judgment
+    const j = c.newJudgments[0] as { id: string; confidence: number };
+    expect(j.confidence).toBeGreaterThanOrEqual(0.9);
+    const { judgments } = await caller.runtime.learning.judgments();
+    const stored = judgments.find((x) => (x as { id: string }).id === j.id) as { status: string; autoValidated?: boolean };
+    expect(stored.status).toBe("VALIDATED");
+    expect(stored.autoValidated).toBe(true);
+  });
+
   it("human gate validates/rejects judgments and records the decision", async () => {
     const caller = bridge();
     for (let i = 0; i < 3; i++) {
