@@ -197,6 +197,22 @@ export const runtimeRouter = createRouter({
         return result;
       }),
     alerts: publicQuery.query(() => guardian.getAlerts()),
+    stats: publicQuery.query(() => guardian.getStats()),
+    // Human gate: acknowledge a reviewed alert (never deletes the record).
+    acknowledgeAlert: publicQuery
+      .input(z.object({ id: z.string().min(1), reason: z.string().min(3) }))
+      .mutation(({ input, ctx }) => {
+        assertBridgeAccess(ctx);
+        const result = guardian.acknowledgeAlert(input.id, input.reason);
+        if (result.found && !result.alreadyAcknowledged) {
+          engineEvents.audit("guardian", "GUARDIAN_ALERT_ACKNOWLEDGED", {
+            id: input.id,
+            reason: input.reason,
+          });
+          persistGuardian();
+        }
+        return result;
+      }),
   }),
 
   // ==========================================================

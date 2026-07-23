@@ -17,6 +17,9 @@ interface GuardianAlert {
   severity: "RED" | "AMBER";
   details: Record<string, unknown>;
   ts: string;
+  acknowledged?: boolean;
+  ackReason?: string;
+  ackTs?: string;
 }
 export class Guardian {
   private alerts: GuardianAlert[] = [];
@@ -50,6 +53,18 @@ export class Guardian {
       });
     }
     return { originSource, trusted, message: trusted ? "Shadow validated" : "Shadow requires verification" };
+  }
+  // Human review of an alert. Never deletes — the record stays tamper-evident;
+  // acknowledgment only lifts it out of the ACTIVE violation set (D-059 gate).
+  acknowledgeAlert(id: string, reason: string) {
+    const a = this.alerts.find((x) => x.id === id);
+    if (!a) return { found: false as const };
+    if (a.acknowledged) return { found: true as const, alreadyAcknowledged: true as const, id };
+    a.acknowledged = true;
+    a.ackReason = reason;
+    a.ackTs = new Date().toISOString();
+    if (a.severity === "RED" && this.violations > 0) this.violations--;
+    return { found: true as const, alreadyAcknowledged: false as const, id, kind: a.kind };
   }
   getAlerts() { return this.alerts.slice(-100); }
   getStats() { return { checked: this.checked, violations: this.violations, alerts: this.alerts.length }; }
