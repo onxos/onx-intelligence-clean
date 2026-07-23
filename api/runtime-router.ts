@@ -445,7 +445,29 @@ export const runtimeRouter = createRouter({
       }),
     interact: publicQuery
       .input(z.object({ companionId: z.string(), input: z.string() }))
-      .mutation(({ input }) => companionRuntime.interact(input.companionId, input.input)),
+      .mutation(async ({ input }) => {
+        const reg = companionRuntime.get(input.companionId);
+        if (!reg) return { error: "COMPANION_NOT_FOUND" as const };
+        const apiKey = process.env.OPENAI_API_KEY;
+        if (!apiKey) {
+          // Honest disclosure — never a canned fake "Processing..." reply.
+          return { error: "LLM_NOT_CONFIGURED" as const, companionId: input.companionId, note: "Companion requires OPENAI_API_KEY to think; no canned reply is returned." };
+        }
+        const { default: OpenAI } = await import("openai");
+        const openai = new OpenAI({ apiKey });
+        const res = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          temperature: 0.4,
+          max_tokens: 600,
+          messages: [
+            { role: "system", content: `أنت «${reg.name}» — وكيل متخصص في ${reg.specialization} ضمن منظومة ONX البيطرية. أجب بإيجاز مهني وبالعربية، والتزم بتخصصك؛ إن خرج السؤال عنه قل ذلك صراحة.` },
+            { role: "user", content: input.input },
+          ],
+        });
+        const text = res.choices[0]?.message?.content ?? "";
+        companionRuntime.noteInteraction(input.companionId);
+        return { companionId: input.companionId, response: text, trustLevel: reg.trustLevel };
+      }),
     stats: publicQuery.query(() => companionRuntime.getStats()),
   }),
 

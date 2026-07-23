@@ -447,10 +447,13 @@ interface Companion { companionId: string; name: string; specialization: string;
 export class CompanionRuntime {
   private companions = new Map<string, Companion>();
   register(companion: Companion) { this.companions.set(companion.companionId, companion); }
+  get(companionId: string) { return this.companions.get(companionId); }
+  noteInteraction(companionId: string) { /* interaction counter hook — kept for stats evolution */ void companionId; }
   interact(companionId: string, input: string) {
     const c = this.companions.get(companionId);
     if (!c) return { error: "COMPANION_NOT_FOUND" };
-    return { companionId, response: `[${c.name}] Processing: ${input.substring(0, 50)}...`, trustLevel: c.trustLevel };
+    // Honest: the class no longer fakes cognition; the router calls a real LLM.
+    return { companionId, error: "USE_ROUTER_LLM_PATH", input: input.substring(0, 50) };
   }
   getStats() { return { total: this.companions.size, active: [...this.companions.values()].filter(c => c.active).length }; }
 }

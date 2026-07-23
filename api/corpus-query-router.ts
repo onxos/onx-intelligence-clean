@@ -110,6 +110,26 @@ export const corpusQueryRouter = createRouter({
       };
     }),
 
+  // Admin maintenance — retag a domain for all units of a given source.
+  // Bridge-guarded + audited; returns the true affected-row count.
+  adminRetagDomain: publicQuery
+    .input(z.object({
+      source: z.string().min(1).max(200),
+      fromDomain: z.string().min(1).max(40),
+      toDomain: z.string().min(1).max(40),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      assertBridgeAccess(ctx);
+      if (!isCorpusPersistenceConfigured()) {
+        return { persistence: "UNPERSISTED" as const, updated: 0 };
+      }
+      const { retagCorpusDomain } = await import("./lib/corpus-pg-store");
+      const result = await retagCorpusDomain(input.source, input.fromDomain, input.toDomain);
+      invalidateCorpusSearchIndex();
+      engineEvents.audit("corpus", "ADMIN_RETAG_DOMAIN", { ...input, updated: result.updated });
+      return { persistence: "POSTGRES" as const, updated: result.updated };
+    }),
+
   // STE-N-02: real ingest endpoint — normalize → fingerprint →
   // dedup → insert. Ready to receive the authentic archive
   // (STE-REC-06) the moment it is recovered. Fail-closed bridge.

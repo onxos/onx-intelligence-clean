@@ -182,6 +182,42 @@ export const aiBridgeRouter = createRouter({
     }),
 
   /**
+   * Vision check (gpt-4o image input) — the visual half of the quality gate:
+   * the studio sends a rendered frame and asks a verification question (e.g.
+   * "what language is the text on this end card?") so visual output is
+   * verified, not assumed. Small images only; returns a short answer.
+   */
+  visionCheck: protectedQuery
+    .input(z.object({
+      imageBase64: z.string().min(100).max(8_000_000), // ~6MB png cap
+      question: z.string().min(5).max(1000),
+    }))
+    .mutation(async ({ input }) => {
+      const apiKey = process.env.OPENAI_API_KEY;
+      if (!apiKey) {
+        return { ok: false as const, reason: "OPENAI_API_KEY_NOT_CONFIGURED", answer: "" };
+      }
+      try {
+        const { default: OpenAI } = await import("openai");
+        const openai = new OpenAI({ apiKey });
+        const res = await openai.chat.completions.create({
+          model: "gpt-4o",
+          max_tokens: 200,
+          messages: [{
+            role: "user",
+            content: [
+              { type: "text", text: input.question },
+              { type: "image_url", image_url: { url: `data:image/png;base64,${input.imageBase64}` } },
+            ],
+          }],
+        });
+        return { ok: true as const, answer: res.choices[0]?.message?.content ?? "" };
+      } catch (err) {
+        return { ok: false as const, reason: `PROVIDER_ERROR: ${(err as Error).message}`, answer: "" };
+      }
+    }),
+
+  /**
    * Gemini image generation ("Nano Banana" family) via GEMINI_API_KEY.
    * Higher fidelity than gpt-image-1 for ad creative + correct Arabic text
    * rendering. Returns base64 image (data URL ready). Key-free fallback:

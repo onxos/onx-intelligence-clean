@@ -119,3 +119,20 @@ export function __resetCorpusPgForTests(): void {
   pool = null;
   schemaReady = false;
 }
+
+// Admin maintenance (bridge-guarded callers only): retag units by
+// source+domain. Used to correct domain mis-tags honestly — every call is
+// audited by the caller and returns the true affected-row count.
+export async function retagCorpusDomain(
+  source: string,
+  fromDomain: string,
+  toDomain: string,
+): Promise<{ updated: number }> {
+  const p = getPool();
+  await ensureSchema();
+  const r = await p.query(
+    `UPDATE onx_knowledge_corpus SET domain = $1 WHERE source = $2 AND domain = $3`,
+    [toDomain, source, fromDomain],
+  );
+  return { updated: r.rowCount ?? 0 };
+}
