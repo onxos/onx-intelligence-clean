@@ -13,6 +13,10 @@ import { Pool } from "pg";
 
 let pool: Pool | null = null;
 let schemaReady = false;
+// In-memory fallback when no DATABASE_URL (dev/test): works within the
+// process, lost on restart — the honest UNPERSISTED mode, matching how
+// the engines themselves behave without a database.
+const memoryFallback = new Map<string, unknown>();
 
 export function isEngineStatePersistenceConfigured(): boolean {
   const url = process.env.DATABASE_URL ?? "";
@@ -47,7 +51,10 @@ async function ensureSchema(): Promise<void> {
 }
 
 export async function saveEngineState(engine: string, state: unknown): Promise<boolean> {
-  if (!isEngineStatePersistenceConfigured()) return false;
+  if (!isEngineStatePersistenceConfigured()) {
+    memoryFallback.set(engine, JSON.parse(JSON.stringify(state)));
+    return false; // honestly UNPERSISTED — process-local only
+  }
   await ensureSchema();
   await getPool().query(
     `INSERT INTO onx_engine_state (engine, state, updated_at)
@@ -59,7 +66,10 @@ export async function saveEngineState(engine: string, state: unknown): Promise<b
 }
 
 export async function loadEngineState<T>(engine: string): Promise<T | null> {
-  if (!isEngineStatePersistenceConfigured()) return null;
+  if (!isEngineStatePersistenceConfigured()) {
+    const v = memoryFallback.get(engine);
+    return v === undefined ? null : (JSON.parse(JSON.stringify(v)) as T);
+  }
   await ensureSchema();
   const result = await getPool().query(
     `SELECT state FROM onx_engine_state WHERE engine = $1`,
@@ -69,9 +79,10 @@ export async function loadEngineState<T>(engine: string): Promise<T | null> {
   return result.rows[0].state as T;
 }
 
-/** Fire-and-forget persist: never lets a DB hiccup break a mutation. */
+/** Fire-and-forget persist: never lets a DB hiccup break a mutation.
+ *  Without a database it still keeps the process-local fallback so
+ *  learning/judgment state survives between calls (UNPERSISTED). */
 export function persistEngineAsync(engine: string, snapshot: () => unknown): void {
-  if (!isEngineStatePersistenceConfigured()) return;
   void saveEngineState(engine, snapshot()).catch(() => {
     /* honest degradation: engine keeps working in-memory */
   });
@@ -81,4 +92,5 @@ export function persistEngineAsync(engine: string, snapshot: () => unknown): voi
 export function __resetEngineStateStoreForTests(): void {
   pool = null;
   schemaReady = false;
+  memoryFallback.clear();
 }

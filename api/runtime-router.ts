@@ -490,7 +490,14 @@ export const runtimeRouter = createRouter({
         assertBridgeAccess(ctx);
         await hydration;
         type LearningState = { detected: Record<string, { count: number; firstSeen: string; promotedAt: string }> };
+        type Judgment = {
+          id: string; statement: string; patternEventType: string;
+          evidence: { occurrencesAtDetection: number; occurrencesAtConfirmation: number; firstSeen: string };
+          confidence: number; status: "PROPOSED" | "VALIDATED" | "REJECTED";
+          formedAt: string; reviewedAt?: string;
+        };
         const state = (await loadEngineState<LearningState>("learning")) ?? { detected: {} };
+        const jstate = (await loadEngineState<{ judgments: Judgment[] }>("judgments")) ?? { judgments: [] };
 
         const records = (continuityEngine.snapshot() as { records: Array<{ eventType: string; ts: string }> }).records;
         // Tally occurrences per eventType across the whole ledger.
@@ -518,14 +525,87 @@ export const runtimeRouter = createRouter({
             newPatterns.push(eventType);
           }
         }
+        // --- D13: judgment formation from RE-CONFIRMED patterns ---
+        // Constitutional chain: pattern (3+ repetitions) → re-confirmation on
+        // a later cycle with growth → JUDGMENT (PROPOSED, human gate for
+        // validation — DG rules: judgments above risk need human review).
+        const newJudgments: Judgment[] = [];
+        for (const [eventType, det] of Object.entries(state.detected)) {
+          const current = tally.get(eventType)?.count ?? det.count;
+          const growth = current - det.count;
+          const alreadyJudged = jstate.judgments.some(
+            (j) => j.patternEventType === eventType && j.status !== "REJECTED",
+          );
+          // Re-confirmed: detected earlier, grew by >=2 since, not yet judged.
+          if (growth >= 2 && !alreadyJudged) {
+            const judgment: Judgment = {
+              id: `judgment-${eventType.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+              statement: `النمط «${eventType}» تكرر ${current} مرة وتأكد عبر دورتين مستقلتين — يُقترح اعتماده سلوكًا مؤسسيًا مستقرًا يستحق الاستثمار فيه.`,
+              patternEventType: eventType,
+              evidence: {
+                occurrencesAtDetection: det.count,
+                occurrencesAtConfirmation: current,
+                firstSeen: det.firstSeen,
+              },
+              confidence: Math.min(0.95, Math.round((0.6 + 0.05 * current) * 100) / 100),
+              status: "PROPOSED",
+              formedAt: new Date().toISOString(),
+            };
+            jstate.judgments.push(judgment);
+            newJudgments.push(judgment);
+            engineEvents.recordContinuity("L4_DECISION", "JUDGMENT_FORMED", judgment.id, {
+              pattern: eventType, confidence: judgment.confidence,
+            });
+            institutionalOS.credit(1, "JUDGMENT", "2", `judgment formed: ${eventType}`);
+            persistInstitution();
+            understandingLadder.ascend(`judgment:${eventType}`);
+            persistLadder();
+            engineEvents.audit("learning", "JUDGMENT_FORMED", {
+              judgmentId: judgment.id, pattern: eventType,
+            });
+            // keep detection baseline current so growth is measured forward
+            state.detected[eventType].count = current;
+          }
+        }
         persistEngineAsync("learning", () => state);
+        persistEngineAsync("judgments", () => jstate);
         return {
           scanned: records.length,
           patternsTotal: Object.keys(state.detected).length,
           newPatterns,
+          newJudgments: newJudgments.map((j) => ({ id: j.id, statement: j.statement, confidence: j.confidence })),
+          judgmentsTotal: jstate.judgments.length,
           ladderRung: understandingLadder.getCurrentRung(),
           iucTotal: institutionalOS.getInstitutionalCapital(),
         };
+      }),
+    judgments: publicQuery.query(async () => {
+      await hydration;
+      const jstate = (await loadEngineState<{ judgments: unknown[] }>("judgments")) ?? { judgments: [] };
+      return { judgments: jstate.judgments };
+    }),
+    reviewJudgment: publicQuery
+      .input(z.object({
+        judgmentId: z.string().min(1),
+        decision: z.enum(["VALIDATED", "REJECTED"]),
+        reviewer: z.string().min(1).max(80).default("founder"),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        // DG human gate: only a human (founder bridge) validates judgments.
+        assertBridgeAccess(ctx);
+        const jstate = (await loadEngineState<{ judgments: Array<{ id: string; status: string; reviewedAt?: string }> }>("judgments")) ?? { judgments: [] };
+        const j = jstate.judgments.find((x) => x.id === input.judgmentId);
+        if (!j) return { reviewed: false, reason: "JUDGMENT_NOT_FOUND" };
+        j.status = input.decision;
+        j.reviewedAt = new Date().toISOString();
+        persistEngineAsync("judgments", () => jstate);
+        engineEvents.recordContinuity("L4_DECISION", `JUDGMENT_${input.decision}`, input.judgmentId, {
+          reviewer: input.reviewer,
+        });
+        engineEvents.audit("learning", `JUDGMENT_${input.decision}`, {
+          judgmentId: input.judgmentId, reviewer: input.reviewer,
+        });
+        return { reviewed: true, judgmentId: input.judgmentId, status: input.decision };
       }),
     status: publicQuery.query(async () => {
       await hydration;
@@ -546,6 +626,7 @@ export const runtimeRouter = createRouter({
     summary: publicQuery.query(async () => {
       await hydration;
       const learning = (await loadEngineState<{ detected: Record<string, { count: number; promotedAt: string }> }>("learning")) ?? { detected: {} };
+      const jstate = (await loadEngineState<{ judgments: Array<{ id: string; statement: string; confidence: number; status: string; formedAt: string }> }>("judgments")) ?? { judgments: [] };
       let marketing: { reachable: boolean; database?: string } = { reachable: false };
       try {
         const controller = new AbortController();
@@ -578,6 +659,7 @@ export const runtimeRouter = createRouter({
           ladderName: understandingLadder.getRungName(),
           iucTotal: institutionalOS.getInstitutionalCapital(),
         },
+        judgments: jstate.judgments,
         body: { marketing },
       };
     }),
