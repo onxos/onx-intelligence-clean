@@ -694,6 +694,25 @@ export const runtimeRouter = createRouter({
       } catch {
         marketing = { reachable: false };
       }
+      // Studio probe (bridge-guarded): the BODY of the system on the truth
+      // page — durable jobs, statuses, and honest estimated spend.
+      let studio: Record<string, unknown> | null = null;
+      try {
+        if (env.bridgeSharedSecret) {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 5000);
+          const res = await fetch("https://onx-marketing-api.onrender.com/api/v1/video-studio-bridge/stats", {
+            signal: controller.signal,
+            headers: { "x-onx-bridge-key": env.bridgeSharedSecret },
+          });
+          clearTimeout(timer);
+          if (res.ok) {
+            studio = ((await res.json()) as { data?: Record<string, unknown> }).data ?? null;
+          }
+        }
+      } catch {
+        studio = null;
+      }
       return {
         timestamp: new Date().toISOString(),
         mind: {
@@ -716,7 +735,7 @@ export const runtimeRouter = createRouter({
           iucTotal: institutionalOS.getInstitutionalCapital(),
         },
         judgments: jstate.judgments,
-        body: { marketing },
+        body: { marketing, studio },
       };
     }),
   }),

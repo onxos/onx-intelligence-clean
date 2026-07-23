@@ -65,6 +65,11 @@ async function load() {
       '<div class="card"><h2>الجسد — الماركتينج</h2>' +
       row("الوصول", pill(b.marketing.reachable, "متصل", "غير متصل")) +
       (b.marketing.database ? row("قاعدة البيانات", pill(b.marketing.database === "up", "تعمل", "متوقفة")) : "") +
+      (b.studio
+        ? row("وظائف الفيديو", '<span class="big">' + b.studio.durable + "</span>") +
+          row("الحالات", JSON.stringify(b.studio.byStatus)) +
+          row("الكلفة التراكمية", "~$" + b.studio.totalCostUsdEstimate + ' <span style="color:#8a97a3;font-size:11px">(تقدير)</span>')
+        : row("الاستوديو", '<span style="color:#e2b33c">إحصاءات غير متاحة</span>')) +
       "</div>" +
       '<div class="card"><h2>الدستور — USFIPv2</h2>' +
       row("نشط", pill(m.usfipv2.active, "نعم", "لا")) +
