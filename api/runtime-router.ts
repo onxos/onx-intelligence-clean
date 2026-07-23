@@ -700,7 +700,7 @@ export const runtimeRouter = createRouter({
       try {
         if (env.bridgeSharedSecret) {
           const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 5000);
+          const timer = setTimeout(() => controller.abort(), 8000);
           const res = await fetch("https://onx-marketing-api.onrender.com/api/v1/video-studio-bridge/stats", {
             signal: controller.signal,
             headers: { "x-onx-bridge-key": env.bridgeSharedSecret },
@@ -708,10 +708,14 @@ export const runtimeRouter = createRouter({
           clearTimeout(timer);
           if (res.ok) {
             studio = ((await res.json()) as { data?: Record<string, unknown> }).data ?? null;
+          } else {
+            studio = { probeError: `HTTP_${res.status}` };
           }
+        } else {
+          studio = { probeError: "NO_BRIDGE_SECRET" };
         }
-      } catch {
-        studio = null;
+      } catch (e) {
+        studio = { probeError: e instanceof Error ? e.name : "FETCH_FAILED" };
       }
       return {
         timestamp: new Date().toISOString(),
