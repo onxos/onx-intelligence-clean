@@ -158,3 +158,13 @@ export async function listCorpusSources(): Promise<Array<{ source: string; count
   );
   return r.rows as Array<{ source: string; count: number }>;
 }
+
+export async function retagCorpusByIds(ids: string[], toDomain: string): Promise<{ updated: number }> {
+  const p = getPool();
+  await ensureSchema();
+  const r = await p.query(
+    `UPDATE onx_knowledge_corpus SET domain = $1 WHERE id = ANY($2::text[])`,
+    [toDomain, ids],
+  );
+  return { updated: r.rowCount ?? 0 };
+}

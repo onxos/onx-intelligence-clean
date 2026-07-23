@@ -149,6 +149,24 @@ export const corpusQueryRouter = createRouter({
       return { persistence: "POSTGRES" as const, updated: result.updated };
     }),
 
+  // Admin maintenance — precise retag by unit ids (after adminListBySource).
+  adminRetagByIds: publicQuery
+    .input(z.object({
+      ids: z.array(z.string().min(1)).min(1).max(200),
+      toDomain: z.string().min(1).max(40),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      assertBridgeAccess(ctx);
+      if (!isCorpusPersistenceConfigured()) {
+        return { persistence: "UNPERSISTED" as const, updated: 0 };
+      }
+      const { retagCorpusByIds } = await import("./lib/corpus-pg-store");
+      const result = await retagCorpusByIds(input.ids, input.toDomain);
+      invalidateCorpusSearchIndex();
+      engineEvents.audit("corpus", "ADMIN_RETAG_BY_IDS", { ids: input.ids, toDomain: input.toDomain, updated: result.updated });
+      return { persistence: "POSTGRES" as const, updated: result.updated };
+    }),
+
   // STE-N-02: real ingest endpoint — normalize → fingerprint →
   // dedup → insert. Ready to receive the authentic archive
   // (STE-REC-06) the moment it is recovered. Fail-closed bridge.
