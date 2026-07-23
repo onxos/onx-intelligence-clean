@@ -70,8 +70,14 @@ app.get("/commit", (c) =>
   }),
 );
 app.get(Paths.oauthCallback, createOAuthCallbackHandler());
-// Phase 4: founder truth page — one honest live view, no login wall.
+// Phase 4: founder truth page — one honest live view.
+// Protected by a share-token (TRUTH_PAGE_KEY): the founder bookmarks
+// /truth?key=... once; without the env key the page stays open (dev).
 app.get("/truth", async (c) => {
+  const required = process.env.TRUTH_PAGE_KEY;
+  if (required && c.req.query("key") !== required) {
+    return c.text("Forbidden", 403);
+  }
   const { founderTruthPageHtml } = await import("./lib/founder-truth-page");
   return c.html(founderTruthPageHtml());
 });
