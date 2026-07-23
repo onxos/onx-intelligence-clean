@@ -27,4 +27,6 @@ jobs:
               headers={"Authorization": "Bearer " + KEY})
           s = json.loads(urllib.request.urlopen(req2, timeout=60).read())
           print("SVC branch:", s.get("branch"), "rootDir:", s.get("rootDir"), "suspended:", s.get("suspended"))
+          sd = s.get("serviceDetails", {})
+          print("PLAN:", sd.get("plan"), "numInstances:", sd.get("numInstances"), "region:", s.get("region"))
           PY
