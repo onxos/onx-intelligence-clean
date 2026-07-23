@@ -150,6 +150,38 @@ export const aiBridgeRouter = createRouter({
     }),
 
   /**
+   * Audio transcription (whisper-1) — the quality-gate half of the speech
+   * bridge: after the studio renders a video it sends the final voice track
+   * back through HERE so language and CTA are verified, not assumed.
+   */
+  transcribe: protectedQuery
+    .input(z.object({
+      audioBase64: z.string().min(100).max(14_000_000), // ~10MB mp3/wav cap
+      mime: z.string().max(40).default("audio/mpeg"),
+      language: z.string().max(8).optional(), // hint e.g. "ar" | "en"
+    }))
+    .mutation(async ({ input }) => {
+      const apiKey = process.env.OPENAI_API_KEY;
+      if (!apiKey) {
+        return { ok: false as const, reason: "OPENAI_API_KEY_NOT_CONFIGURED", text: "", language: "" };
+      }
+      try {
+        const { default: OpenAI, toFile } = await import("openai");
+        const openai = new OpenAI({ apiKey });
+        const ext = input.mime.includes("wav") ? "wav" : "mp3";
+        const file = await toFile(Buffer.from(input.audioBase64, "base64"), `voice.${ext}`);
+        const res = await openai.audio.transcriptions.create({
+          model: "whisper-1",
+          file,
+          ...(input.language ? { language: input.language } : {}),
+        });
+        return { ok: true as const, text: res.text ?? "", language: "" };
+      } catch (err) {
+        return { ok: false as const, reason: `PROVIDER_ERROR: ${(err as Error).message}`, text: "", language: "" };
+      }
+    }),
+
+  /**
    * Gemini image generation ("Nano Banana" family) via GEMINI_API_KEY.
    * Higher fidelity than gpt-image-1 for ad creative + correct Arabic text
    * rendering. Returns base64 image (data URL ready). Key-free fallback:
