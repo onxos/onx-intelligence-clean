@@ -110,6 +110,14 @@ export const corpusQueryRouter = createRouter({
       };
     }),
 
+  // Admin: distinct source labels with counts (find the real label first).
+  adminSources: publicQuery.query(async ({ ctx }) => {
+    assertBridgeAccess(ctx);
+    if (!isCorpusPersistenceConfigured()) return { persistence: "UNPERSISTED" as const, sources: [] };
+    const { listCorpusSources } = await import("./lib/corpus-pg-store");
+    return { persistence: "POSTGRES" as const, sources: await listCorpusSources() };
+  }),
+
   // Admin listing by source — see the exact rows before maintaining them.
   adminListBySource: publicQuery
     .input(z.object({ source: z.string().min(1).max(200) }))

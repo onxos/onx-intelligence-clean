@@ -149,3 +149,12 @@ export async function listCorpusBySource(
   );
   return r.rows as Array<{ id: string; domain: string; title: string }>;
 }
+
+export async function listCorpusSources(): Promise<Array<{ source: string; count: number }>> {
+  const p = getPool();
+  await ensureSchema();
+  const r = await p.query(
+    `SELECT source, COUNT(*)::int AS count FROM onx_knowledge_corpus GROUP BY source ORDER BY source`,
+  );
+  return r.rows as Array<{ source: string; count: number }>;
+}
