@@ -110,6 +110,17 @@ export const corpusQueryRouter = createRouter({
       };
     }),
 
+  // Admin listing by source — see the exact rows before maintaining them.
+  adminListBySource: publicQuery
+    .input(z.object({ source: z.string().min(1).max(200) }))
+    .query(async ({ ctx, input }) => {
+      assertBridgeAccess(ctx);
+      if (!isCorpusPersistenceConfigured()) return { persistence: "UNPERSISTED" as const, units: [] };
+      const { listCorpusBySource } = await import("./lib/corpus-pg-store");
+      const units = await listCorpusBySource(input.source);
+      return { persistence: "POSTGRES" as const, units };
+    }),
+
   // Admin maintenance — retag a domain for all units of a given source.
   // Bridge-guarded + audited; returns the true affected-row count.
   adminRetagDomain: publicQuery

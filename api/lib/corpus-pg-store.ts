@@ -136,3 +136,16 @@ export async function retagCorpusDomain(
   );
   return { updated: r.rowCount ?? 0 };
 }
+
+// Admin listing by source — precise maintenance needs to SEE the rows first.
+export async function listCorpusBySource(
+  source: string,
+): Promise<Array<{ id: string; domain: string; title: string }>> {
+  const p = getPool();
+  await ensureSchema();
+  const r = await p.query(
+    `SELECT id, domain, title FROM onx_knowledge_corpus WHERE source = $1 ORDER BY title`,
+    [source],
+  );
+  return r.rows as Array<{ id: string; domain: string; title: string }>;
+}
