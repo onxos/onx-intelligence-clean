@@ -33,6 +33,7 @@ import {
   isEngineStatePersistenceConfigured,
 } from "./lib/engine-state-store";
 import { assertBridgeAccess } from "./bridge-guard";
+import { env } from "./lib/env";
 
 // --- Singleton instances (initialized once, shared across requests) ---
 const usfipv2 = new USFIPv2Engine({
