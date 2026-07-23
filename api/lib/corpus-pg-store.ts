@@ -197,3 +197,15 @@ export async function corpusBackupAnchor(): Promise<{ docCount: number; sha256: 
   );
   return { docCount: Number(r.rows[0].c), sha256: String(r.rows[0].h) };
 }
+
+// Admin delete by ids — destructive maintenance; callers must compare content
+// first and every call is audited with the exact ids removed.
+export async function deleteCorpusByIds(ids: string[]): Promise<{ deleted: number }> {
+  const p = getPool();
+  await ensureSchema();
+  const r = await p.query(
+    `DELETE FROM onx_knowledge_corpus WHERE id = ANY($1::text[])`,
+    [ids],
+  );
+  return { deleted: r.rowCount ?? 0 };
+}

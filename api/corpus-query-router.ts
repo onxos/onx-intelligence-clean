@@ -186,6 +186,25 @@ export const corpusQueryRouter = createRouter({
       return { persistence: "POSTGRES" as const, updated: result.updated };
     }),
 
+  // Admin maintenance — destructive delete by ids. Requires a written reason;
+  // audited with the exact ids. Callers must compare content BEFORE calling.
+  adminDeleteByIds: publicQuery
+    .input(z.object({
+      ids: z.array(z.string().min(1)).min(1).max(100),
+      reason: z.string().min(10).max(500),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      assertBridgeAccess(ctx);
+      if (!isCorpusPersistenceConfigured()) {
+        return { persistence: "UNPERSISTED" as const, deleted: 0 };
+      }
+      const { deleteCorpusByIds } = await import("./lib/corpus-pg-store");
+      const result = await deleteCorpusByIds(input.ids);
+      invalidateCorpusSearchIndex();
+      engineEvents.audit("corpus", "ADMIN_DELETE_BY_IDS", { ids: input.ids, reason: input.reason, deleted: result.deleted });
+      return { persistence: "POSTGRES" as const, deleted: result.deleted };
+    }),
+
   // STE-N-02: real ingest endpoint — normalize → fingerprint →
   // dedup → insert. Ready to receive the authentic archive
   // (STE-REC-06) the moment it is recovered. Fail-closed bridge.
