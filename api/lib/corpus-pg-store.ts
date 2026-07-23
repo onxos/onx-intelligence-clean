@@ -168,3 +168,32 @@ export async function retagCorpusByIds(ids: string[], toDomain: string): Promise
   );
   return { updated: r.rowCount ?? 0 };
 }
+
+// Backup-grade paginated export (bridge-guarded): the weekly archive workflow
+// pages through ALL units and reassembles them off-site. Read-only.
+export async function exportCorpusPage(
+  offset: number,
+  limit: number,
+): Promise<{ total: number; offset: number; units: Array<Record<string, unknown>> }> {
+  const p = getPool();
+  await ensureSchema();
+  const total = Number((await p.query(`SELECT COUNT(*)::int AS c FROM onx_knowledge_corpus`)).rows[0].c);
+  const r = await p.query(
+    `SELECT id, fingerprint, domain, title, body, source FROM onx_knowledge_corpus ORDER BY id LIMIT $1 OFFSET $2`,
+    [Math.min(limit, 2000), offset],
+  );
+  return { total, offset, units: r.rows as Array<Record<string, unknown>> };
+}
+
+// Backup anchor: sha256 over all fingerprints in id order — the same corpus
+// always yields the same anchor; any mutation moves it.
+export async function corpusBackupAnchor(): Promise<{ docCount: number; sha256: string }> {
+  const p = getPool();
+  await ensureSchema();
+  const r = await p.query(
+    `SELECT COUNT(*)::int AS c,
+            md5(string_agg(fingerprint, '' ORDER BY id)) AS h
+     FROM onx_knowledge_corpus`,
+  );
+  return { docCount: Number(r.rows[0].c), sha256: String(r.rows[0].h) };
+}

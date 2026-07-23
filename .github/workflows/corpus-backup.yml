@@ -1,0 +1,58 @@
+name: corpus-backup
+on:
+  schedule:
+    - cron: '0 3 * * 0'   # weekly, Sunday 03:00 UTC
+  workflow_dispatch:
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    env:
+      BRIDGE: ${{ secrets.ONX_BRIDGE_KEY }}
+      PAT: ${{ secrets.GH_ARCHIVE_PAT }}
+    steps:
+      - name: export corpus (paginated) + push to archive repo
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request, gzip, hashlib, base64, datetime, subprocess
+
+          BASE = "https://onx-intelligence-clean.onrender.com/api/trpc"
+          HDR = {"x-onx-bridge-key": os.environ["BRIDGE"]}
+
+          def call(path, payload=None):
+              data = json.dumps(payload).encode() if payload else None
+              req = urllib.request.Request(f"{BASE}/{path}", data=data, headers={**HDR, "Content-Type": "application/json"})
+              return json.loads(urllib.request.urlopen(req, timeout=180).read())
+
+          anchor = call("corpusQuery.adminBackupAnchor?batch=1&input=%7B%7D")[0]["result"]["data"]["json"]
+          total = anchor["docCount"]; print("anchor:", total, anchor["sha256"][:16])
+
+          units = []
+          offset = 0
+          while offset < total:
+              import urllib.parse
+              inp = urllib.parse.quote(json.dumps({"0":{"json":{"offset":offset,"limit":2000}}}))
+              page = call(f"corpusQuery.adminExportPage?batch=1&input={inp}")[0]["result"]["data"]["json"]
+              units.extend(page["units"])
+              offset = page["offset"] + len(page["units"])
+              print(f"  page: {len(units)}/{total}")
+          assert len(units) == total, f"export mismatch: {len(units)} != {total}"
+
+          today = datetime.date.today().isoformat()
+          fname = f"corpus-{today}.json.gz"
+          blob = json.dumps({"anchor": anchor, "exportedAt": datetime.datetime.utcnow().isoformat()+"Z", "units": units}, ensure_ascii=False).encode()
+          with gzip.open(fname, "wb") as f:
+              f.write(blob)
+          local_sha = hashlib.sha256(blob).hexdigest()
+          print("file:", fname, "sha256(blob):", local_sha[:16], "size:", len(blob)//1024, "KB")
+
+          subprocess.run(["git","clone","--depth","1",
+              f"https://onxos:{os.environ['PAT']}@github.com/onxos/onx-corpus-archive","arch"], check=True)
+          import shutil
+          shutil.copy(fname, "arch/"+fname)
+          with open("arch/LATEST.md","w") as f:
+              f.write(f"# Latest corpus backup\n\n- file: `{fname}`\n- docs: {total}\n- anchor sha256(fingerprints): `{anchor['sha256']}`\n- blob sha256: `{local_sha}`\n- exported: {today}\n")
+          subprocess.run(["git","-C","arch","add","-A"], check=True)
+          subprocess.run(["git","-C","arch","-c","user.email=ops@onx.vet","-c","user.name=onx-backup","commit","-q","-m",f"weekly corpus backup {today} — {total} docs, anchor {anchor['sha256'][:12]}"], check=True)
+          subprocess.run(["git","-C","arch","push","-q","origin","HEAD:main"], check=True)
+          print("PUSHED to onx-corpus-archive")
+          PY

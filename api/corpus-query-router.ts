@@ -110,6 +110,25 @@ export const corpusQueryRouter = createRouter({
       };
     }),
 
+  // Admin: paginated full export for off-site backup (weekly workflow).
+  adminExportPage: publicQuery
+    .input(z.object({ offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(2000).default(2000) }))
+    .query(async ({ ctx, input }) => {
+      assertBridgeAccess(ctx);
+      if (!isCorpusPersistenceConfigured()) return { persistence: "UNPERSISTED" as const, total: 0, offset: 0, units: [] };
+      const { exportCorpusPage } = await import("./lib/corpus-pg-store");
+      const page = await exportCorpusPage(input.offset, input.limit);
+      return { persistence: "POSTGRES" as const, ...page };
+    }),
+
+  // Admin: backup anchor — docCount + sha256 of all fingerprints (id order).
+  adminBackupAnchor: publicQuery.query(async ({ ctx }) => {
+    assertBridgeAccess(ctx);
+    if (!isCorpusPersistenceConfigured()) return { persistence: "UNPERSISTED" as const, docCount: 0, sha256: "" };
+    const { corpusBackupAnchor } = await import("./lib/corpus-pg-store");
+    return { persistence: "POSTGRES" as const, ...(await corpusBackupAnchor()) };
+  }),
+
   // Admin: distinct source labels with counts (find the real label first).
   adminSources: publicQuery.query(async ({ ctx }) => {
     assertBridgeAccess(ctx);
