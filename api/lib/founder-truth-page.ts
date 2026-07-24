@@ -66,8 +66,12 @@ async function load() {
       row("الوصول", pill(b.marketing.reachable, "متصل", "غير متصل")) +
       (b.marketing.database ? row("قاعدة البيانات", pill(b.marketing.database === "up", "تعمل", "متوقفة")) : "") +
       (b.studio
-        ? row("وظائف الفيديو", '<span class="big">' + b.studio.durable + "</span>") +
+        ? (b.studio.costAlert
+            ? row("⚠️ تنبيه إنفاق", '<span style="color:#c0392b;font-weight:700">كلفة اليوم ~$' + (b.studio.costTodayUsdEstimate ?? 0) + " تجاوزت العتبة ($" + (b.studio.dailyCostAlertUsd ?? 5) + "/يوم)</span>")
+            : "") +
+          row("وظائف الفيديو", '<span class="big">' + b.studio.durable + "</span>") +
           row("الحالات", JSON.stringify(b.studio.byStatus)) +
+          row("كلفة اليوم", "~$" + (b.studio.costTodayUsdEstimate ?? 0) + ' <span style="color:#8a97a3;font-size:11px">(تقدير، عتبة التنبيه $' + (b.studio.dailyCostAlertUsd ?? 5) + "/يوم)</span>") +
           row("الكلفة التراكمية", "~$" + b.studio.totalCostUsdEstimate + ' <span style="color:#8a97a3;font-size:11px">(تقدير)</span>')
         : row("الاستوديو", '<span style="color:#e2b33c">إحصاءات غير متاحة</span>')) +
       "</div>" +
