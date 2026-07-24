@@ -186,6 +186,30 @@ export const corpusQueryRouter = createRouter({
       return { persistence: "POSTGRES" as const, updated: result.updated };
     }),
 
+  // Admin maintenance — precise retitle by ids (lesson of CB1: four units
+  // were ingested with the wrong shared title "ONX Internal Constitution"
+  // while being different sections; dedup must never delete non-dupes, so
+  // titles get fixed instead). Requires a written reason; audited.
+  adminRetitleByIds: publicQuery
+    .input(z.object({
+      items: z.array(z.object({
+        id: z.string().min(1),
+        title: z.string().min(3).max(200),
+      })).min(1).max(100),
+      reason: z.string().min(10).max(500),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      assertBridgeAccess(ctx);
+      if (!isCorpusPersistenceConfigured()) {
+        return { persistence: "UNPERSISTED" as const, updated: 0 };
+      }
+      const { retitleCorpusByIds } = await import("./lib/corpus-pg-store");
+      const result = await retitleCorpusByIds(input.items);
+      invalidateCorpusSearchIndex();
+      engineEvents.audit("corpus", "ADMIN_RETITLE_BY_IDS", { items: input.items, reason: input.reason, updated: result.updated });
+      return { persistence: "POSTGRES" as const, updated: result.updated };
+    }),
+
   // Admin maintenance — destructive delete by ids. Requires a written reason;
   // audited with the exact ids. Callers must compare content BEFORE calling.
   adminDeleteByIds: publicQuery

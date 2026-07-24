@@ -159,6 +159,22 @@ export async function listCorpusSources(): Promise<Array<{ source: string; count
   return r.rows as Array<{ source: string; count: number }>;
 }
 
+export async function retitleCorpusByIds(
+  items: Array<{ id: string; title: string }>,
+): Promise<{ updated: number }> {
+  const p = getPool();
+  await ensureSchema();
+  let updated = 0;
+  for (const it of items) {
+    const r = await p.query(
+      `UPDATE onx_knowledge_corpus SET title = $1 WHERE id = $2`,
+      [it.title, it.id],
+    );
+    updated += r.rowCount ?? 0;
+  }
+  return { updated };
+}
+
 export async function retagCorpusByIds(ids: string[], toDomain: string): Promise<{ updated: number }> {
   const p = getPool();
   await ensureSchema();
