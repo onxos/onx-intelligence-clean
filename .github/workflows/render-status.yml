@@ -29,4 +29,16 @@ jobs:
           print("SVC branch:", s.get("branch"), "rootDir:", s.get("rootDir"), "suspended:", s.get("suspended"))
           sd = s.get("serviceDetails", {})
           print("PLAN:", sd.get("plan"), "numInstances:", sd.get("numInstances"), "region:", s.get("region"))
+          # Fetch recent logs to diagnose build failures
+          try:
+              owner = s.get("ownerId") or ""
+              if owner:
+                  req3 = urllib.request.Request(
+                      f"https://api.render.com/v1/logs?ownerId={owner}&resource={SRV}&direction=backward&limit=80",
+                      headers={"Authorization": "Bearer " + KEY, "Accept": "application/json"})
+                  logs = json.loads(urllib.request.urlopen(req3, timeout=60).read())
+                  for e in logs.get("logs", []):
+                      print("LOG:", (e.get("message") or "")[:300])
+          except Exception as ex:
+              print("logs fetch failed:", ex)
           PY
