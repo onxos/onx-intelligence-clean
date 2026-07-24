@@ -72,7 +72,18 @@ async function load() {
           row("وظائف الفيديو", '<span class="big">' + b.studio.durable + "</span>") +
           row("الحالات", JSON.stringify(b.studio.byStatus)) +
           row("كلفة اليوم", "~$" + (b.studio.costTodayUsdEstimate ?? 0) + ' <span style="color:#8a97a3;font-size:11px">(تقدير، عتبة التنبيه $' + (b.studio.dailyCostAlertUsd ?? 5) + "/يوم)</span>") +
-          row("الكلفة التراكمية", "~$" + b.studio.totalCostUsdEstimate + ' <span style="color:#8a97a3;font-size:11px">(تقدير)</span>')
+          row("الكلفة التراكمية", "~$" + b.studio.totalCostUsdEstimate + ' <span style="color:#8a97a3;font-size:11px">(تقدير)</span>') +
+          (Array.isArray(b.studio.costByBrand) && b.studio.costByBrand.length
+            ? b.studio.costByBrand
+                .map(function (br) {
+                  return row(
+                    "كلفة البراند — " + br.brand,
+                    br.jobs + " وظيفة — ~$" + br.costUsdEstimate +
+                      ' <span style="color:#8a97a3;font-size:11px">(اليوم ~$' + br.costTodayUsdEstimate + ")</span>",
+                  );
+                })
+                .join("")
+            : "")
         : row("الاستوديو", '<span style="color:#e2b33c">إحصاءات غير متاحة</span>')) +
       "</div>" +
       '<div class="card"><h2>الدستور — USFIPv2</h2>' +
