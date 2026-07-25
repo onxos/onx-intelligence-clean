@@ -1,0 +1,21 @@
+# Dedicated image for the onx-pg-backup cron.
+# INCIDENT_330 follow-up: the node-runtime cron lacked BOTH pg_dump (system
+# binary, absent from Render's node env) AND @aws-sdk (buildCommand skipped
+# install). This image bundles postgresql16-client + the S3 SDK so the backup
+# has everything it needs; it uses the INTERNAL DB URL (no external IP/SSL).
+FROM node:20-alpine
+
+# pg_dump 16 must match the Postgres 16 server. Alpine's postgresql16-client
+# provides pg_dump/pg_restore at the correct major version.
+RUN apk add --no-cache postgresql16-client
+
+WORKDIR /app
+
+# Only the S3 SDK is needed at runtime (pg_dump is a system binary above).
+RUN npm init -y >/dev/null 2>&1 && npm install --no-audit --no-fund @aws-sdk/client-s3@^3.600.0
+
+# The fail-loud backup script (forcePathStyle for R2, integrity gate, retention).
+COPY scripts/backup-pg.mjs ./scripts/backup-pg.mjs
+
+# Cron runs this once per schedule; exits non-zero on any failure (fail-loud).
+CMD ["node", "scripts/backup-pg.mjs"]
