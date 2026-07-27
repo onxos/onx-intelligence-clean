@@ -71,7 +71,9 @@ sidecar `.sha256`, and the manifest. The manifest also records the source
 integrity fingerprint (schema/table/view/sequence/index/constraint/column
 counts, exact per-table row counts, and a SHA-256 of the ordered
 `schema.table.column:type` list). That fingerprint is what the restore drill
-compares against.
+compares against. `pg_dump` and every fingerprint query use the **same exported
+read-only PostgreSQL snapshot**. Live writes after that snapshot therefore
+cannot attach counts to the manifest that were never present in the dump.
 
 ## Encryption
 
@@ -112,20 +114,30 @@ everything past the newest 30 dumps before any restore had ever been proven.
 
 `iu-p0-6-pg-backup.yml` mode `restore`:
 
-1. Creates a **new, isolated, non-production** Render Postgres instance named
+1. Starts a no-data `self-check` one-off job and compares the SHA-256 of
+   `scripts/onx-pg-ops.mjs` inside the deployed Render image with the SHA-256
+   of that file in the exact workflow commit. A stale image aborts here,
+   before env mutation or database creation.
+2. Creates a **new, isolated, non-production** Render Postgres instance named
    `onx-restore-test-<stamp>`, pinned to the **same major version** as the
-   source.
-2. Downloads the artifact and its manifest, and **fails if the SHA-256 or the
+   source and in the source database's region. The workflow requires a backup
+   cron in that same region; it never falls back to an external connection.
+   A dated object key is parsed for its source resource ID. The `latest`
+   pointer requires an explicit `source_db_id`, and only the platform and
+   marketing resource IDs are accepted.
+3. Downloads the artifact and its manifest, and **fails if the SHA-256 or the
    byte size disagrees with the manifest**.
-3. Refuses to proceed if the restore target host matches any production host in
+4. Refuses to proceed if the restore target host matches any production host in
    `ONX_PROD_HOST_DENY`, or resolves to the excluded intelligence database.
-4. `pg_restore --no-owner --no-privileges` into the isolated instance.
-5. Recomputes the integrity fingerprint on the restored instance and compares
+5. Verifies the resource name, database name, resource ID and an empty
+   pre-restore catalogue, then runs `pg_restore --no-owner --no-privileges
+   --exit-on-error` into that isolated instance.
+6. Recomputes the integrity fingerprint on the restored instance and compares
    schema/table/view/sequence/index/constraint/column counts, exact per-table
    row counts, and the schema SHA-256 against the manifest.
-6. Records non-PII samples: table names, row counts and column counts for the
+7. Records non-PII samples: table names, row counts and column counts for the
    five largest tables. **No row values are ever read or stored.**
-7. Writes the full report to `_restore-drills/` **before** any teardown.
+8. Writes the full report to `_restore-drills/` **before** any teardown.
 
 Teardown is a separate, explicitly confirmed mode (`teardown`,
 `confirm_teardown=DELETE`). It refuses to delete anything that is not named
