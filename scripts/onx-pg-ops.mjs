@@ -18,6 +18,8 @@
  *   backup          (default) pg_dump --format=custom -> sha256 -> object store
  *   restore-verify            pull artifact -> pg_restore into an ISOLATED
  *                             non-production instance -> compare integrity
+ *   retrieve-evidence         independently retrieve and validate one durable
+ *                             restore-drill record before teardown
  *
  * SAFETY INVARIANTS
  *   - Read-only against production: pg_dump plus catalogue SELECTs. No DDL,
@@ -835,6 +837,109 @@ async function runRestoreVerify() {
 }
 
 // --------------------------------------------------------------------------
+// DURABLE RESTORE-EVIDENCE RETRIEVAL
+// --------------------------------------------------------------------------
+
+async function runRetrieveRestoreEvidence() {
+  const evidenceKey = process.env.ONX_RESTORE_EVIDENCE_KEY || "";
+  const expectedTarget = process.env.ONX_RESTORE_EXPECT_TARGET_DB_ID || "";
+  const expectedSource = process.env.ONX_RESTORE_EXPECT_SOURCE_DB_ID || "";
+  const productionDbIds = new Set(
+    (process.env.ONX_RESTORE_PROD_DB_IDS || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+  );
+  const keyMatch = evidenceKey.match(
+    /^onx-pg-backups\/_restore-drills\/(dpg-[a-z0-9-]+)\/([0-9]{8}T[0-9]{6}Z)_[A-Za-z0-9._-]+\.json$/,
+  );
+  if (!keyMatch) fail("restore evidence key is not a canonical _restore-drills JSON object");
+  if (!/^dpg-[a-z0-9-]+$/.test(expectedTarget)) {
+    fail("ONX_RESTORE_EXPECT_TARGET_DB_ID is missing or malformed");
+  }
+  if (!/^dpg-[a-z0-9-]+$/.test(expectedSource)) {
+    fail("ONX_RESTORE_EXPECT_SOURCE_DB_ID is missing or malformed");
+  }
+  if (productionDbIds.size < 3) {
+    fail("ONX_RESTORE_PROD_DB_IDS is incomplete; refusing evidence acceptance");
+  }
+  if (productionDbIds.has(expectedTarget) || EXCLUDED_DB_IDS.has(expectedTarget)) {
+    fail("restore evidence target is a production database");
+  }
+  if (!productionDbIds.has(expectedSource) || EXCLUDED_DB_IDS.has(expectedSource)) {
+    fail("restore evidence source is not an approved backup database");
+  }
+  if (keyMatch[1] !== expectedSource) {
+    fail(`restore evidence path source ${keyMatch[1]} != expected source ${expectedSource}`);
+  }
+
+  const s3 = await s3Client();
+  const { GetObjectCommand } = await import("@aws-sdk/client-s3");
+  let response;
+  try {
+    response = await s3.client.send(
+      new GetObjectCommand({ Bucket: s3.bucket, Key: evidenceKey }),
+    );
+  } catch (error) {
+    fail(`restore evidence object could not be retrieved: ${error?.name || "S3_ERROR"}`);
+  }
+  const chunks = [];
+  for await (const chunk of response.Body) chunks.push(chunk);
+  const bytes = Buffer.concat(chunks);
+  const evidenceSha256 = createHash("sha256").update(bytes).digest("hex");
+  let report;
+  try {
+    report = JSON.parse(bytes.toString("utf8"));
+  } catch {
+    fail("restore evidence object is not valid JSON");
+  }
+
+  const countEntries = Object.values(report.counts || {});
+  const countsMatch =
+    countEntries.length > 0 &&
+    countEntries.every(
+      (entry) => entry && entry.match === true && entry.source === entry.restored,
+    );
+  const valid =
+    report.schemaVersion === "onx-restore-report/1" &&
+    report.iuId === "IU-P0-6" &&
+    report.outcome === "PASS" &&
+    report.sourceDbResourceId === expectedSource &&
+    report.restoreTargetDbResourceId === expectedTarget &&
+    report.restoreTargetIsolated === true &&
+    report.restoreTargetEmptyBeforeRestore === true &&
+    String(report.restoreTargetName || "").startsWith("onx-restore-test-") &&
+    report.restoreTargetDatabaseName === "onx_restore_test" &&
+    report.checksumMatch === true &&
+    report.schemaMatch === true &&
+    report.totalRowsSource === report.totalRowsRestored &&
+    countsMatch &&
+    Array.isArray(report.perTableMismatches) &&
+    report.perTableMismatches.length === 0;
+  if (!valid) {
+    fail("restore evidence object failed the IU-P0-6 acceptance contract");
+  }
+
+  console.log(`ONX_RESTORE_EVIDENCE ${JSON.stringify({
+    schemaVersion: "onx-restore-evidence-retrieval/1",
+    iuId: "IU-P0-6",
+    outcome: "PASS",
+    evidenceKey,
+    evidenceSha256,
+    evidenceSizeBytes: bytes.length,
+    sourceDbResourceId: report.sourceDbResourceId,
+    restoreTargetDbResourceId: report.restoreTargetDbResourceId,
+    restoreRunId: report.runId,
+    checksumMatch: report.checksumMatch,
+    schemaMatch: report.schemaMatch,
+    totalRowsMatch: report.totalRowsSource === report.totalRowsRestored,
+    perTableMismatchCount: report.perTableMismatches.length,
+    retrievedAt: nowIso(),
+  })}`);
+  log("ONX_OP_DONE retrieve-evidence PASS");
+}
+
+// --------------------------------------------------------------------------
 
 try {
   if (OP === "self-check") {
@@ -851,8 +956,9 @@ try {
   }
   else if (OP === "backup") await runBackup();
   else if (OP === "restore-verify") await runRestoreVerify();
+  else if (OP === "retrieve-evidence") await runRetrieveRestoreEvidence();
   else if (OP === "inventory") await runInventory();
-  else fail(`unknown ONX_OP=${OP} (expected "self-check", "backup", "restore-verify" or "inventory")`);
+  else fail(`unknown ONX_OP=${OP} (expected "self-check", "backup", "restore-verify", "retrieve-evidence" or "inventory")`);
 } catch (e) {
   await alert({ runId: RUN_ID, op: OP, error: String(e?.message ?? e).slice(0, 400), at: nowIso() });
   console.error(`[onx-pg-ops] ONX_OP_DONE ${OP} FAIL`);
