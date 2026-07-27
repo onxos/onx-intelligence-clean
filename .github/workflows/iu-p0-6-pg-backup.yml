@@ -1,0 +1,407 @@
+name: iu-p0-6-pg-backup
+# IU-P0-6 — REAL pg_dump backup + isolated restore proof.
+#
+# All Render mutation happens here, behind secret RENDER_API_KEY. The backup
+# itself executes on a Render Cron Job inside Render's private network, so the
+# databases are reached over their INTERNAL hostnames: no IP allowlist entry
+# and no temporary /32 is created, and no production allowlist is modified.
+#
+# modes:
+#   probe    read-only ground truth (no writes of any kind)
+#   arm      point the backup cron at Dockerfile.pgops + set its env, deploy
+#   run      trigger one backup run and stream the result out of Render logs
+#   restore  create an ISOLATED test Postgres, restore the artifact, compare
+#   teardown delete the isolated test Postgres (evidence must already be stored)
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: probe | arm | run | restore | teardown
+        required: true
+        default: probe
+      object_key:
+        description: "restore mode: object key of the artifact to restore"
+        required: false
+        default: ""
+      test_db_id:
+        description: "restore/teardown mode: existing isolated test dpg- id (blank = create)"
+        required: false
+        default: ""
+      confirm_teardown:
+        description: "teardown mode: type DELETE to confirm"
+        required: false
+        default: ""
+
+jobs:
+  op:
+    runs-on: ubuntu-latest
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      MODE: ${{ inputs.mode }}
+      OBJECT_KEY: ${{ inputs.object_key }}
+      TEST_DB_ID: ${{ inputs.test_db_id }}
+      CONFIRM_TEARDOWN: ${{ inputs.confirm_teardown }}
+      GH_RUN_ID: ${{ github.run_id }}
+      # The cron that will be made into a genuine backup (currently a diagnostic).
+      BACKUP_CRON_ID: crn-d9ibkdnlk1mc73cqimhg
+      # Service that already holds the S3/R2 credentials as env.
+      S3_SOURCE_SERVICE_ID: srv-d9hl4ot8nd3s73d97440
+      PLATFORM_DB_ID: dpg-d96t4pkvikkc73d76okg-a
+      MARKETING_DB_ID: dpg-d98upmu7r5hc73afti50-a
+      EXCLUDED_DB_ID: dpg-d86s3uog4nts73b9j4sg-a
+    steps:
+      - name: IU-P0-6 ${{ inputs.mode }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys, time, urllib.request, urllib.error, datetime
+
+          KEY   = os.environ["RENDER_API_KEY"]
+          MODE  = os.environ["MODE"].strip()
+          CRON  = os.environ["BACKUP_CRON_ID"]
+          S3SRC = os.environ["S3_SOURCE_SERVICE_ID"]
+          PLAT  = os.environ["PLATFORM_DB_ID"]
+          MKTG  = os.environ["MARKETING_DB_ID"]
+          EXCL  = os.environ["EXCLUDED_DB_ID"]
+          RUNID = "gh-" + os.environ["GH_RUN_ID"]
+
+          def api(method, path, body=None, quiet=False):
+              req = urllib.request.Request(
+                  "https://api.render.com/v1" + path, method=method,
+                  headers={"Authorization": "Bearer " + KEY,
+                           "Content-Type": "application/json",
+                           "Accept": "application/json"},
+                  data=json.dumps(body).encode() if body is not None else None)
+              try:
+                  raw = urllib.request.urlopen(req, timeout=90).read()
+                  return json.loads(raw) if raw else {}
+              except urllib.error.HTTPError as e:
+                  detail = e.read().decode()[:400]
+                  if not quiet:
+                      print(f"  HTTP {e.code} {method} {path} :: {detail}")
+                  return {"__error": e.code, "__detail": detail}
+
+          def err(x):  return isinstance(x, dict) and "__error" in x
+
+          def unwrap(x, k):
+              return x.get(k, x) if isinstance(x, dict) else x
+
+          # ---------- hard safety guard -------------------------------------
+          for target in (PLAT, MKTG):
+              assert target != EXCL, "excluded database appeared in the target list"
+
+          # ---------- shared discovery --------------------------------------
+          def db_detail(dbid):
+              d = unwrap(api("GET", "/postgres/" + dbid), "postgres")
+              return d
+
+          def internal_url(dbid):
+              ci = api("GET", f"/postgres/{dbid}/connection-info")
+              if err(ci): raise SystemExit(f"cannot read connection info for {dbid}: {ci}")
+              u = ci.get("internalConnectionString") or ci.get("internalConnectionUrl")
+              if not u: raise SystemExit(f"no internal connection string for {dbid}; keys={sorted(ci)}")
+              return u
+
+          def mask(u):
+              try:
+                  host = u.split("@",1)[1].split("/",1)[0]
+                  return f"postgres://<user>:<redacted>@{host}/<db>"
+              except Exception:
+                  return "<unparseable>"
+
+          def cron_svc():
+              return unwrap(api("GET", "/services/" + CRON), "service")
+
+          def owner_id():
+              return cron_svc().get("ownerId")
+
+          def logs(resource, since_ts=None, limit=200, kind="app"):
+              o = owner_id()
+              path = f"/logs?ownerId={o}&resource={resource}&direction=backward&limit={limit}&type={kind}"
+              r = api("GET", path, quiet=True)
+              if err(r): return []
+              return list(reversed(r.get("logs", [])))
+
+          # ================= PROBE =========================================
+          if MODE == "probe":
+              print("=== SERVICES ===")
+              for s in api("GET", "/services?limit=100") or []:
+                  if not isinstance(s, dict): continue
+                  svc = unwrap(s, "service")
+                  print(f"{svc.get('id')} | {svc.get('type')} | {svc.get('name')} | branch={svc.get('branch')} | autoDeploy={svc.get('autoDeploy')} | suspended={svc.get('suspended')}")
+
+              print("\n=== POSTGRES ===")
+              for p in api("GET", "/postgres?limit=100") or []:
+                  if not isinstance(p, dict): continue
+                  db = unwrap(p, "postgres")
+                  print(f"{db.get('id')} | {db.get('name')} | v{db.get('version')} | {db.get('status')} | plan={db.get('plan')} | region={db.get('region')}")
+
+              print("\n=== TARGET DB DETAIL ===")
+              for dbid in (PLAT, MKTG):
+                  d = db_detail(dbid)
+                  print(dbid, json.dumps({k: d.get(k) for k in
+                      ("name","version","status","plan","region","databaseName","databaseUser","createdAt","diskSizeGB","highAvailabilityEnabled")}, default=str))
+                  print("   internal:", mask(internal_url(dbid)))
+
+              print("\n=== BACKUP CRON CURRENT STATE ===")
+              svc = cron_svc()
+              print(json.dumps({k: svc.get(k) for k in ("id","name","type","repo","branch","rootDir","autoDeploy","ownerId")}, default=str))
+              sd = svc.get("serviceDetails", {}) or {}
+              print("serviceDetails:", json.dumps({k: v for k, v in sd.items() if k != "envVars"}, default=str)[:1200])
+              ev = api("GET", f"/services/{CRON}/env-vars?limit=100")
+              print("ENV KEYS:", sorted([e.get("envVar", {}).get("key") for e in ev if isinstance(e, dict)]))
+              for d in api("GET", f"/services/{CRON}/deploys?limit=3") or []:
+                  dep = unwrap(d, "deploy")
+                  print("deploy:", dep.get("id"), dep.get("status"), dep.get("createdAt"))
+
+              print("\n=== S3 SOURCE SERVICE (KEY NAMES ONLY) ===")
+              ev = api("GET", f"/services/{S3SRC}/env-vars?limit=100")
+              ks = sorted([e.get("envVar", {}).get("key") for e in ev if isinstance(e, dict)])
+              print("all keys:", ks)
+              print("s3 keys:", [k for k in ks if k and ("S3" in k or "AWS" in k)])
+
+              print("\n=== RUN-TRIGGER ENDPOINT DISCOVERY (GET only) ===")
+              for p in [f"/cron-jobs?limit=10", f"/cron-jobs/{CRON}", f"/cron-jobs/{CRON}/runs?limit=5",
+                        f"/services/{CRON}/jobs?limit=5"]:
+                  print(p, "->", json.dumps(api("GET", p, quiet=True), default=str)[:350])
+              raise SystemExit(0)
+
+          # ================= ARM ===========================================
+          if MODE == "arm":
+              svc = cron_svc()
+              print("pre-state:", json.dumps({k: svc.get(k) for k in ("id","name","branch","autoDeploy")}, default=str))
+              sd = svc.get("serviceDetails", {}) or {}
+              print("pre dockerfilePath/dockerCommand:",
+                    (sd.get("envSpecificDetails") or {}).get("dockerfilePath"),
+                    "|", (sd.get("envSpecificDetails") or {}).get("dockerCommand"))
+
+              # 1) copy S3 credentials across without ever printing a value
+              src = api("GET", f"/services/{S3SRC}/env-vars?limit=100")
+              s3env = {}
+              for e in src:
+                  ev = e.get("envVar", {}) if isinstance(e, dict) else {}
+                  k, v = ev.get("key"), ev.get("value")
+                  if k in ("S3_ENDPOINT","S3_REGION","S3_BUCKET","S3_ACCESS_KEY_ID","S3_SECRET_ACCESS_KEY") and v:
+                      s3env[k] = v
+              missing = [k for k in ("S3_ENDPOINT","S3_REGION","S3_BUCKET","S3_ACCESS_KEY_ID","S3_SECRET_ACCESS_KEY") if k not in s3env]
+              if missing:
+                  raise SystemExit(f"S3 env missing on {S3SRC}: {missing}")
+              print("S3 env resolved from source service:", sorted(s3env), "(values never printed)")
+
+              # 2) internal connection strings (private network; no allowlist)
+              plat_url, mktg_url = internal_url(PLAT), internal_url(MKTG)
+              print("platform  internal:", mask(plat_url))
+              print("marketing internal:", mask(mktg_url))
+              prod_hosts = ",".join(sorted({plat_url.split("@",1)[1].split("/",1)[0].split(":")[0],
+                                            mktg_url.split("@",1)[1].split("/",1)[0].split(":")[0]}))
+
+              desired = dict(s3env)
+              desired.update({
+                  "ONX_OP": "backup",
+                  "ONX_RUN_ID": RUNID,
+                  "ONX_TARGETS": f"platform:{PLAT}:ONX_DB_URL_PLATFORM,marketing:{MKTG}:ONX_DB_URL_MARKETING",
+                  "ONX_DB_URL_PLATFORM": plat_url,
+                  "ONX_DB_URL_MARKETING": mktg_url,
+                  "ONX_PROD_HOST_DENY": prod_hosts,
+                  "ONX_RETENTION_DAYS": "90",
+                  "ONX_RETENTION_ENFORCE": "false",   # deletes NOTHING
+              })
+              for k, v in desired.items():
+                  r = api("PUT", f"/services/{CRON}/env-vars/{k}", {"value": v})
+                  print("env set:", k, "ok" if not err(r) else r)
+
+              # 3) point the cron at the real backup image + command
+              body = {"serviceDetails": {"envSpecificDetails": {
+                  "dockerfilePath": "./Dockerfile.pgops",
+                  "dockerContext": ".",
+                  "dockerCommand": "node scripts/onx-pg-ops.mjs",
+              }}}
+              r = api("PATCH", "/services/" + CRON, body)
+              print("patch service:", "ok" if not err(r) else r)
+              sd = unwrap(r, "service").get("serviceDetails", {}) if not err(r) else {}
+              print("post envSpecificDetails:", json.dumps(sd.get("envSpecificDetails", {}), default=str)[:400])
+
+              d = api("POST", f"/services/{CRON}/deploys", {"clearCache": "clear"})
+              dep = unwrap(d, "deploy")
+              print("DEPLOY_ID", dep.get("id"), dep.get("status"))
+
+              # bounded poll for build completion
+              dep_id = dep.get("id")
+              deadline = time.time() + 900
+              st = None
+              while time.time() < deadline:
+                  time.sleep(20)
+                  cur = unwrap(api("GET", f"/services/{CRON}/deploys/{dep_id}", quiet=True), "deploy")
+                  st = cur.get("status")
+                  print("  deploy status:", st)
+                  if st in ("live", "build_failed", "update_failed", "canceled", "deactivated"):
+                      break
+              if st != "live":
+                  for e in logs(CRON, kind="build", limit=120)[-60:]:
+                      print("BUILD:", (e.get("message") or "")[:250])
+                  raise SystemExit(f"arm failed: deploy status {st}")
+              print("ARM_RESULT PASS deploy=", dep_id)
+              raise SystemExit(0)
+
+          # ================= RUN ===========================================
+          if MODE in ("run", "restore"):
+              if MODE == "restore":
+                  # ---- create / reuse an ISOLATED non-production instance ----
+                  test_id = os.environ.get("TEST_DB_ID", "").strip()
+                  src_db = db_detail(PLAT)
+                  src_major = str(src_db.get("version"))
+                  if not test_id:
+                      name = "onx-restore-test-" + datetime.datetime.utcnow().strftime("%Y%m%d%H%M")
+                      body = {
+                          "name": name,
+                          "ownerId": src_db.get("ownerId") or owner_id(),
+                          "region": src_db.get("region"),
+                          "version": src_major,
+                          "plan": os.environ.get("TEST_DB_PLAN", "basic_256mb"),
+                          "databaseName": "onx_restore_test",
+                          "databaseUser": "onx_restore_test",
+                      }
+                      created = api("POST", "/postgres", body)
+                      if err(created):
+                          raise SystemExit(f"could not create isolated test instance: {created}")
+                      newdb = unwrap(created, "postgres")
+                      test_id = newdb.get("id")
+                      print("CREATED_TEST_DB", test_id, name, "version", newdb.get("version"))
+                  else:
+                      print("REUSING_TEST_DB", test_id)
+                  assert test_id and test_id not in (PLAT, MKTG, EXCL), "test db must be a fresh isolated instance"
+
+                  deadline = time.time() + 900
+                  while time.time() < deadline:
+                      d = db_detail(test_id)
+                      print("  test db status:", d.get("status"), "version", d.get("version"))
+                      if d.get("status") == "available":
+                          break
+                      time.sleep(20)
+                  d = db_detail(test_id)
+                  if d.get("status") != "available":
+                      raise SystemExit(f"test instance not available: {d.get('status')} (id {test_id})")
+                  if str(d.get("version")) != src_major:
+                      raise SystemExit(f"version mismatch: test {d.get('version')} vs source {src_major}")
+
+                  test_url = internal_url(test_id)
+                  print("isolated restore target:", mask(test_url), "version", d.get("version"))
+
+                  ok = os.environ.get("OBJECT_KEY", "").strip()
+                  if not ok:
+                      raise SystemExit("restore mode requires object_key")
+                  plat_url, mktg_url = internal_url(PLAT), internal_url(MKTG)
+                  prod_hosts = ",".join(sorted({plat_url.split("@",1)[1].split("/",1)[0].split(":")[0],
+                                                mktg_url.split("@",1)[1].split("/",1)[0].split(":")[0]}))
+                  for k, v in {
+                      "ONX_OP": "restore-verify",
+                      "ONX_RUN_ID": RUNID,
+                      "ONX_RESTORE_TARGET_URL": test_url,
+                      "ONX_RESTORE_TARGET_DB_ID": test_id,
+                      "ONX_RESTORE_OBJECT_KEY": ok,
+                      "ONX_PROD_HOST_DENY": prod_hosts,
+                  }.items():
+                      r = api("PUT", f"/services/{CRON}/env-vars/{k}", {"value": v})
+                      print("env set:", k, "ok" if not err(r) else r)
+                  marker = "ONX_RESTORE_REPORT"
+              else:
+                  r = api("PUT", f"/services/{CRON}/env-vars/ONX_OP", {"value": "backup"})
+                  api("PUT", f"/services/{CRON}/env-vars/ONX_RUN_ID", {"value": RUNID})
+                  marker = "ONX_BACKUP_SUMMARY"
+
+              # env vars are injected at process start: redeploy so the run sees them
+              d = api("POST", f"/services/{CRON}/deploys", {"clearCache": "do_not_clear"})
+              dep_id = unwrap(d, "deploy").get("id")
+              print("redeploy for env:", dep_id)
+              deadline = time.time() + 900
+              st = None
+              while time.time() < deadline:
+                  time.sleep(20)
+                  st = unwrap(api("GET", f"/services/{CRON}/deploys/{dep_id}", quiet=True), "deploy").get("status")
+                  print("  deploy status:", st)
+                  if st in ("live","build_failed","update_failed","canceled","deactivated"):
+                      break
+              if st != "live":
+                  for e in logs(CRON, kind="build", limit=120)[-60:]:
+                      print("BUILD:", (e.get("message") or "")[:250])
+                  raise SystemExit(f"deploy for env injection failed: {st}")
+
+              # ---- trigger one run: try documented endpoints, then schedule nudge
+              triggered = None
+              for method, path, body in [
+                  ("POST", f"/cron-jobs/{CRON}/runs", {}),
+                  ("POST", f"/services/{CRON}/jobs", {"startCommand": "node scripts/onx-pg-ops.mjs"}),
+              ]:
+                  r = api(method, path, body, quiet=True)
+                  if not err(r):
+                      triggered = (path, json.dumps(r, default=str)[:200]); break
+                  print("  trigger attempt", path, "->", r.get("__error"))
+
+              nudged = False
+              orig_schedule = None
+              if not triggered:
+                  svc = cron_svc()
+                  sd = svc.get("serviceDetails", {}) or {}
+                  orig_schedule = sd.get("schedule") or (sd.get("envSpecificDetails") or {}).get("schedule")
+                  fire = datetime.datetime.utcnow() + datetime.timedelta(minutes=3)
+                  newsched = f"{fire.minute} {fire.hour} * * *"
+                  r = api("PATCH", "/services/" + CRON, {"serviceDetails": {"schedule": newsched}})
+                  if err(r):
+                      raise SystemExit(f"no run-trigger endpoint worked and schedule nudge failed: {r}")
+                  nudged = True
+                  print(f"SCHEDULE_NUDGE original={orig_schedule} temporary={newsched} (fires ~{fire.isoformat()}Z)")
+              else:
+                  print("TRIGGERED via", triggered[0], triggered[1])
+
+              # ---- bounded poll of app logs for the result marker ----------
+              print(f"polling app logs for {marker} ...")
+              seen, result_line, done = set(), None, False
+              deadline = time.time() + 1500
+              while time.time() < deadline and not done:
+                  for e in logs(CRON, kind="app", limit=200):
+                      msg = (e.get("message") or "").rstrip()
+                      key = (e.get("timestamp"), msg[:120])
+                      if key in seen or not msg: continue
+                      seen.add(key)
+                      print("APP:", msg[:600])
+                      if marker in msg:
+                          result_line = msg[msg.index(marker):]
+                      if "ONX_OP_DONE" in msg:
+                          done = True
+                      if "ONX_BACKUP_ALERT" in msg:
+                          done = True
+                  if not done:
+                      time.sleep(15)
+
+              if nudged and orig_schedule:
+                  r = api("PATCH", "/services/" + CRON, {"serviceDetails": {"schedule": orig_schedule}})
+                  print("schedule restored to", orig_schedule, "ok" if not err(r) else r)
+
+              if MODE == "restore":
+                  api("PUT", f"/services/{CRON}/env-vars/ONX_OP", {"value": "backup"})
+                  print("ONX_OP reset to backup")
+                  print("TEST_DB_ID_FOR_TEARDOWN", test_id)
+
+              if result_line:
+                  print("\n=== RESULT ===")
+                  print(result_line[:6000])
+              else:
+                  raise SystemExit(f"no {marker} observed within the polling window — treat as NOT PROVEN")
+              raise SystemExit(0)
+
+          # ================= TEARDOWN ======================================
+          if MODE == "teardown":
+              test_id = os.environ.get("TEST_DB_ID", "").strip()
+              if os.environ.get("CONFIRM_TEARDOWN", "").strip() != "DELETE":
+                  raise SystemExit("teardown requires confirm_teardown=DELETE")
+              if not test_id or test_id in (PLAT, MKTG, EXCL):
+                  raise SystemExit(f"refusing to delete {test_id!r}: not an isolated test instance")
+              d = db_detail(test_id)
+              nm = d.get("name") or ""
+              if not nm.startswith("onx-restore-test-"):
+                  raise SystemExit(f"refusing to delete {test_id} named {nm!r}: not a restore-test instance")
+              r = api("DELETE", "/postgres/" + test_id)
+              print("TEARDOWN", test_id, nm, "->", "ok" if not err(r) else r)
+              raise SystemExit(0)
+
+          raise SystemExit(f"unknown mode {MODE!r}")
+          PY
