@@ -149,6 +149,20 @@ function seedKnowledge() {
   }
 }
 
+/**
+ * Load the existing templated corpus only for the deterministic Golden
+ * evaluation contract.
+ *
+ * Production keeps the seed disabled by default below.  The Golden fixture,
+ * however, was authored against these domain documents; making the evaluator
+ * opt in explicitly prevents the production honesty change from silently
+ * turning every retrieval case into an empty-corpus refusal.
+ */
+export function enableTemplatedKnowledgeSeedForGoldenEvaluation(): void {
+  seedKnowledge();
+  invalidateCorpusSearchIndex();
+}
+
 // STE-K-REAL: templated demo seed is DISABLED by default (D-19 honesty).
 // The 22,500-record synthetic scaffold ("ONX Knowledge Base v1.0") made the
 // corpus disclosure stay DEMO/MIXED forever. Authentic knowledge now comes
