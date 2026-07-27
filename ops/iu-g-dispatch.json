@@ -1,6 +1,6 @@
 {
-  "mode": "provision-oregon",
-  "cron_id": "",
+  "mode": "arm",
+  "cron_id": "crn-d9jm22qd0e5s7391l29g",
   "log_resource": "",
   "object_key": "",
   "source_db_id": "dpg-d98upmu7r5hc73afti50-a",
@@ -8,5 +8,5 @@
   "restore_evidence_key": "",
   "confirm_teardown": "",
   "test_db_plan": "basic_256mb",
-  "nonce": "provision-oregon-20260727T1645Z"
+  "nonce": "arm-oregon-20260727T1647Z"
 }
