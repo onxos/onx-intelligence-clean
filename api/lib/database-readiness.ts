@@ -24,6 +24,12 @@ type QueryExecutor = {
 let readinessPool: Pool | null = null;
 let readinessPoolConnectionString: string | null = null;
 
+async function endPoolSafely(pool: Pool | null): Promise<void> {
+  if (pool && typeof pool.end === "function") {
+    await pool.end().catch(() => undefined);
+  }
+}
+
 function createReadinessPool(connectionString: string): Pool {
   const isExternalHost = connectionString.includes("render.com");
   return new Pool({
@@ -38,7 +44,7 @@ function createReadinessPool(connectionString: string): Pool {
 
 function getReadinessPool(connectionString: string): Pool {
   if (!readinessPool || readinessPoolConnectionString !== connectionString) {
-    void readinessPool?.end().catch(() => undefined);
+    void endPoolSafely(readinessPool);
     readinessPool = createReadinessPool(connectionString);
     readinessPoolConnectionString = connectionString;
   }
@@ -112,5 +118,5 @@ export async function closeDatabaseReadinessPoolForTests(): Promise<void> {
   const pool = readinessPool;
   readinessPool = null;
   readinessPoolConnectionString = null;
-  await pool?.end().catch(() => undefined);
+  await endPoolSafely(pool);
 }
