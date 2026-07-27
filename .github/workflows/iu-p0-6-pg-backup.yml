@@ -89,6 +89,10 @@ jobs:
         run: |
           python3 - <<'PY'
           import json, os, re, sys, time, urllib.request, urllib.error, datetime
+          from scripts.iu_p0_6_evidence_collector import (
+              chronological_log_entries,
+              terminal_evidence_verdict,
+          )
 
           KEY   = os.environ["RENDER_API_KEY"]
           MODE  = os.environ["MODE"].strip()
@@ -157,7 +161,7 @@ jobs:
               path = f"/logs?ownerId={o}&resource={resource}&direction=backward&limit={limit}&type={kind}"
               r = api("GET", path, quiet=True)
               if err(r): return []
-              return list(reversed(r.get("logs") or []))
+              return chronological_log_entries(r)
 
           def wait_job_marker(job_id, marker, timeout=420):
               seen, result_line, job_status = set(), None, None
@@ -341,7 +345,7 @@ jobs:
                   if err(r):
                       print(f"-- type={kind or 'any'}: HTTP {r.get('__error')}")
                       continue
-                  out = list(reversed(r.get("logs") or []))
+                  out = chronological_log_entries(r)
                   print(f"-- type={kind or 'any'}: {len(out)} entries")
                   for e in out:
                       msg = (e.get("message") or "").rstrip()
@@ -623,44 +627,13 @@ jobs:
               job_id = job.get("id")
               print("JOB_ID", job_id, job.get("status"), "startCommand:", job.get("startCommand"))
 
-              # ---- bounded poll: job status + app logs for the result marker
+              # ---- bounded poll: job status + eventually-consistent evidence
               print(f"polling job {job_id} and app logs for {marker} ...")
-              seen, result_line, done = set(), None, False
-              job_status = None
-              deadline = time.time() + 1500
-              while time.time() < deadline and not done:
-                  for e in logs(job_id, kind="app", limit=300) + logs(CRON, kind="app", limit=100):
-                      msg = (e.get("message") or "").rstrip()
-                      k = (e.get("timestamp"), msg[:120])
-                      if k in seen or not msg: continue
-                      seen.add(k)
-                      print("APP:", msg[:900])
-                      if marker in msg:
-                          result_line = msg[msg.index(marker):]
-                      if "ONX_OP_DONE" in msg or "ONX_BACKUP_ALERT" in msg:
-                          done = True
-                  j = unwrap(api("GET", f"/services/{CRON}/jobs/{job_id}", quiet=True), "job")
-                  job_status = j.get("status", job_status)
-                  if job_status in ("succeeded", "failed", "canceled"):
-                      print("JOB_STATUS", job_status, "finishedAt", j.get("finishedAt"))
-                      # Render's log index lags the job by tens of seconds. Sweep
-                      # repeatedly rather than declaring NOT PROVEN prematurely.
-                      for attempt in range(12):
-                          time.sleep(20)
-                          for e in logs(job_id, kind="app", limit=400) + logs(CRON, kind="app", limit=100):
-                              msg = (e.get("message") or "").rstrip()
-                              k = (e.get("timestamp"), msg[:120])
-                              if k in seen or not msg: continue
-                              seen.add(k)
-                              print("APP:", msg[:900])
-                              if marker in msg:
-                                  result_line = msg[msg.index(marker):]
-                          if result_line:
-                              print(f"result marker found after {(attempt+1)*20}s of post-job log sweeping")
-                              break
-                      done = True
-                  if not done:
-                      time.sleep(15)
+              job_status, result_line = wait_job_marker(
+                  job_id,
+                  marker,
+                  timeout=1500,
+              )
               print("FINAL_JOB_STATUS", job_status)
 
               if MODE == "restore":
@@ -668,11 +641,21 @@ jobs:
                   print("ONX_OP reset to backup")
                   print("TEST_DB_ID_FOR_TEARDOWN", test_id)
 
+              verdict = terminal_evidence_verdict(job_status, result_line)
+              print("EVIDENCE_COLLECTION_STATUS", verdict.state)
+              if verdict.fatal:
+                  raise SystemExit(
+                      f"{verdict.state}: job_status={job_status}; marker={marker}"
+                  )
               if result_line:
                   print("\n=== RESULT ===")
                   print(result_line[:6000])
               else:
-                  raise SystemExit(f"no {marker} observed within the polling window — treat as NOT PROVEN")
+                  print(
+                      f"MATERIAL_OPERATION_SUCCEEDED_EVIDENCE_PENDING marker={marker}; "
+                      f"collect later with mode=logs and log_resource={job_id}; "
+                      "do not re-run the material operation"
+                  )
               raise SystemExit(0)
 
           # ================= RETRIEVE DURABLE RESTORE PROOF ================

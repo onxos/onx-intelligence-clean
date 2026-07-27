@@ -180,6 +180,34 @@ function violations(source, flow) {
     flow.includes("did not disappear within 900s"),
     "teardown has a bounded absence poll",
   );
+  require(
+    flow.includes("chronological_log_entries(r)"),
+    "optional log payloads use the null-safe collector",
+  );
+  require(
+    flow.includes("terminal_evidence_verdict(job_status, result_line)"),
+    "material job truth is separated from evidence timing",
+  );
+  require(
+    flow.includes("MATERIAL_OPERATION_SUCCEEDED_EVIDENCE_PENDING"),
+    "successful operations remain green while evidence is pending",
+  );
+  const materialPollIndex = flow.indexOf(
+    "job_status, result_line = wait_job_marker(",
+    runModeIndex,
+  );
+  require(
+    materialPollIndex > runModeIndex,
+    "backup and restore reuse the lag-tolerant collector",
+  );
+  require(
+    !flow.includes('if "ONX_OP_DONE" in msg or "ONX_BACKUP_ALERT" in msg:'),
+    "optional done markers never terminate evidence collection early",
+  );
+  require(
+    !flow.includes("no {marker} observed within the polling window"),
+    "missing delayed evidence never paints a successful job red",
+  );
   return found;
 }
 
@@ -216,10 +244,26 @@ const mutations = [
   ],
   [ops, workflow.replace('current.get("__error") == 404', "False"), "teardown absence proof removed"],
   [ops, workflow.replace("did not disappear within 900s", "teardown incomplete"), "teardown bounded failure removed"],
+  [
+    ops,
+    workflow.replace(
+      "terminal_evidence_verdict(job_status, result_line)",
+      "EvidenceVerdict('PROVEN', False)",
+    ),
+    "terminal evidence verdict bypassed",
+  ],
+  [
+    ops,
+    workflow.replace(
+      "MATERIAL_OPERATION_SUCCEEDED_EVIDENCE_PENDING",
+      "EVIDENCE_WAS_DROPPED",
+    ),
+    "evidence-pending signal removed",
+  ],
 ];
 
 for (const [mutatedOps, mutatedWorkflow, label] of mutations) {
   assert.notDeepEqual(violations(mutatedOps, mutatedWorkflow), [], label);
 }
 
-console.log(`IU-P0-6 safety contract: PASS (${38 + mutations.length} checks)`);
+console.log(`IU-P0-6 safety contract: PASS (${44 + mutations.length} checks)`);
