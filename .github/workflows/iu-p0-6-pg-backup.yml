@@ -188,23 +188,46 @@ jobs:
               print("S3 env resolved from source service:", sorted(s3env), "(values never printed)")
 
               # 2) internal connection strings (private network; no allowlist)
+              #
+              # REGION CONSTRAINT: a Render internal hostname is only reachable
+              # from the SAME region. This cron is in frankfurt; onx-marketing-db
+              # is in oregon. A cross-region target therefore CANNOT be dumped
+              # from here over the private network, and reaching it externally
+              # would require an allowlist change, which is prohibited. Such
+              # targets are reported as blocked, never silently skipped.
+              cron_region = (svc.get("serviceDetails", {}) or {}).get("region")
+              print("cron region:", cron_region)
+
               plat_url, mktg_url = internal_url(PLAT), internal_url(MKTG)
               print("platform  internal:", mask(plat_url))
               print("marketing internal:", mask(mktg_url))
               prod_hosts = ",".join(sorted({plat_url.split("@",1)[1].split("/",1)[0].split(":")[0],
                                             mktg_url.split("@",1)[1].split("/",1)[0].split(":")[0]}))
 
+              candidates = [("platform", PLAT, "ONX_DB_URL_PLATFORM", plat_url),
+                            ("marketing", MKTG, "ONX_DB_URL_MARKETING", mktg_url)]
+              in_region, blocked = [], []
+              for label, dbid, envname, url in candidates:
+                  r = db_detail(dbid).get("region")
+                  (in_region if r == cron_region else blocked).append((label, dbid, envname, url, r))
+              for label, dbid, _e, _u, r in blocked:
+                  print(f"BLOCKED_BY_REGION {label} {dbid} region={r} != cron region {cron_region} "
+                        f"— needs a cron in {r}; will NOT be dumped from here and NO allowlist is opened")
+              if not in_region:
+                  raise SystemExit("no target is reachable over the private network from this cron's region")
+              print("IN_REGION_TARGETS", [(l, d) for l, d, _e, _u, _r in in_region])
+
               desired = dict(s3env)
               desired.update({
                   "ONX_OP": "backup",
                   "ONX_RUN_ID": RUNID,
-                  "ONX_TARGETS": f"platform:{PLAT}:ONX_DB_URL_PLATFORM,marketing:{MKTG}:ONX_DB_URL_MARKETING",
-                  "ONX_DB_URL_PLATFORM": plat_url,
-                  "ONX_DB_URL_MARKETING": mktg_url,
+                  "ONX_TARGETS": ",".join(f"{l}:{d}:{e}" for l, d, e, _u, _r in in_region),
                   "ONX_PROD_HOST_DENY": prod_hosts,
                   "ONX_RETENTION_DAYS": "90",
                   "ONX_RETENTION_ENFORCE": "false",   # deletes NOTHING
               })
+              for l, d, e, u, _r in in_region:
+                  desired[e] = u
               for k, v in desired.items():
                   r = api("PUT", f"/services/{CRON}/env-vars/{k}", {"value": v})
                   print("env set:", k, "ok" if not err(r) else r)
@@ -308,73 +331,51 @@ jobs:
                   api("PUT", f"/services/{CRON}/env-vars/ONX_RUN_ID", {"value": RUNID})
                   marker = "ONX_BACKUP_SUMMARY"
 
-              # env vars are injected at process start: redeploy so the run sees them
-              d = api("POST", f"/services/{CRON}/deploys", {"clearCache": "do_not_clear"})
-              dep_id = unwrap(d, "deploy").get("id")
-              print("redeploy for env:", dep_id)
-              deadline = time.time() + 900
-              st = None
-              while time.time() < deadline:
-                  time.sleep(20)
-                  st = unwrap(api("GET", f"/services/{CRON}/deploys/{dep_id}", quiet=True), "deploy").get("status")
-                  print("  deploy status:", st)
-                  if st in ("live","build_failed","update_failed","canceled","deactivated"):
-                      break
-              if st != "live":
-                  for e in logs(CRON, kind="build", limit=120)[-60:]:
-                      print("BUILD:", (e.get("message") or "")[:250])
-                  raise SystemExit(f"deploy for env injection failed: {st}")
+              # ---- trigger ONE one-off run on the cron's current image ------
+              # A one-off job inherits the service's env at container start, so
+              # no redeploy is needed to pick up the values just written.
+              jr = api("POST", f"/services/{CRON}/jobs",
+                       {"startCommand": "node scripts/onx-pg-ops.mjs"})
+              if err(jr):
+                  raise SystemExit(f"could not trigger a run: {jr}")
+              job = unwrap(jr, "job")
+              job_id = job.get("id")
+              print("JOB_ID", job_id, job.get("status"), "startCommand:", job.get("startCommand"))
 
-              # ---- trigger one run: try documented endpoints, then schedule nudge
-              triggered = None
-              for method, path, body in [
-                  ("POST", f"/cron-jobs/{CRON}/runs", {}),
-                  ("POST", f"/services/{CRON}/jobs", {"startCommand": "node scripts/onx-pg-ops.mjs"}),
-              ]:
-                  r = api(method, path, body, quiet=True)
-                  if not err(r):
-                      triggered = (path, json.dumps(r, default=str)[:200]); break
-                  print("  trigger attempt", path, "->", r.get("__error"))
-
-              nudged = False
-              orig_schedule = None
-              if not triggered:
-                  svc = cron_svc()
-                  sd = svc.get("serviceDetails", {}) or {}
-                  orig_schedule = sd.get("schedule") or (sd.get("envSpecificDetails") or {}).get("schedule")
-                  fire = datetime.datetime.utcnow() + datetime.timedelta(minutes=3)
-                  newsched = f"{fire.minute} {fire.hour} * * *"
-                  r = api("PATCH", "/services/" + CRON, {"serviceDetails": {"schedule": newsched}})
-                  if err(r):
-                      raise SystemExit(f"no run-trigger endpoint worked and schedule nudge failed: {r}")
-                  nudged = True
-                  print(f"SCHEDULE_NUDGE original={orig_schedule} temporary={newsched} (fires ~{fire.isoformat()}Z)")
-              else:
-                  print("TRIGGERED via", triggered[0], triggered[1])
-
-              # ---- bounded poll of app logs for the result marker ----------
-              print(f"polling app logs for {marker} ...")
+              # ---- bounded poll: job status + app logs for the result marker
+              print(f"polling job {job_id} and app logs for {marker} ...")
               seen, result_line, done = set(), None, False
+              job_status = None
               deadline = time.time() + 1500
               while time.time() < deadline and not done:
                   for e in logs(CRON, kind="app", limit=200):
                       msg = (e.get("message") or "").rstrip()
-                      key = (e.get("timestamp"), msg[:120])
-                      if key in seen or not msg: continue
-                      seen.add(key)
-                      print("APP:", msg[:600])
+                      k = (e.get("timestamp"), msg[:120])
+                      if k in seen or not msg: continue
+                      seen.add(k)
+                      print("APP:", msg[:900])
                       if marker in msg:
                           result_line = msg[msg.index(marker):]
-                      if "ONX_OP_DONE" in msg:
+                      if "ONX_OP_DONE" in msg or "ONX_BACKUP_ALERT" in msg:
                           done = True
-                      if "ONX_BACKUP_ALERT" in msg:
-                          done = True
+                  j = unwrap(api("GET", f"/services/{CRON}/jobs/{job_id}", quiet=True), "job")
+                  job_status = j.get("status", job_status)
+                  if job_status in ("succeeded", "failed", "canceled"):
+                      print("JOB_STATUS", job_status, "finishedAt", j.get("finishedAt"))
+                      # one more log sweep so the tail is not lost
+                      time.sleep(10)
+                      for e in logs(CRON, kind="app", limit=200):
+                          msg = (e.get("message") or "").rstrip()
+                          k = (e.get("timestamp"), msg[:120])
+                          if k in seen or not msg: continue
+                          seen.add(k)
+                          print("APP:", msg[:900])
+                          if marker in msg:
+                              result_line = msg[msg.index(marker):]
+                      done = True
                   if not done:
                       time.sleep(15)
-
-              if nudged and orig_schedule:
-                  r = api("PATCH", "/services/" + CRON, {"serviceDetails": {"schedule": orig_schedule}})
-                  print("schedule restored to", orig_schedule, "ok" if not err(r) else r)
+              print("FINAL_JOB_STATUS", job_status)
 
               if MODE == "restore":
                   api("PUT", f"/services/{CRON}/env-vars/ONX_OP", {"value": "backup"})
