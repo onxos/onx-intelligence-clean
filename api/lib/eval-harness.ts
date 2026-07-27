@@ -16,6 +16,7 @@
 import { classifyIntent } from "./intent-engine";
 import { composeAnswer } from "./answer-composer";
 import { GOLDEN_SET, ALL_INTENTS, type GoldenCase } from "../fixtures/golden-set";
+import { enableTemplatedKnowledgeSeedForGoldenEvaluation } from "../knowledge-router";
 
 export interface GoldenCaseResult {
   id: string;
@@ -93,6 +94,12 @@ export async function evaluateCase(gc: GoldenCase, topK = 5): Promise<GoldenCase
 
 // Runs the whole golden set deterministically and aggregates.
 export async function runGoldenEval(topK = 5): Promise<GoldenEvalReport> {
+  // The production runtime intentionally starts without the synthetic seed.
+  // Golden retrieval cases are explicitly defined against that existing DEMO
+  // fixture, so the evaluator owns bootstrapping it instead of relying on a
+  // process-wide environment flag or import-order side effect.
+  enableTemplatedKnowledgeSeedForGoldenEvaluation();
+
   const perCase: GoldenCaseResult[] = [];
   for (const gc of GOLDEN_SET) {
     perCase.push(await evaluateCase(gc, topK));
