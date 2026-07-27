@@ -21,7 +21,7 @@ services:
     buildCommand: npm ci && npm run build
     startCommand: NODE_ENV=production npm start
     numInstances: 1
-    healthCheckPath: /api/trpc/health.ping
+    healthCheckPath: /api/trpc/health.dbReady
     disk:
       name: onx-data
       mountPath: /app/db
@@ -132,7 +132,7 @@ services:
     buildCommand: npm ci && npm run build
     startCommand: NODE_ENV=staging npm start
     numInstances: 1
-    healthCheckPath: /api/trpc/health.ping
+    healthCheckPath: /api/trpc/health.dbReady
     disk:
       name: onx-staging-data
       mountPath: /app/db
