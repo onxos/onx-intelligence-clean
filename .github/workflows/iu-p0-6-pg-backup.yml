@@ -11,12 +11,13 @@ name: iu-p0-6-pg-backup
 #   arm      point the backup cron at Dockerfile.pgops + set its env, deploy
 #   run      trigger one backup run and stream the result out of Render logs
 #   restore  create an ISOLATED test Postgres, restore the artifact, compare
-#   teardown delete the isolated test Postgres (evidence must already be stored)
+#   retrieve independently retrieve and validate one durable restore-drill proof
+#   teardown delete the isolated test Postgres only after retrieving its proof
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: probe | arm | run | restore | teardown | provision-oregon
+        description: probe | arm | run | restore | retrieve | teardown | provision-oregon
         required: true
         default: probe
       cron_id:
@@ -36,7 +37,11 @@ on:
         required: false
         default: ""
       test_db_id:
-        description: "restore/teardown mode: existing isolated test dpg- id (blank = create)"
+        description: "restore/retrieve/teardown: isolated test dpg- id (blank = create in restore)"
+        required: false
+        default: ""
+      restore_evidence_key:
+        description: "retrieve/teardown: canonical onx-pg-backups/_restore-drills/...json key"
         required: false
         default: ""
       confirm_teardown:
@@ -55,6 +60,7 @@ jobs:
       OBJECT_KEY: ${{ inputs.object_key }}
       SOURCE_DB_ID: ${{ inputs.source_db_id }}
       TEST_DB_ID: ${{ inputs.test_db_id }}
+      RESTORE_EVIDENCE_KEY: ${{ inputs.restore_evidence_key }}
       CONFIRM_TEARDOWN: ${{ inputs.confirm_teardown }}
       GH_RUN_ID: ${{ github.run_id }}
       # The cron that will be made into a genuine backup (currently a diagnostic).
@@ -216,6 +222,57 @@ jobs:
                       "jobId": job_id,
                   }),
               )
+
+          def retrieve_restore_evidence(test_id, evidence_key):
+              if not re.fullmatch(r"dpg-[a-z0-9-]+", test_id):
+                  raise SystemExit("restore evidence retrieval requires a canonical test_db_id")
+              if test_id in (PLAT, MKTG, EXCL):
+                  raise SystemExit("restore evidence target must not be a production database")
+              match = re.fullmatch(
+                  r"onx-pg-backups/_restore-drills/(dpg-[a-z0-9-]+)/"
+                  r"[0-9]{8}T[0-9]{6}Z_[A-Za-z0-9._-]+\.json",
+                  evidence_key,
+              )
+              if not match:
+                  raise SystemExit("restore_evidence_key is not a canonical _restore-drills JSON key")
+              source_id = match.group(1)
+              if source_id not in (PLAT, MKTG):
+                  raise SystemExit(f"restore evidence source {source_id} is not approved")
+              start = (
+                  "ONX_OP=retrieve-evidence "
+                  f"ONX_RESTORE_EVIDENCE_KEY={evidence_key} "
+                  f"ONX_RESTORE_EXPECT_TARGET_DB_ID={test_id} "
+                  f"ONX_RESTORE_EXPECT_SOURCE_DB_ID={source_id} "
+                  f"ONX_RESTORE_PROD_DB_IDS={PLAT},{MKTG},{EXCL} "
+                  "node scripts/onx-pg-ops.mjs"
+              )
+              response = api("POST", f"/services/{CRON}/jobs", {"startCommand": start})
+              if err(response):
+                  raise SystemExit(f"restore evidence retrieval job could not start: {response}")
+              job_id = unwrap(response, "job").get("id")
+              print("RESTORE_EVIDENCE_JOB_ID", job_id)
+              status, line = wait_job_marker(job_id, "ONX_RESTORE_EVIDENCE")
+              if status != "succeeded" or not line:
+                  raise SystemExit(
+                      f"durable restore evidence not proven: status={status}, "
+                      "ONX_RESTORE_EVIDENCE absent"
+                  )
+              try:
+                  proof = json.loads(line.split("ONX_RESTORE_EVIDENCE", 1)[1].strip())
+              except Exception as exc:
+                  raise SystemExit(f"invalid ONX_RESTORE_EVIDENCE payload: {exc}")
+              if (
+                  proof.get("outcome") != "PASS" or
+                  proof.get("sourceDbResourceId") != source_id or
+                  proof.get("restoreTargetDbResourceId") != test_id or
+                  proof.get("checksumMatch") is not True or
+                  proof.get("schemaMatch") is not True or
+                  proof.get("totalRowsMatch") is not True or
+                  proof.get("perTableMismatchCount") != 0
+              ):
+                  raise SystemExit("retrieved restore evidence failed the workflow acceptance gate")
+              print("RESTORE_EVIDENCE_PROVEN", json.dumps(proof))
+              return proof
 
           # ================= PROBE =========================================
           if MODE == "probe":
@@ -603,20 +660,49 @@ jobs:
                   raise SystemExit(f"no {marker} observed within the polling window — treat as NOT PROVEN")
               raise SystemExit(0)
 
+          # ================= RETRIEVE DURABLE RESTORE PROOF ================
+          if MODE == "retrieve":
+              verify_runtime_image()
+              test_id = os.environ.get("TEST_DB_ID", "").strip()
+              evidence_key = os.environ.get("RESTORE_EVIDENCE_KEY", "").strip()
+              retrieve_restore_evidence(test_id, evidence_key)
+              raise SystemExit(0)
+
           # ================= TEARDOWN ======================================
           if MODE == "teardown":
               test_id = os.environ.get("TEST_DB_ID", "").strip()
+              evidence_key = os.environ.get("RESTORE_EVIDENCE_KEY", "").strip()
               if os.environ.get("CONFIRM_TEARDOWN", "").strip() != "DELETE":
                   raise SystemExit("teardown requires confirm_teardown=DELETE")
               if not test_id or test_id in (PLAT, MKTG, EXCL):
                   raise SystemExit(f"refusing to delete {test_id!r}: not an isolated test instance")
+              verify_runtime_image()
               d = db_detail(test_id)
               nm = d.get("name") or ""
               if not nm.startswith("onx-restore-test-"):
                   raise SystemExit(f"refusing to delete {test_id} named {nm!r}: not a restore-test instance")
+              retrieve_restore_evidence(test_id, evidence_key)
               r = api("DELETE", "/postgres/" + test_id)
-              print("TEARDOWN", test_id, nm, "->", "ok" if not err(r) else r)
-              raise SystemExit(0)
+              if err(r):
+                  raise SystemExit(f"teardown DELETE failed for {test_id}: {r}")
+              print("TEARDOWN_DELETE_ACCEPTED", test_id, nm)
+              deadline = time.time() + 900
+              while time.time() < deadline:
+                  current = api("GET", "/postgres/" + test_id, quiet=True)
+                  if err(current) and current.get("__error") == 404:
+                      print("TEARDOWN_CONFIRMED_ABSENT", test_id)
+                      raise SystemExit(0)
+                  if err(current):
+                      raise SystemExit(
+                          f"teardown verification failed for {test_id}: "
+                          f"HTTP {current.get('__error')}"
+                      )
+                  status = unwrap(current, "postgres").get("status")
+                  print("  teardown status:", status)
+                  time.sleep(10)
+              raise SystemExit(
+                  f"teardown DELETE was accepted but {test_id} did not disappear within 900s"
+              )
 
           raise SystemExit(f"unknown mode {MODE!r}")
           PY
