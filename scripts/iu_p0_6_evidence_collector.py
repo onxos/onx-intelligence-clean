@@ -17,7 +17,12 @@ class EvidenceVerdict:
 
 
 def chronological_log_entries(payload: Any) -> list[dict[str, Any]]:
-    """Return valid log records oldest-first for every optional API shape."""
+    """Return valid Render ``direction=backward`` logs oldest-first.
+
+    The Render API supplies newest-first entries for that requested direction;
+    this helper normalizes optional payload shapes and reverses that documented
+    response order. It intentionally does not sort arbitrary log collections.
+    """
 
     if not isinstance(payload, dict):
         return []
