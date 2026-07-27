@@ -139,11 +139,20 @@ everything past the newest 30 dumps before any restore had ever been proven.
    five largest tables. **No row values are ever read or stored.**
 8. Writes the full report to `_restore-drills/` **before** any teardown.
 
+`retrieve` is a separate, non-database operation. It retrieves one canonical
+`_restore-drills/...json` object, validates that it is an IU-P0-6 `PASS`, binds
+its source and restore-target resource IDs, and rechecks checksum, schema,
+catalogue counts, total rows and per-table row equality. It emits the object's
+own SHA-256 as `ONX_RESTORE_EVIDENCE`; it never trusts a prior console line.
+
 Teardown is a separate, explicitly confirmed mode (`teardown`,
-`confirm_teardown=DELETE`). It refuses to delete anything that is not named
-`onx-restore-test-*`, and refuses outright for the platform, marketing and
-intelligence resource IDs. Evidence is stored in object storage first, so
-teardown is recoverable in the sense that the proof survives the instance.
+`confirm_teardown=DELETE`) and requires both `test_db_id` and the exact
+`restore_evidence_key`. Before DELETE it performs the same independent durable
+evidence retrieval and fails closed unless the evidence is a `PASS` for that
+exact test database. It refuses anything not named `onx-restore-test-*`, and
+refuses the platform, marketing and intelligence resource IDs. After Render
+accepts DELETE, the workflow polls the database resource until `GET` returns
+404; a merely accepted DELETE is not reported as successful teardown.
 
 ## What this never does
 
