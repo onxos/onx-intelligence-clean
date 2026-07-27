@@ -49,6 +49,13 @@ on:
         required: false
         default: ""
 
+# Every mode reads or mutates shared cron state. Never allow two dispatches for
+# the same cron to interleave; a Frankfurt operation may still run independently
+# from the region-isolated Oregon cron.
+concurrency:
+  group: iu-p0-6-${{ inputs.cron_id || 'frankfurt-default' }}
+  cancel-in-progress: false
+
 jobs:
   op:
     runs-on: ubuntu-latest
