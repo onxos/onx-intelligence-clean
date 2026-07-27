@@ -1,0 +1,39 @@
+# IU-P0-6 — image for the REAL PostgreSQL backup + isolated restore verification.
+#
+# Why Debian (not alpine): we must run a pg_dump/pg_restore whose MAJOR version
+# matches the server. Alpine ships exactly one postgresqlNN-client at a time,
+# so the image silently pins us to one server major. The PGDG apt repo installs
+# several majors side by side under /usr/lib/postgresql/<major>/bin, and
+# scripts/onx-pg-ops.mjs picks the binary matching `SHOW server_version_num`.
+#
+# The cron runs INSIDE Render's private network and connects to the databases
+# over their INTERNAL hostnames — no IP allowlist and no temporary /32 is
+# needed, and nothing about production networking is changed.
+FROM node:20-bookworm-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
+ && install -d /usr/share/postgresql-common/pgdg \
+ && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+      -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+ && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
+      > /etc/apt/sources.list.d/pgdg.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends \
+      postgresql-client-15 postgresql-client-16 postgresql-client-17 \
+ && apt-get purge -y gnupg \
+ && apt-get autoremove -y \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Only the S3 SDK is needed at runtime; pg_dump/pg_restore are system binaries.
+RUN npm init -y >/dev/null 2>&1 \
+ && npm install --no-audit --no-fund @aws-sdk/client-s3@^3.600.0
+
+COPY scripts/onx-pg-ops.mjs ./scripts/onx-pg-ops.mjs
+
+# ONX_OP selects the operation: "backup" (default) or "restore-verify".
+# Restore mode additionally requires ONX_RESTORE_TARGET_URL and refuses to run
+# against any host listed in ONX_PROD_HOST_DENY.
+CMD ["node", "scripts/onx-pg-ops.mjs"]
