@@ -16,9 +16,13 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: probe | arm | run | restore | teardown
+        description: probe | arm | run | restore | teardown | provision-oregon
         required: true
         default: probe
+      cron_id:
+        description: "arm/run: which backup cron to act on (blank = frankfurt default)"
+        required: false
+        default: ""
       object_key:
         description: "restore mode: object key of the artifact to restore"
         required: false
@@ -38,6 +42,7 @@ jobs:
     env:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       MODE: ${{ inputs.mode }}
+      CRON_ID_OVERRIDE: ${{ inputs.cron_id }}
       OBJECT_KEY: ${{ inputs.object_key }}
       TEST_DB_ID: ${{ inputs.test_db_id }}
       CONFIRM_TEARDOWN: ${{ inputs.confirm_teardown }}
@@ -57,7 +62,7 @@ jobs:
 
           KEY   = os.environ["RENDER_API_KEY"]
           MODE  = os.environ["MODE"].strip()
-          CRON  = os.environ["BACKUP_CRON_ID"]
+          CRON  = os.environ.get("CRON_ID_OVERRIDE", "").strip() or os.environ["BACKUP_CRON_ID"]
           S3SRC = os.environ["S3_SOURCE_SERVICE_ID"]
           PLAT  = os.environ["PLATFORM_DB_ID"]
           MKTG  = os.environ["MARKETING_DB_ID"]
@@ -163,6 +168,49 @@ jobs:
               for p in [f"/cron-jobs?limit=10", f"/cron-jobs/{CRON}", f"/cron-jobs/{CRON}/runs?limit=5",
                         f"/services/{CRON}/jobs?limit=5"]:
                   print(p, "->", json.dumps(api("GET", p, quiet=True), default=str)[:350])
+              raise SystemExit(0)
+
+          # ================= PROVISION OREGON ==============================
+          # The marketing database lives in oregon; a Render internal hostname
+          # is only reachable from the same region. Rather than open the
+          # production allowlist to reach it externally (prohibited), give it
+          # its own cron IN oregon, built from the same Dockerfile.pgops.
+          if MODE == "provision-oregon":
+              base = cron_svc()
+              mk = db_detail(MKTG)
+              region = mk.get("region")
+              assert region == "oregon", f"marketing db region changed to {region}; revisit this mode"
+              name = "onx-pg-backup-oregon"
+              for s in api("GET", "/services?limit=100") or []:
+                  svc = unwrap(s, "service") if isinstance(s, dict) else {}
+                  if svc.get("name") == name:
+                      print("ALREADY_EXISTS", svc.get("id"), name)
+                      raise SystemExit(0)
+              body = {
+                  "type": "cron_job",
+                  "name": name,
+                  "ownerId": base.get("ownerId"),
+                  "repo": base.get("repo"),
+                  "branch": "main",
+                  "autoDeploy": "no",
+                  "serviceDetails": {
+                      "runtime": "docker",
+                      "region": region,
+                      "plan": "starter",
+                      "schedule": "30 3 * * *",
+                      "envSpecificDetails": {
+                          "dockerfilePath": "./Dockerfile.pgops",
+                          "dockerContext": ".",
+                          "dockerCommand": "node scripts/onx-pg-ops.mjs",
+                      },
+                  },
+              }
+              created = api("POST", "/services", body)
+              if err(created):
+                  raise SystemExit(f"could not create oregon cron: {created}")
+              c = unwrap(created, "service")
+              print("CREATED_OREGON_CRON", c.get("id"), c.get("name"), "region", region)
+              print("NEXT: re-run this workflow with mode=arm and cron_id=" + str(c.get("id")))
               raise SystemExit(0)
 
           # ================= ARM ===========================================
