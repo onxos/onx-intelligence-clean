@@ -1,0 +1,30 @@
+name: iu-p0-6-safety
+
+on:
+  pull_request:
+    paths:
+      - "scripts/onx-pg-ops.mjs"
+      - "scripts/test-iu-p0-6-safety.mjs"
+      - ".github/workflows/iu-p0-6-pg-backup.yml"
+      - ".github/workflows/iu-p0-6-safety.yml"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/onx-pg-ops.mjs"
+      - "scripts/test-iu-p0-6-safety.mjs"
+      - ".github/workflows/iu-p0-6-pg-backup.yml"
+      - ".github/workflows/iu-p0-6-safety.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax
+        run: node --check scripts/onx-pg-ops.mjs
+      - name: Safety contract and negative mutations
+        run: node scripts/test-iu-p0-6-safety.mjs

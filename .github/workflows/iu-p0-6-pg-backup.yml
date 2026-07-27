@@ -11,12 +11,13 @@ name: iu-p0-6-pg-backup
 #   arm      point the backup cron at Dockerfile.pgops + set its env, deploy
 #   run      trigger one backup run and stream the result out of Render logs
 #   restore  create an ISOLATED test Postgres, restore the artifact, compare
-#   teardown delete the isolated test Postgres (evidence must already be stored)
+#   retrieve independently retrieve and validate one durable restore-drill proof
+#   teardown delete the isolated test Postgres only after retrieving its proof
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: probe | arm | run | restore | teardown | provision-oregon
+        description: probe | arm | run | restore | retrieve | teardown | provision-oregon
         required: true
         default: probe
       cron_id:
@@ -28,17 +29,32 @@ on:
         required: false
         default: ""
       object_key:
-        description: "restore mode: object key of the artifact to restore"
+        description: 'restore mode: dated object key, or "latest" with source_db_id'
+        required: false
+        default: ""
+      source_db_id:
+        description: "restore mode: platform/marketing dpg- resource id (required for latest)"
         required: false
         default: ""
       test_db_id:
-        description: "restore/teardown mode: existing isolated test dpg- id (blank = create)"
+        description: "restore/retrieve/teardown: isolated test dpg- id (blank = create in restore)"
+        required: false
+        default: ""
+      restore_evidence_key:
+        description: "retrieve/teardown: canonical onx-pg-backups/_restore-drills/...json key"
         required: false
         default: ""
       confirm_teardown:
         description: "teardown mode: type DELETE to confirm"
         required: false
         default: ""
+
+# Every mode reads or mutates shared cron state. Never allow two dispatches for
+# the same cron to interleave; a Frankfurt operation may still run independently
+# from the region-isolated Oregon cron.
+concurrency:
+  group: iu-p0-6-${{ inputs.cron_id || 'frankfurt-default' }}
+  cancel-in-progress: false
 
 jobs:
   op:
@@ -49,7 +65,9 @@ jobs:
       CRON_ID_OVERRIDE: ${{ inputs.cron_id }}
       LOG_RESOURCE: ${{ inputs.log_resource }}
       OBJECT_KEY: ${{ inputs.object_key }}
+      SOURCE_DB_ID: ${{ inputs.source_db_id }}
       TEST_DB_ID: ${{ inputs.test_db_id }}
+      RESTORE_EVIDENCE_KEY: ${{ inputs.restore_evidence_key }}
       CONFIRM_TEARDOWN: ${{ inputs.confirm_teardown }}
       GH_RUN_ID: ${{ github.run_id }}
       # The cron that will be made into a genuine backup (currently a diagnostic).
@@ -60,10 +78,17 @@ jobs:
       MARKETING_DB_ID: dpg-d98upmu7r5hc73afti50-a
       EXCLUDED_DB_ID: dpg-d86s3uog4nts73b9j4sg-a
     steps:
+      - uses: actions/checkout@v4
+      - id: ops-source
+        name: Hash the exact pg-ops source in this workflow commit
+        shell: bash
+        run: echo "sha256=$(sha256sum scripts/onx-pg-ops.mjs | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - name: IU-P0-6 ${{ inputs.mode }}
+        env:
+          EXPECTED_OPS_SHA256: ${{ steps.ops-source.outputs.sha256 }}
         run: |
           python3 - <<'PY'
-          import json, os, sys, time, urllib.request, urllib.error, datetime
+          import json, os, re, sys, time, urllib.request, urllib.error, datetime
 
           KEY   = os.environ["RENDER_API_KEY"]
           MODE  = os.environ["MODE"].strip()
@@ -133,6 +158,128 @@ jobs:
               r = api("GET", path, quiet=True)
               if err(r): return []
               return list(reversed(r.get("logs") or []))
+
+          def wait_job_marker(job_id, marker, timeout=420):
+              seen, result_line, job_status = set(), None, None
+              deadline = time.time() + timeout
+              terminal_at = None
+              while time.time() < deadline:
+                  for e in logs(job_id, kind="app", limit=400):
+                      msg = (e.get("message") or "").rstrip()
+                      key = (e.get("timestamp"), msg[:160])
+                      if key in seen or not msg:
+                          continue
+                      seen.add(key)
+                      print("JOB:", msg[:1000])
+                      if marker in msg:
+                          result_line = msg[msg.index(marker):]
+                  j = unwrap(api("GET", f"/services/{CRON}/jobs/{job_id}", quiet=True), "job")
+                  job_status = j.get("status", job_status)
+                  if job_status in ("succeeded", "failed", "canceled") and terminal_at is None:
+                      terminal_at = time.time()
+                      print("JOB_STATUS", job_status, "finishedAt", j.get("finishedAt"))
+                  # Render's log index lags job completion. Allow a bounded
+                  # two-minute grace period, but never accept status alone.
+                  if terminal_at is not None:
+                      if result_line:
+                          return job_status, result_line
+                      if time.time() - terminal_at > 120:
+                          break
+                  time.sleep(10)
+              return job_status, result_line
+
+          def verify_runtime_image():
+              expected = os.environ["EXPECTED_OPS_SHA256"].strip()
+              job_resp = api(
+                  "POST",
+                  f"/services/{CRON}/jobs",
+                  {"startCommand": "ONX_OP=self-check node scripts/onx-pg-ops.mjs"},
+              )
+              if err(job_resp):
+                  raise SystemExit(f"runtime provenance job could not start: {job_resp}")
+              job = unwrap(job_resp, "job")
+              job_id = job.get("id")
+              print("PROVENANCE_JOB_ID", job_id)
+              status, line = wait_job_marker(job_id, "ONX_SELF_CHECK")
+              if status != "succeeded" or not line:
+                  raise SystemExit(
+                      f"runtime image provenance failed: status={status}, ONX_SELF_CHECK absent; "
+                      "refusing backup/restore"
+                  )
+              try:
+                  proof = json.loads(line.split("ONX_SELF_CHECK", 1)[1].strip())
+              except Exception as exc:
+                  raise SystemExit(f"invalid ONX_SELF_CHECK payload: {exc}")
+              actual = proof.get("ownSourceSha256")
+              if proof.get("contractVersion") != "iu-p0-6/2":
+                  raise SystemExit(
+                      f"runtime contract {proof.get('contractVersion')!r} is stale; refusing backup/restore"
+                  )
+              if actual != expected:
+                  raise SystemExit(
+                      f"runtime source SHA {actual} != workflow source SHA {expected}; "
+                      "deploy the current pg-ops image before backup/restore"
+                  )
+              print(
+                  "RUNTIME_IMAGE_PROVEN",
+                  json.dumps({
+                      "contractVersion": proof.get("contractVersion"),
+                      "sourceSha256": actual,
+                      "renderGitCommit": proof.get("renderGitCommit"),
+                      "jobId": job_id,
+                  }),
+              )
+
+          def retrieve_restore_evidence(test_id, evidence_key):
+              if not re.fullmatch(r"dpg-[a-z0-9-]+", test_id):
+                  raise SystemExit("restore evidence retrieval requires a canonical test_db_id")
+              if test_id in (PLAT, MKTG, EXCL):
+                  raise SystemExit("restore evidence target must not be a production database")
+              match = re.fullmatch(
+                  r"onx-pg-backups/_restore-drills/(dpg-[a-z0-9-]+)/"
+                  r"[0-9]{8}T[0-9]{6}Z_[A-Za-z0-9._-]+\.json",
+                  evidence_key,
+              )
+              if not match:
+                  raise SystemExit("restore_evidence_key is not a canonical _restore-drills JSON key")
+              source_id = match.group(1)
+              if source_id not in (PLAT, MKTG):
+                  raise SystemExit(f"restore evidence source {source_id} is not approved")
+              start = (
+                  "ONX_OP=retrieve-evidence "
+                  f"ONX_RESTORE_EVIDENCE_KEY={evidence_key} "
+                  f"ONX_RESTORE_EXPECT_TARGET_DB_ID={test_id} "
+                  f"ONX_RESTORE_EXPECT_SOURCE_DB_ID={source_id} "
+                  f"ONX_RESTORE_PROD_DB_IDS={PLAT},{MKTG},{EXCL} "
+                  "node scripts/onx-pg-ops.mjs"
+              )
+              response = api("POST", f"/services/{CRON}/jobs", {"startCommand": start})
+              if err(response):
+                  raise SystemExit(f"restore evidence retrieval job could not start: {response}")
+              job_id = unwrap(response, "job").get("id")
+              print("RESTORE_EVIDENCE_JOB_ID", job_id)
+              status, line = wait_job_marker(job_id, "ONX_RESTORE_EVIDENCE")
+              if status != "succeeded" or not line:
+                  raise SystemExit(
+                      f"durable restore evidence not proven: status={status}, "
+                      "ONX_RESTORE_EVIDENCE absent"
+                  )
+              try:
+                  proof = json.loads(line.split("ONX_RESTORE_EVIDENCE", 1)[1].strip())
+              except Exception as exc:
+                  raise SystemExit(f"invalid ONX_RESTORE_EVIDENCE payload: {exc}")
+              if (
+                  proof.get("outcome") != "PASS" or
+                  proof.get("sourceDbResourceId") != source_id or
+                  proof.get("restoreTargetDbResourceId") != test_id or
+                  proof.get("checksumMatch") is not True or
+                  proof.get("schemaMatch") is not True or
+                  proof.get("totalRowsMatch") is not True or
+                  proof.get("perTableMismatchCount") != 0
+              ):
+                  raise SystemExit("retrieved restore evidence failed the workflow acceptance gate")
+              print("RESTORE_EVIDENCE_PROVEN", json.dumps(proof))
+              return proof
 
           # ================= PROBE =========================================
           if MODE == "probe":
@@ -352,11 +499,40 @@ jobs:
 
           # ================= RUN ===========================================
           if MODE in ("run", "restore"):
+              # This is deliberately before any env mutation or isolated DB
+              # creation. A stale cron image must fail without side effects.
+              verify_runtime_image()
               if MODE == "restore":
                   # ---- create / reuse an ISOLATED non-production instance ----
+                  ok = os.environ.get("OBJECT_KEY", "").strip()
+                  if not ok:
+                      raise SystemExit("restore mode requires object_key")
+                  src_id = os.environ.get("SOURCE_DB_ID", "").strip()
+                  object_match = re.match(r"^onx-pg-backups/(dpg-[^/]+)/", ok)
+                  object_src_id = object_match.group(1) if object_match else ""
+                  if not src_id:
+                      src_id = object_src_id
+                  if src_id not in (PLAT, MKTG):
+                      raise SystemExit(
+                          f"restore source {src_id or '<empty>'} is not an approved platform/marketing database"
+                      )
+                  if ok == "latest" and not os.environ.get("SOURCE_DB_ID", "").strip():
+                      raise SystemExit('object_key="latest" requires source_db_id')
+                  if object_src_id and object_src_id != src_id:
+                      raise SystemExit(
+                          f"object key source {object_src_id} does not match requested source {src_id}"
+                      )
+
                   test_id = os.environ.get("TEST_DB_ID", "").strip()
-                  src_db = db_detail(PLAT)
+                  src_db = db_detail(src_id)
                   src_major = str(src_db.get("version"))
+                  src_region = src_db.get("region")
+                  cron_region = (cron_svc().get("serviceDetails", {}) or {}).get("region")
+                  if cron_region != src_region:
+                      raise SystemExit(
+                          f"restore cron region {cron_region} cannot reach source/target region {src_region}; "
+                          "select the region-matched backup cron"
+                      )
                   if not test_id:
                       name = "onx-restore-test-" + datetime.datetime.utcnow().strftime("%Y%m%d%H%M")
                       body = {
@@ -390,22 +566,37 @@ jobs:
                       raise SystemExit(f"test instance not available: {d.get('status')} (id {test_id})")
                   if str(d.get("version")) != src_major:
                       raise SystemExit(f"version mismatch: test {d.get('version')} vs source {src_major}")
+                  test_name = d.get("name") or ""
+                  test_database_name = d.get("databaseName") or ""
+                  if not test_name.startswith("onx-restore-test-"):
+                      raise SystemExit(
+                          f"refusing restore target {test_id} named {test_name!r}: "
+                          "not an onx-restore-test instance"
+                      )
+                  if test_database_name != "onx_restore_test":
+                      raise SystemExit(
+                          f"refusing restore target {test_id} database {test_database_name!r}: "
+                          "not the isolated onx_restore_test database"
+                      )
 
                   test_url = internal_url(test_id)
                   print("isolated restore target:", mask(test_url), "version", d.get("version"))
 
-                  ok = os.environ.get("OBJECT_KEY", "").strip()
-                  if not ok:
-                      raise SystemExit("restore mode requires object_key")
                   plat_url, mktg_url = internal_url(PLAT), internal_url(MKTG)
                   prod_hosts = ",".join(sorted({plat_url.split("@",1)[1].split("/",1)[0].split(":")[0],
                                                 mktg_url.split("@",1)[1].split("/",1)[0].split(":")[0]}))
+                  # Never persist restore mode on the shared cron. A scheduled
+                  # invocation must remain a backup even if this Actions runner
+                  # disappears before it can perform cleanup. The one-off job
+                  # receives ONX_OP in its start command below.
                   for k, v in {
-                      "ONX_OP": "restore-verify",
                       "ONX_RUN_ID": RUNID,
                       "ONX_RESTORE_TARGET_URL": test_url,
                       "ONX_RESTORE_TARGET_DB_ID": test_id,
+                      "ONX_RESTORE_TARGET_NAME": test_name,
+                      "ONX_RESTORE_TARGET_DATABASE_NAME": test_database_name,
                       "ONX_RESTORE_OBJECT_KEY": ok,
+                      "ONX_RESTORE_SOURCE_DB_ID": src_id,
                       "ONX_PROD_HOST_DENY": prod_hosts,
                   }.items():
                       r = api("PUT", f"/services/{CRON}/env-vars/{k}", {"value": v})
@@ -419,8 +610,13 @@ jobs:
               # ---- trigger ONE one-off run on the cron's current image ------
               # A one-off job inherits the service's env at container start, so
               # no redeploy is needed to pick up the values just written.
+              job_command = (
+                  "ONX_OP=restore-verify node scripts/onx-pg-ops.mjs"
+                  if MODE == "restore"
+                  else "node scripts/onx-pg-ops.mjs"
+              )
               jr = api("POST", f"/services/{CRON}/jobs",
-                       {"startCommand": "node scripts/onx-pg-ops.mjs"})
+                       {"startCommand": job_command})
               if err(jr):
                   raise SystemExit(f"could not trigger a run: {jr}")
               job = unwrap(jr, "job")
@@ -479,20 +675,49 @@ jobs:
                   raise SystemExit(f"no {marker} observed within the polling window — treat as NOT PROVEN")
               raise SystemExit(0)
 
+          # ================= RETRIEVE DURABLE RESTORE PROOF ================
+          if MODE == "retrieve":
+              verify_runtime_image()
+              test_id = os.environ.get("TEST_DB_ID", "").strip()
+              evidence_key = os.environ.get("RESTORE_EVIDENCE_KEY", "").strip()
+              retrieve_restore_evidence(test_id, evidence_key)
+              raise SystemExit(0)
+
           # ================= TEARDOWN ======================================
           if MODE == "teardown":
               test_id = os.environ.get("TEST_DB_ID", "").strip()
+              evidence_key = os.environ.get("RESTORE_EVIDENCE_KEY", "").strip()
               if os.environ.get("CONFIRM_TEARDOWN", "").strip() != "DELETE":
                   raise SystemExit("teardown requires confirm_teardown=DELETE")
               if not test_id or test_id in (PLAT, MKTG, EXCL):
                   raise SystemExit(f"refusing to delete {test_id!r}: not an isolated test instance")
+              verify_runtime_image()
               d = db_detail(test_id)
               nm = d.get("name") or ""
               if not nm.startswith("onx-restore-test-"):
                   raise SystemExit(f"refusing to delete {test_id} named {nm!r}: not a restore-test instance")
+              retrieve_restore_evidence(test_id, evidence_key)
               r = api("DELETE", "/postgres/" + test_id)
-              print("TEARDOWN", test_id, nm, "->", "ok" if not err(r) else r)
-              raise SystemExit(0)
+              if err(r):
+                  raise SystemExit(f"teardown DELETE failed for {test_id}: {r}")
+              print("TEARDOWN_DELETE_ACCEPTED", test_id, nm)
+              deadline = time.time() + 900
+              while time.time() < deadline:
+                  current = api("GET", "/postgres/" + test_id, quiet=True)
+                  if err(current) and current.get("__error") == 404:
+                      print("TEARDOWN_CONFIRMED_ABSENT", test_id)
+                      raise SystemExit(0)
+                  if err(current):
+                      raise SystemExit(
+                          f"teardown verification failed for {test_id}: "
+                          f"HTTP {current.get('__error')}"
+                      )
+                  status = unwrap(current, "postgres").get("status")
+                  print("  teardown status:", status)
+                  time.sleep(10)
+              raise SystemExit(
+                  f"teardown DELETE was accepted but {test_id} did not disappear within 900s"
+              )
 
           raise SystemExit(f"unknown mode {MODE!r}")
           PY

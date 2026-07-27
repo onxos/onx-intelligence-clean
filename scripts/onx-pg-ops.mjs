@@ -14,9 +14,12 @@
  *
  * ---------------------------------------------------------------------------
  * OPERATIONS (env ONX_OP)
+ *   self-check              no DB/S3 access; emit runtime source provenance
  *   backup          (default) pg_dump --format=custom -> sha256 -> object store
  *   restore-verify            pull artifact -> pg_restore into an ISOLATED
  *                             non-production instance -> compare integrity
+ *   retrieve-evidence         independently retrieve and validate one durable
+ *                             restore-drill record before teardown
  *
  * SAFETY INVARIANTS
  *   - Read-only against production: pg_dump plus catalogue SELECTs. No DDL,
@@ -28,10 +31,12 @@
  *   - No secret value is ever printed; only key names and masked hosts.
  * ---------------------------------------------------------------------------
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { once } from "node:events";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { readdirSync } from "node:fs";
+import { createInterface } from "node:readline";
 
 // --------------------------------------------------------------------------
 // Constants and guards
@@ -43,6 +48,7 @@ const EXCLUDED_DB_IDS = new Set([
 ]);
 
 const OP = (process.env.ONX_OP || "backup").trim();
+const CONTRACT_VERSION = "iu-p0-6/2";
 const RUN_ID = process.env.ONX_RUN_ID || `local-${Date.now()}`;
 const nowIso = () => new Date().toISOString();
 const startedAt = nowIso();
@@ -101,27 +107,113 @@ function anyPsql() {
   return fail("no psql binary found in the image");
 }
 
-function psqlScalar(psql, url, sql) {
-  return execFileSync(psql, ["-X", "-A", "-t", "-q", "-c", sql, url], {
+function snapshotSql(snapshotId, sql) {
+  if (!snapshotId) return sql;
+  if (!/^[0-9A-Fa-f-]+$/.test(snapshotId)) {
+    fail("exported snapshot id has an unexpected format");
+  }
+  return `BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;
+SET TRANSACTION SNAPSHOT '${snapshotId}';
+${sql};
+COMMIT;`;
+}
+
+function psqlScalar(psql, url, sql, snapshotId = null) {
+  const out = execFileSync(
+    psql,
+    ["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "-c", snapshotSql(snapshotId, sql), url],
+    {
     encoding: "utf8",
     timeout: 300_000,
     env: { ...process.env, PGCONNECT_TIMEOUT: "20" },
-  }).trim();
+    },
+  );
+  const values = out
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !/^(BEGIN|SET|COMMIT|ROLLBACK)$/.test(line));
+  return values.at(-1) ?? "";
 }
 
-function psqlRows(psql, url, sql) {
-  const out = execFileSync(psql, ["-X", "-A", "-t", "-q", "-F", "\t", "-c", sql, url], {
-    encoding: "utf8",
-    timeout: 600_000,
-    env: { ...process.env, PGCONNECT_TIMEOUT: "20" },
-  });
-  return out.split("\n").filter(Boolean).map((l) => l.split("\t"));
+function psqlRows(psql, url, sql, snapshotId = null) {
+  const out = execFileSync(
+    psql,
+    ["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "-F", "\t", "-c", snapshotSql(snapshotId, sql), url],
+    {
+      encoding: "utf8",
+      timeout: 600_000,
+      env: { ...process.env, PGCONNECT_TIMEOUT: "20" },
+    },
+  );
+  return out
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !/^(BEGIN|SET|COMMIT|ROLLBACK)$/.test(line))
+    .map((line) => line.split("\t"));
 }
 
-function serverMajor(psql, url) {
-  const num = Number(psqlScalar(psql, url, "SHOW server_version_num"));
+function serverMajor(psql, url, snapshotId = null) {
+  const num = Number(psqlScalar(psql, url, "SHOW server_version_num", snapshotId));
   if (!Number.isFinite(num)) fail("could not read server_version_num");
   return Math.floor(num / 10000);
+}
+
+/**
+ * Keep a read-only REPEATABLE READ transaction open while pg_dump and every
+ * integrity query use the exact same exported snapshot. Without this, a live
+ * write between pg_dump and fingerprint() can make a valid backup fail its
+ * restore drill or, worse, attach a row-count manifest that was never in the
+ * dump.
+ */
+async function withExportedSnapshot(psql, url, work) {
+  const child = spawn(psql, ["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", url], {
+    stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env, PGCONNECT_TIMEOUT: "20" },
+  });
+  let stderr = "";
+  child.stderr.on("data", (chunk) => {
+    stderr = (stderr + chunk.toString()).slice(-4_000);
+  });
+  const exitPromise = once(child, "exit");
+  const lines = createInterface({ input: child.stdout });
+  const snapshotPromise = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("timed out exporting PostgreSQL snapshot")), 60_000);
+    const onError = (error) => {
+      clearTimeout(timer);
+      reject(error);
+    };
+    child.once("error", onError);
+    child.once("exit", (code) => {
+      if (code !== 0) onError(new Error(`snapshot exporter exited ${code}: ${stderr.slice(0, 500)}`));
+    });
+    lines.on("line", (raw) => {
+      const line = raw.trim();
+      if (!line.startsWith("ONX_SNAPSHOT:")) return;
+      const snapshotId = line.slice("ONX_SNAPSHOT:".length);
+      clearTimeout(timer);
+      child.off("error", onError);
+      resolve(snapshotId);
+    });
+  });
+
+  child.stdin.write("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;\n");
+  child.stdin.write("SELECT 'ONX_SNAPSHOT:' || pg_export_snapshot();\n");
+  const snapshotId = await snapshotPromise;
+  log(`exported one read-only snapshot for dump + integrity proof`);
+
+  try {
+    return await work(snapshotId);
+  } finally {
+    if (child.exitCode === null) {
+      child.stdin.end("ROLLBACK;\n\\q\n");
+      await Promise.race([
+        exitPromise,
+        new Promise((resolve) => setTimeout(resolve, 10_000)),
+      ]);
+      if (child.exitCode === null) child.kill("SIGTERM");
+    }
+    lines.close();
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -146,10 +238,10 @@ const COUNT_QUERIES = {
  * NON-PII BY CONSTRUCTION: only catalogue metadata (schema/table/column names,
  * types) and aggregate counts leave the database. No row values are read.
  */
-function fingerprint(psql, url) {
+function fingerprint(psql, url, snapshotId = null) {
   const counts = {};
   for (const [k, sql] of Object.entries(COUNT_QUERIES)) {
-    counts[k] = Number(psqlScalar(psql, url, sql));
+    counts[k] = Number(psqlScalar(psql, url, sql, snapshotId));
   }
 
   const tables = psqlRows(
@@ -157,13 +249,14 @@ function fingerprint(psql, url) {
     url,
     `SELECT n.nspname, c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
      WHERE c.relkind='r' AND ${USER_SCHEMA_FILTER} ORDER BY 1,2`,
+    snapshotId,
   );
 
   const rowCounts = {};
   let totalRows = 0;
   for (const [schema, table] of tables) {
     const q = `SELECT count(*) FROM "${schema.replace(/"/g, '""')}"."${table.replace(/"/g, '""')}"`;
-    const n = Number(psqlScalar(psql, url, q));
+    const n = Number(psqlScalar(psql, url, q, snapshotId));
     rowCounts[`${schema}.${table}`] = n;
     totalRows += n;
   }
@@ -176,6 +269,7 @@ function fingerprint(psql, url) {
      FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace
      WHERE c.relkind='r' AND a.attnum>0 AND NOT a.attisdropped AND ${USER_SCHEMA_FILTER}
      ORDER BY 1`,
+    snapshotId,
   ).map((r) => r[0]);
   const schemaSha256 = createHash("sha256").update(cols.join("\n")).digest("hex");
 
@@ -277,7 +371,9 @@ async function retentionPass(s3, prefix) {
     );
     for (const o of page.Contents ?? []) {
       total += 1;
-      if ((o.LastModified?.getTime() ?? Date.now()) < cutoff && !o.Key?.includes("/_run-history/")) {
+      const durableEvidence =
+        o.Key?.includes("/_run-history/") || o.Key?.includes("/_restore-drills/");
+      if ((o.LastModified?.getTime() ?? Date.now()) < cutoff && !durableEvidence) {
         expired.push(o.Key);
       }
     }
@@ -364,54 +460,67 @@ async function runBackup() {
   const results = [];
   for (const t of parseTargets()) {
     log(`--- target ${t.label} (${t.dbId}) ${maskConn(t.url)}`);
-    const major = serverMajor(psql, t.url);
-    const fullVersion = psqlScalar(psql, t.url, "SHOW server_version");
-    log(`server version: ${fullVersion} (major ${major})`);
+    const snap = await withExportedSnapshot(psql, t.url, async (snapshotId) => {
+      const major = serverMajor(psql, t.url, snapshotId);
+      const fullVersion = psqlScalar(psql, t.url, "SHOW server_version", snapshotId);
+      log(`server version: ${fullVersion} (major ${major})`);
 
-    const pgDump = binFor("pg_dump", major);
-    if (!pgDump) {
-      fail(`no pg_dump for major ${major} in this image (have: ${installedMajors().join(", ")})`);
-    }
-    const dumpVersion = execFileSync(pgDump, ["--version"], { encoding: "utf8" }).trim();
-    log(`using ${pgDump} (${dumpVersion})`);
+      const pgDump = binFor("pg_dump", major);
+      if (!pgDump) {
+        fail(`no pg_dump for major ${major} in this image (have: ${installedMajors().join(", ")})`);
+      }
+      const dumpVersion = execFileSync(pgDump, ["--version"], { encoding: "utf8" }).trim();
+      log(`using ${pgDump} (${dumpVersion})`);
 
-    // 1) REAL DUMP — custom format, read-only against production.
-    const artifact = `${stamp}_${t.dbId}_pg${major}.dump`;
-    const path = `/tmp/${artifact}`;
-    const dumpStart = Date.now();
-    execFileSync(
-      pgDump,
-      ["--format=custom", "--compress=6", "--no-owner", "--no-privileges", "--verbose", "-f", path, t.url],
-      { stdio: ["ignore", "inherit", "inherit"], timeout: 3_600_000, env: { ...process.env, PGCONNECT_TIMEOUT: "30" } },
-    );
-    const sizeBytes = statSync(path).size;
-    const dumpSeconds = Math.round((Date.now() - dumpStart) / 1000);
-    log(`dump complete: ${artifact} ${sizeBytes} bytes in ${dumpSeconds}s`);
+      // 1) REAL DUMP — custom format, from the exported read-only snapshot.
+      const artifact = `${stamp}_${t.dbId}_pg${major}.dump`;
+      const path = `/tmp/${artifact}`;
+      const dumpStart = Date.now();
+      execFileSync(
+        pgDump,
+        [
+          "--format=custom", "--compress=6", "--no-owner", "--no-privileges",
+          "--verbose", `--snapshot=${snapshotId}`, "-f", path, t.url,
+        ],
+        { stdio: ["ignore", "inherit", "inherit"], timeout: 3_600_000, env: { ...process.env, PGCONNECT_TIMEOUT: "30" } },
+      );
+      const sizeBytes = statSync(path).size;
+      const dumpSeconds = Math.round((Date.now() - dumpStart) / 1000);
+      log(`dump complete: ${artifact} ${sizeBytes} bytes in ${dumpSeconds}s`);
 
-    // 2) NON-EMPTY GATE
-    if (sizeBytes < 1024) {
-      fail(`artifact is ${sizeBytes} bytes — treating as a failed dump, refusing to upload`);
-    }
+      // 2) NON-EMPTY GATE
+      if (sizeBytes < 1024) {
+        fail(`artifact is ${sizeBytes} bytes — treating as a failed dump, refusing to upload`);
+      }
 
-    // 3) VERIFY IT IS A READABLE CUSTOM-FORMAT ARCHIVE (not just bytes on disk)
-    const pgRestore = binFor("pg_restore", major);
-    const toc = execFileSync(pgRestore, ["--list", path], {
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024,
-      timeout: 600_000,
+      // 3) VERIFY IT IS A READABLE CUSTOM-FORMAT ARCHIVE (not just bytes on disk)
+      const pgRestore = binFor("pg_restore", major);
+      const toc = execFileSync(pgRestore, ["--list", path], {
+        encoding: "utf8",
+        maxBuffer: 64 * 1024 * 1024,
+        timeout: 600_000,
+      });
+      const tocEntries = toc.split("\n").filter((l) => l && !l.startsWith(";")).length;
+      if (tocEntries < 1) fail(`pg_restore --list produced no TOC entries — artifact is not a valid archive`);
+      log(`archive verified: ${tocEntries} TOC entries`);
+
+      // 4) SHA-256
+      const bytes = readFileSync(path);
+      const sha256 = createHash("sha256").update(bytes).digest("hex");
+      log(`sha256: ${sha256}`);
+
+      // 5) SOURCE FINGERPRINT — exact same snapshot as pg_dump.
+      const fp = fingerprint(psql, t.url, snapshotId);
+      log(`source integrity: ${JSON.stringify(fp.counts)} totalRows=${fp.totalRows} schemaSha256=${fp.schemaSha256}`);
+      return {
+        major, fullVersion, pgDump, dumpVersion, artifact, path, sizeBytes,
+        dumpSeconds, pgRestore, tocEntries, bytes, sha256, fp,
+      };
     });
-    const tocEntries = toc.split("\n").filter((l) => l && !l.startsWith(";")).length;
-    if (tocEntries < 1) fail(`pg_restore --list produced no TOC entries — artifact is not a valid archive`);
-    log(`archive verified: ${tocEntries} TOC entries`);
-
-    // 4) SHA-256
-    const bytes = readFileSync(path);
-    const sha256 = createHash("sha256").update(bytes).digest("hex");
-    log(`sha256: ${sha256}`);
-
-    // 5) SOURCE FINGERPRINT (read-only catalogue queries)
-    const fp = fingerprint(psql, t.url);
-    log(`source integrity: ${JSON.stringify(fp.counts)} totalRows=${fp.totalRows} schemaSha256=${fp.schemaSha256}`);
+    const {
+      major, fullVersion, dumpVersion, artifact, sizeBytes, dumpSeconds,
+      tocEntries, bytes, sha256, fp,
+    } = snap;
 
     // 6) ORGANISED OBJECT PATH
     const day = stamp.slice(0, 8);
@@ -543,6 +652,16 @@ async function runInventory() {
 async function runRestoreVerify() {
   const targetUrl = process.env.ONX_RESTORE_TARGET_URL;
   if (!targetUrl) fail("ONX_RESTORE_TARGET_URL not set");
+  const expectIsolated = process.env.ONX_RESTORE_TARGET_DB_ID || "";
+  const isolatedName = process.env.ONX_RESTORE_TARGET_NAME || "";
+  const isolatedDatabaseName = process.env.ONX_RESTORE_TARGET_DATABASE_NAME || "";
+  if (!expectIsolated) fail("ONX_RESTORE_TARGET_DB_ID not set");
+  if (!isolatedName.startsWith("onx-restore-test-")) {
+    fail(`restore target name ${isolatedName || "<empty>"} is not an onx-restore-test instance`);
+  }
+  if (isolatedDatabaseName !== "onx_restore_test") {
+    fail(`restore target database name ${isolatedDatabaseName || "<empty>"} is not onx_restore_test`);
+  }
   let objectKey = process.env.ONX_RESTORE_OBJECT_KEY;
   if (!objectKey) fail("ONX_RESTORE_OBJECT_KEY not set");
 
@@ -577,9 +696,8 @@ async function runRestoreVerify() {
       fail(`restore target host resolves to the excluded database ${excluded} — refusing`);
     }
   }
-  const expectIsolated = process.env.ONX_RESTORE_TARGET_DB_ID || "";
   log(`op=restore-verify run=${RUN_ID}`);
-  log(`isolated target: ${maskConn(targetUrl)} (resource ${expectIsolated || "unknown"})`);
+  log(`isolated target: ${maskConn(targetUrl)} (resource ${expectIsolated}; name ${isolatedName})`);
   log(`denylist checked against ${deny.length} production host(s): PASS`);
 
   const s3 = await s3Client();
@@ -617,22 +735,28 @@ async function runRestoreVerify() {
   const pgRestore = binFor("pg_restore", targetMajor);
   if (!pgRestore) fail(`no pg_restore for major ${targetMajor}`);
 
-  const restoreStart = Date.now();
-  try {
-    execFileSync(
-      pgRestore,
-      ["--no-owner", "--no-privileges", "--exit-on-error", "--jobs=2", "-d", targetUrl, path],
-      { stdio: ["ignore", "inherit", "inherit"], timeout: 3_600_000, env: { ...process.env, PGCONNECT_TIMEOUT: "30" } },
+  // A prefixed resource name alone is not proof of an empty isolated target.
+  // Refuse to restore over any pre-existing application object or data.
+  const empty = fingerprint(psql, targetUrl);
+  if (
+    empty.counts.tables !== 0 ||
+    empty.counts.views !== 0 ||
+    empty.counts.sequences !== 0 ||
+    empty.totalRows !== 0
+  ) {
+    fail(
+      `isolated restore target is not empty: tables=${empty.counts.tables} views=${empty.counts.views} ` +
+      `sequences=${empty.counts.sequences} rows=${empty.totalRows}`,
     );
-  } catch (e) {
-    // A clean target can still emit benign notices; re-run single-threaded and
-    // report honestly rather than swallowing the failure.
-    log(`parallel restore reported errors, retrying single-threaded for a precise report`);
-    execFileSync(pgRestore, ["--no-owner", "--no-privileges", "-d", targetUrl, path], {
-      stdio: ["ignore", "inherit", "inherit"],
-      timeout: 3_600_000,
-    });
   }
+  log(`isolated target emptiness proof: PASS`);
+
+  const restoreStart = Date.now();
+  execFileSync(
+    pgRestore,
+    ["--no-owner", "--no-privileges", "--exit-on-error", "--jobs=2", "-d", targetUrl, path],
+    { stdio: ["ignore", "inherit", "inherit"], timeout: 3_600_000, env: { ...process.env, PGCONNECT_TIMEOUT: "30" } },
+  );
   const restoreSeconds = Math.round((Date.now() - restoreStart) / 1000);
   log(`pg_restore completed in ${restoreSeconds}s`);
 
@@ -675,6 +799,9 @@ async function runRestoreVerify() {
     sourceDbResourceId: manifest.dbResourceId,
     restoreTargetDbResourceId: expectIsolated,
     restoreTargetIsolated: true,
+    restoreTargetName: isolatedName,
+    restoreTargetDatabaseName: isolatedDatabaseName,
+    restoreTargetEmptyBeforeRestore: true,
     restoreTargetHostDenylistChecked: deny.length,
     artifact: manifest.artifact,
     objectKey,
@@ -710,12 +837,128 @@ async function runRestoreVerify() {
 }
 
 // --------------------------------------------------------------------------
+// DURABLE RESTORE-EVIDENCE RETRIEVAL
+// --------------------------------------------------------------------------
+
+async function runRetrieveRestoreEvidence() {
+  const evidenceKey = process.env.ONX_RESTORE_EVIDENCE_KEY || "";
+  const expectedTarget = process.env.ONX_RESTORE_EXPECT_TARGET_DB_ID || "";
+  const expectedSource = process.env.ONX_RESTORE_EXPECT_SOURCE_DB_ID || "";
+  const productionDbIds = new Set(
+    (process.env.ONX_RESTORE_PROD_DB_IDS || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+  );
+  const keyMatch = evidenceKey.match(
+    /^onx-pg-backups\/_restore-drills\/(dpg-[a-z0-9-]+)\/([0-9]{8}T[0-9]{6}Z)_[A-Za-z0-9._-]+\.json$/,
+  );
+  if (!keyMatch) fail("restore evidence key is not a canonical _restore-drills JSON object");
+  if (!/^dpg-[a-z0-9-]+$/.test(expectedTarget)) {
+    fail("ONX_RESTORE_EXPECT_TARGET_DB_ID is missing or malformed");
+  }
+  if (!/^dpg-[a-z0-9-]+$/.test(expectedSource)) {
+    fail("ONX_RESTORE_EXPECT_SOURCE_DB_ID is missing or malformed");
+  }
+  if (productionDbIds.size < 3) {
+    fail("ONX_RESTORE_PROD_DB_IDS is incomplete; refusing evidence acceptance");
+  }
+  if (productionDbIds.has(expectedTarget) || EXCLUDED_DB_IDS.has(expectedTarget)) {
+    fail("restore evidence target is a production database");
+  }
+  if (!productionDbIds.has(expectedSource) || EXCLUDED_DB_IDS.has(expectedSource)) {
+    fail("restore evidence source is not an approved backup database");
+  }
+  if (keyMatch[1] !== expectedSource) {
+    fail(`restore evidence path source ${keyMatch[1]} != expected source ${expectedSource}`);
+  }
+
+  const s3 = await s3Client();
+  const { GetObjectCommand } = await import("@aws-sdk/client-s3");
+  let response;
+  try {
+    response = await s3.client.send(
+      new GetObjectCommand({ Bucket: s3.bucket, Key: evidenceKey }),
+    );
+  } catch (error) {
+    fail(`restore evidence object could not be retrieved: ${error?.name || "S3_ERROR"}`);
+  }
+  const chunks = [];
+  for await (const chunk of response.Body) chunks.push(chunk);
+  const bytes = Buffer.concat(chunks);
+  const evidenceSha256 = createHash("sha256").update(bytes).digest("hex");
+  let report;
+  try {
+    report = JSON.parse(bytes.toString("utf8"));
+  } catch {
+    fail("restore evidence object is not valid JSON");
+  }
+
+  const countEntries = Object.values(report.counts || {});
+  const countsMatch =
+    countEntries.length > 0 &&
+    countEntries.every(
+      (entry) => entry && entry.match === true && entry.source === entry.restored,
+    );
+  const valid =
+    report.schemaVersion === "onx-restore-report/1" &&
+    report.iuId === "IU-P0-6" &&
+    report.outcome === "PASS" &&
+    report.sourceDbResourceId === expectedSource &&
+    report.restoreTargetDbResourceId === expectedTarget &&
+    report.restoreTargetIsolated === true &&
+    report.restoreTargetEmptyBeforeRestore === true &&
+    String(report.restoreTargetName || "").startsWith("onx-restore-test-") &&
+    report.restoreTargetDatabaseName === "onx_restore_test" &&
+    report.checksumMatch === true &&
+    report.schemaMatch === true &&
+    report.totalRowsSource === report.totalRowsRestored &&
+    countsMatch &&
+    Array.isArray(report.perTableMismatches) &&
+    report.perTableMismatches.length === 0;
+  if (!valid) {
+    fail("restore evidence object failed the IU-P0-6 acceptance contract");
+  }
+
+  console.log(`ONX_RESTORE_EVIDENCE ${JSON.stringify({
+    schemaVersion: "onx-restore-evidence-retrieval/1",
+    iuId: "IU-P0-6",
+    outcome: "PASS",
+    evidenceKey,
+    evidenceSha256,
+    evidenceSizeBytes: bytes.length,
+    sourceDbResourceId: report.sourceDbResourceId,
+    restoreTargetDbResourceId: report.restoreTargetDbResourceId,
+    restoreRunId: report.runId,
+    checksumMatch: report.checksumMatch,
+    schemaMatch: report.schemaMatch,
+    totalRowsMatch: report.totalRowsSource === report.totalRowsRestored,
+    perTableMismatchCount: report.perTableMismatches.length,
+    retrievedAt: nowIso(),
+  })}`);
+  log("ONX_OP_DONE retrieve-evidence PASS");
+}
+
+// --------------------------------------------------------------------------
 
 try {
-  if (OP === "backup") await runBackup();
+  if (OP === "self-check") {
+    const ownSourceSha256 = createHash("sha256")
+      .update(readFileSync(new URL(import.meta.url)))
+      .digest("hex");
+    console.log(`ONX_SELF_CHECK ${JSON.stringify({
+      contractVersion: CONTRACT_VERSION,
+      ownSourceSha256,
+      renderGitCommit: process.env.RENDER_GIT_COMMIT || null,
+      runId: RUN_ID,
+    })}`);
+    log("ONX_OP_DONE self-check PASS");
+  }
+  else if (OP === "backup") await runBackup();
   else if (OP === "restore-verify") await runRestoreVerify();
+  else if (OP === "retrieve-evidence") await runRetrieveRestoreEvidence();
   else if (OP === "inventory") await runInventory();
-  else fail(`unknown ONX_OP=${OP} (expected "backup", "restore-verify" or "inventory")`);
+  else fail(`unknown ONX_OP=${OP} (expected "self-check", "backup", "restore-verify", "retrieve-evidence" or "inventory")`);
 } catch (e) {
   await alert({ runId: RUN_ID, op: OP, error: String(e?.message ?? e).slice(0, 400), at: nowIso() });
   console.error(`[onx-pg-ops] ONX_OP_DONE ${OP} FAIL`);
