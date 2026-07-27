@@ -132,7 +132,7 @@ jobs:
               path = f"/logs?ownerId={o}&resource={resource}&direction=backward&limit={limit}&type={kind}"
               r = api("GET", path, quiet=True)
               if err(r): return []
-              return list(reversed(r.get("logs", [])))
+              return list(reversed(r.get("logs") or []))
 
           # ================= PROBE =========================================
           if MODE == "probe":
@@ -194,7 +194,7 @@ jobs:
                   if err(r):
                       print(f"-- type={kind or 'any'}: HTTP {r.get('__error')}")
                       continue
-                  out = list(reversed(r.get("logs", [])))
+                  out = list(reversed(r.get("logs") or []))
                   print(f"-- type={kind or 'any'}: {len(out)} entries")
                   for e in out:
                       msg = (e.get("message") or "").rstrip()

@@ -504,11 +504,64 @@ async function runBackup() {
 // RESTORE VERIFICATION (isolated, non-production)
 // --------------------------------------------------------------------------
 
+/**
+ * Read-only inventory of what is actually in object storage. This is the
+ * independent proof that a backup run produced a real artifact: it does not
+ * rely on having captured the run's stdout.
+ */
+async function runInventory() {
+  const s3 = await s3Client();
+  const { ListObjectsV2Command, GetObjectCommand } = await import("@aws-sdk/client-s3");
+  const prefix = process.env.ONX_INVENTORY_PREFIX || "onx-pg-backups/";
+  let token;
+  const objects = [];
+  do {
+    const page = await s3.client.send(
+      new ListObjectsV2Command({ Bucket: s3.bucket, Prefix: prefix, ContinuationToken: token }),
+    );
+    for (const o of page.Contents ?? []) {
+      objects.push({ key: o.Key, size: o.Size, lastModified: o.LastModified?.toISOString() });
+    }
+    token = page.IsTruncated ? page.NextContinuationToken : undefined;
+  } while (token);
+
+  objects.sort((a, b) => (a.lastModified < b.lastModified ? 1 : -1));
+  log(`inventory of ${s3.bucket}/${prefix}: ${objects.length} objects`);
+  for (const o of objects) log(`  ${o.lastModified}  ${String(o.size).padStart(12)}  ${o.key}`);
+
+  // Echo every manifest so the sha256 + counts are visible without the run log.
+  for (const o of objects.filter((x) => x.key.endsWith(".manifest.json"))) {
+    const r = await s3.client.send(new GetObjectCommand({ Bucket: s3.bucket, Key: o.key }));
+    const chunks = [];
+    for await (const c of r.Body) chunks.push(c);
+    console.log(`ONX_MANIFEST ${o.key} ${chunks.join("").toString()}`);
+  }
+  console.log(`ONX_INVENTORY ${JSON.stringify({ bucket: s3.bucket, prefix, count: objects.length, objects })}`);
+  log("ONX_OP_DONE inventory PASS");
+}
+
 async function runRestoreVerify() {
   const targetUrl = process.env.ONX_RESTORE_TARGET_URL;
   if (!targetUrl) fail("ONX_RESTORE_TARGET_URL not set");
-  const objectKey = process.env.ONX_RESTORE_OBJECT_KEY;
+  let objectKey = process.env.ONX_RESTORE_OBJECT_KEY;
   if (!objectKey) fail("ONX_RESTORE_OBJECT_KEY not set");
+
+  // "latest" resolves through the stable pointer written by the backup, so a
+  // restore never depends on having scraped an object key out of a run log.
+  if (objectKey === "latest") {
+    const srcDb = process.env.ONX_RESTORE_SOURCE_DB_ID;
+    if (!srcDb) fail('ONX_RESTORE_OBJECT_KEY="latest" requires ONX_RESTORE_SOURCE_DB_ID');
+    const s3l = await s3Client();
+    const { GetObjectCommand } = await import("@aws-sdk/client-s3");
+    const r = await s3l.client.send(
+      new GetObjectCommand({ Bucket: s3l.bucket, Key: `onx-pg-backups/${srcDb}/latest.manifest.json` }),
+    );
+    const chunks = [];
+    for await (const c of r.Body) chunks.push(c);
+    const latest = JSON.parse(Buffer.concat(chunks).toString());
+    objectKey = latest.objectKey;
+    log(`resolved "latest" for ${srcDb} -> ${objectKey} (sha256 ${latest.sha256})`);
+  }
 
   // ---- ISOLATION GUARD: never write into anything that looks like prod ----
   const targetHost = new URL(targetUrl).hostname;
@@ -661,7 +714,8 @@ async function runRestoreVerify() {
 try {
   if (OP === "backup") await runBackup();
   else if (OP === "restore-verify") await runRestoreVerify();
-  else fail(`unknown ONX_OP=${OP} (expected "backup" or "restore-verify")`);
+  else if (OP === "inventory") await runInventory();
+  else fail(`unknown ONX_OP=${OP} (expected "backup", "restore-verify" or "inventory")`);
 } catch (e) {
   await alert({ runId: RUN_ID, op: OP, error: String(e?.message ?? e).slice(0, 400), at: nowIso() });
   console.error(`[onx-pg-ops] ONX_OP_DONE ${OP} FAIL`);
