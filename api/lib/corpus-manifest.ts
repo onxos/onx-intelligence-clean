@@ -59,10 +59,126 @@ export interface CorpusContentManifest {
   sha256: string;
 }
 
+// The repository contract deliberately keeps the measured runtime state
+// separate from the licensed-corpus objective. The historical 22,500
+// templated seed is retained as a reference only; it is never counted as
+// shipped/runtime content unless the live measurement actually contains it.
+export const TARGET_LICENSED_CORPUS_MINIMUM_DOCS = 25_000;
+export const HISTORICAL_TEMPLATED_SEED_REFERENCE_DOCS = 22_500;
+
+export interface TargetLicensedCorpus {
+  state: "TARGET_LICENSED_CORPUS";
+  deploymentStatus: "NOT_DEPLOYED";
+  minimumDocCount: 25_000;
+  historicalTemplatedSeedReferenceDocCount: 22_500;
+  requiredProvenance: "LICENSED_OR_OPEN";
+  syntheticGenerationAllowed: false;
+}
+
+export interface CorpusTruthContract {
+  contractVersion: "2";
+  currentRuntimeCorpus: CorpusContentManifest;
+  targetLicensedCorpus: TargetLicensedCorpus;
+}
+
 export interface CorpusStructureIssue {
   index: number;
   id: string;
   problem: string;
+}
+
+/** Canonical target: preserved without pretending that it is runtime data. */
+export function buildTargetLicensedCorpus(): TargetLicensedCorpus {
+  return {
+    state: "TARGET_LICENSED_CORPUS",
+    deploymentStatus: "NOT_DEPLOYED",
+    minimumDocCount: TARGET_LICENSED_CORPUS_MINIMUM_DOCS,
+    historicalTemplatedSeedReferenceDocCount:
+      HISTORICAL_TEMPLATED_SEED_REFERENCE_DOCS,
+    requiredProvenance: "LICENSED_OR_OPEN",
+    syntheticGenerationAllowed: false,
+  };
+}
+
+/** Build the repository truth contract from a measured current manifest. */
+export function buildCorpusTruthContract(
+  currentRuntimeCorpus: CorpusContentManifest,
+): CorpusTruthContract {
+  return {
+    contractVersion: "2",
+    currentRuntimeCorpus,
+    targetLicensedCorpus: buildTargetLicensedCorpus(),
+  };
+}
+
+/**
+ * Fail-closed validation for the committed two-state contract.
+ *
+ * Current state must match the measured runtime corpus exactly. The target is
+ * separately pinned and cannot be lowered, relabelled as deployed, or satisfied
+ * with synthetic data. Production publication remains a separate evidence gate.
+ */
+export function validateCorpusTruthContract(
+  committed: CorpusTruthContract,
+  measuredCurrent: CorpusContentManifest,
+): string[] {
+  const failures: string[] = [];
+  if (committed.contractVersion !== "2") {
+    failures.push(
+      `contractVersion mismatch: committed=${String(committed.contractVersion)} expected=2`,
+    );
+  }
+
+  const current = committed.currentRuntimeCorpus;
+  if (!current || typeof current !== "object") {
+    failures.push("currentRuntimeCorpus missing");
+  } else {
+    const checks: Array<[string, unknown, unknown]> = [
+      ["version", current.version, measuredCurrent.version],
+      ["source", current.source, measuredCurrent.source],
+      ["docCount", current.docCount, measuredCurrent.docCount],
+      ["domains", JSON.stringify(current.domains), JSON.stringify(measuredCurrent.domains)],
+      ["provenance", current.provenance, measuredCurrent.provenance],
+      ["disclosure", current.disclosure, measuredCurrent.disclosure],
+      ["templatedDocs", current.templatedDocs, measuredCurrent.templatedDocs],
+      ["authenticDocs", current.authenticDocs, measuredCurrent.authenticDocs],
+      ["sha256", current.sha256, measuredCurrent.sha256],
+    ];
+    for (const [field, want, got] of checks) {
+      if (want !== got) {
+        failures.push(
+          `currentRuntimeCorpus.${field} mismatch: committed=${String(want)} measured=${String(got)}`,
+        );
+      }
+    }
+  }
+
+  const target = committed.targetLicensedCorpus;
+  if (!target || typeof target !== "object") {
+    failures.push("targetLicensedCorpus missing");
+  } else {
+    const invariants: Array<[string, unknown, unknown]> = [
+      ["state", target.state, "TARGET_LICENSED_CORPUS"],
+      ["deploymentStatus", target.deploymentStatus, "NOT_DEPLOYED"],
+      ["minimumDocCount", target.minimumDocCount, TARGET_LICENSED_CORPUS_MINIMUM_DOCS],
+      [
+        "historicalTemplatedSeedReferenceDocCount",
+        target.historicalTemplatedSeedReferenceDocCount,
+        HISTORICAL_TEMPLATED_SEED_REFERENCE_DOCS,
+      ],
+      ["requiredProvenance", target.requiredProvenance, "LICENSED_OR_OPEN"],
+      ["syntheticGenerationAllowed", target.syntheticGenerationAllowed, false],
+    ];
+    for (const [field, got, want] of invariants) {
+      if (got !== want) {
+        failures.push(
+          `targetLicensedCorpus.${field} mismatch: committed=${String(got)} required=${String(want)}`,
+        );
+      }
+    }
+  }
+
+  return failures;
 }
 
 // Deterministic identity line — excludes the per-boot random body.

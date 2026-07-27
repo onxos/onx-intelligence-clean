@@ -15,6 +15,10 @@ import {
   TEMPLATED_SEED_MARKER,
   CORPUS_MANIFEST_VERSION,
   getCorpusContentManifest,
+  buildCorpusTruthContract,
+  validateCorpusTruthContract,
+  TARGET_LICENSED_CORPUS_MINIMUM_DOCS,
+  HISTORICAL_TEMPLATED_SEED_REFERENCE_DOCS,
 } from "../lib/corpus-manifest";
 
 function seedDoc(id: string, domain: string, title: string): CorpusSearchDoc {
@@ -139,5 +143,54 @@ describe("STE-K-10 corpus content manifest", () => {
     // Deterministic: two live reads are identical.
     const again = await getCorpusContentManifest();
     expect(again).toEqual(live);
-  }, 120000); // seeds + collects 22.5k docs; generous under parallel load
+  }, 120000); // live collection may use registered external sources in other environments
+
+  it("separates the measured current runtime from the non-deployed licensed target", () => {
+    const current = buildCorpusContentManifest([]);
+    const contract = buildCorpusTruthContract(current);
+
+    expect(contract.currentRuntimeCorpus).toEqual(current);
+    expect(contract.currentRuntimeCorpus.docCount).toBe(0);
+    expect(contract.targetLicensedCorpus).toEqual({
+      state: "TARGET_LICENSED_CORPUS",
+      deploymentStatus: "NOT_DEPLOYED",
+      minimumDocCount: TARGET_LICENSED_CORPUS_MINIMUM_DOCS,
+      historicalTemplatedSeedReferenceDocCount:
+        HISTORICAL_TEMPLATED_SEED_REFERENCE_DOCS,
+      requiredProvenance: "LICENSED_OR_OPEN",
+      syntheticGenerationAllowed: false,
+    });
+    expect(validateCorpusTruthContract(contract, current)).toEqual([]);
+  });
+
+  it("fails closed if the target is lowered or falsely described as deployed", () => {
+    const current = buildCorpusContentManifest([]);
+    const lowered = buildCorpusTruthContract(current);
+    Object.assign(lowered.targetLicensedCorpus, {
+      minimumDocCount: 22_500,
+      deploymentStatus: "DEPLOYED",
+      syntheticGenerationAllowed: true,
+    });
+
+    expect(validateCorpusTruthContract(lowered, current)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("minimumDocCount mismatch"),
+        expect.stringContaining("deploymentStatus mismatch"),
+        expect.stringContaining("syntheticGenerationAllowed mismatch"),
+      ]),
+    );
+  });
+
+  it("fails closed if the historical 22.5k reference is substituted for runtime truth", () => {
+    const measured = buildCorpusContentManifest([]);
+    const falseCurrent = buildCorpusContentManifest(SEED_SET);
+    const contract = buildCorpusTruthContract(falseCurrent);
+
+    expect(validateCorpusTruthContract(contract, measured)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("currentRuntimeCorpus.docCount mismatch"),
+        expect.stringContaining("currentRuntimeCorpus.sha256 mismatch"),
+      ]),
+    );
+  });
 });
