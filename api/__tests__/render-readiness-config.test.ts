@@ -11,7 +11,7 @@ function serviceBlock(name: string): string {
   const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = yaml.match(
     new RegExp(
-      String.raw`^  - type: web\\n    name: ${escapedName}\\n([\\s\\S]*?)(?=^  - type: |(?![\\s\\S]))`,
+      String.raw`^  - type: web\n    name: ${escapedName}\n([\s\S]*?)(?=^  - type: |(?![\s\S]))`,
       "m"
     )
   );
