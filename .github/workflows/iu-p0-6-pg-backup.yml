@@ -14,6 +14,12 @@ name: iu-p0-6-pg-backup
 #   retrieve independently retrieve and validate one durable restore-drill proof
 #   teardown delete the isolated test Postgres only after retrieving its proof
 on:
+  push:
+    branches:
+      - codex/iu-g-marketing-backup
+    paths:
+      - "ops/iu-g-dispatch.json"
+      - ".github/workflows/iu-p0-6-pg-backup.yml"
   workflow_dispatch:
     inputs:
       mode:
@@ -95,6 +101,26 @@ jobs:
           )
 
           KEY   = os.environ["RENDER_API_KEY"]
+          dispatch_path = "ops/iu-g-dispatch.json"
+          dispatch = {}
+          if os.path.exists(dispatch_path):
+              with open(dispatch_path, encoding="utf-8") as fh:
+                  dispatch = json.load(fh)
+              if not isinstance(dispatch, dict):
+                  raise SystemExit(f"{dispatch_path} must contain one JSON object")
+          for env_name, field in {
+              "MODE": "mode",
+              "CRON_ID_OVERRIDE": "cron_id",
+              "LOG_RESOURCE": "log_resource",
+              "OBJECT_KEY": "object_key",
+              "SOURCE_DB_ID": "source_db_id",
+              "TEST_DB_ID": "test_db_id",
+              "RESTORE_EVIDENCE_KEY": "restore_evidence_key",
+              "CONFIRM_TEARDOWN": "confirm_teardown",
+              "TEST_DB_PLAN": "test_db_plan",
+          }.items():
+              if not os.environ.get(env_name, "").strip() and dispatch.get(field) is not None:
+                  os.environ[env_name] = str(dispatch[field])
           MODE  = os.environ["MODE"].strip()
           CRON  = os.environ.get("CRON_ID_OVERRIDE", "").strip() or os.environ["BACKUP_CRON_ID"]
           S3SRC = os.environ["S3_SOURCE_SERVICE_ID"]

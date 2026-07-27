@@ -1,0 +1,11 @@
+{
+  "mode": "probe",
+  "cron_id": "",
+  "log_resource": "",
+  "object_key": "",
+  "source_db_id": "dpg-d98upmu7r5hc73afti50-a",
+  "test_db_id": "",
+  "restore_evidence_key": "",
+  "confirm_teardown": "",
+  "test_db_plan": "basic_256mb"
+}
