@@ -23,6 +23,10 @@ on:
         description: "arm/run: which backup cron to act on (blank = frankfurt default)"
         required: false
         default: ""
+      log_resource:
+        description: "logs mode: Render resource whose logs to read (crn-/job-/srv-); blank = the cron"
+        required: false
+        default: ""
       object_key:
         description: "restore mode: object key of the artifact to restore"
         required: false
@@ -43,6 +47,7 @@ jobs:
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       MODE: ${{ inputs.mode }}
       CRON_ID_OVERRIDE: ${{ inputs.cron_id }}
+      LOG_RESOURCE: ${{ inputs.log_resource }}
       OBJECT_KEY: ${{ inputs.object_key }}
       TEST_DB_ID: ${{ inputs.test_db_id }}
       CONFIRM_TEARDOWN: ${{ inputs.confirm_teardown }}
@@ -116,8 +121,11 @@ jobs:
           def cron_svc():
               return unwrap(api("GET", "/services/" + CRON), "service")
 
+          _OWNER = {"v": None}
           def owner_id():
-              return cron_svc().get("ownerId")
+              if not _OWNER["v"]:
+                  _OWNER["v"] = unwrap(api("GET", "/services/" + os.environ["BACKUP_CRON_ID"]), "service").get("ownerId")
+              return _OWNER["v"]
 
           def logs(resource, since_ts=None, limit=200, kind="app"):
               o = owner_id()
@@ -176,14 +184,23 @@ jobs:
           # here rather than by re-running the backup.
           if MODE == "logs":
               want = os.environ.get("OBJECT_KEY", "").strip()  # reused as a filter
-              print("recent app logs for", CRON, ("filter=" + want) if want else "(unfiltered)")
-              out = logs(CRON, kind="app", limit=400)
-              print("entries:", len(out))
-              for e in out:
-                  msg = (e.get("message") or "").rstrip()
-                  if not msg: continue
-                  if want and want not in msg: continue
-                  print(f"{e.get('timestamp')} {msg[:1500]}")
+              res = os.environ.get("LOG_RESOURCE", "").strip() or CRON
+              print("reading logs for resource", res, ("filter=" + want) if want else "(unfiltered)")
+              for kind in ("app", "build", ""):
+                  o = owner_id()
+                  path = f"/logs?ownerId={o}&resource={res}&direction=backward&limit=400"
+                  if kind: path += f"&type={kind}"
+                  r = api("GET", path, quiet=True)
+                  if err(r):
+                      print(f"-- type={kind or 'any'}: HTTP {r.get('__error')}")
+                      continue
+                  out = list(reversed(r.get("logs", [])))
+                  print(f"-- type={kind or 'any'}: {len(out)} entries")
+                  for e in out:
+                      msg = (e.get("message") or "").rstrip()
+                      if not msg: continue
+                      if want and want not in msg: continue
+                      print(f"{e.get('timestamp')} {msg[:1500]}")
               print("\n=== RECENT JOBS ===")
               for jj in api("GET", f"/services/{CRON}/jobs?limit=5") or []:
                   j = unwrap(jj, "job")
