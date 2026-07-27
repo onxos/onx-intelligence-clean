@@ -1,5 +1,5 @@
 {
-  "mode": "probe",
+  "mode": "provision-oregon",
   "cron_id": "",
   "log_resource": "",
   "object_key": "",
@@ -8,5 +8,5 @@
   "restore_evidence_key": "",
   "confirm_teardown": "",
   "test_db_plan": "basic_256mb",
-  "nonce": "probe-20260727T1635Z"
+  "nonce": "provision-oregon-20260727T1645Z"
 }
