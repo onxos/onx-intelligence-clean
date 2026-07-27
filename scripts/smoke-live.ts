@@ -73,7 +73,10 @@ async function main() {
   let committedManifest: CorpusManifestContract | null = null;
   try {
     const raw = readFileSync(resolve(process.cwd(), "corpus-manifest.json"), "utf8");
-    const m = JSON.parse(raw);
+    const contract = JSON.parse(raw);
+    // v2 separates the measured runtime corpus from the non-deployed 25k
+    // licensed target. Live smoke compares only the measured runtime object.
+    const m = contract.currentRuntimeCorpus ?? contract;
     committedManifest = {
       disclosure: m.disclosure,
       provenance: m.provenance,

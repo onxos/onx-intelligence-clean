@@ -1,31 +1,22 @@
 {
-  "version": "1",
-  "source": "templated seed (ONX Knowledge Base v1.0)",
-  "docCount": 22500,
-  "domains": [
-    "AGRICULTURE",
-    "DEFENSE",
-    "ECONOMICS",
-    "EDUCATION",
-    "ENERGY",
-    "ENGINEERING",
-    "ENVIRONMENT",
-    "FINANCE",
-    "HISTORY",
-    "ISLAMIC",
-    "LEGAL",
-    "MANUFACTURING",
-    "MEDIA",
-    "MEDICINE",
-    "SCIENCE",
-    "SOCIAL",
-    "STRATEGY",
-    "TECHNOLOGY",
-    "TRANSPORTATION"
-  ],
-  "provenance": "TEMPLATED_SEED",
-  "disclosure": "DEMO",
-  "templatedDocs": 22500,
-  "authenticDocs": 0,
-  "sha256": "6fc2bed87d86e4cfc195020cd34c148cee96348797b413bba60baac7c3372f08"
+  "contractVersion": "2",
+  "currentRuntimeCorpus": {
+    "version": "1",
+    "source": "empty corpus",
+    "docCount": 0,
+    "domains": [],
+    "provenance": "EMPTY",
+    "disclosure": "DEMO",
+    "templatedDocs": 0,
+    "authenticDocs": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "targetLicensedCorpus": {
+    "state": "TARGET_LICENSED_CORPUS",
+    "deploymentStatus": "NOT_DEPLOYED",
+    "minimumDocCount": 25000,
+    "historicalTemplatedSeedReferenceDocCount": 22500,
+    "requiredProvenance": "LICENSED_OR_OPEN",
+    "syntheticGenerationAllowed": false
+  }
 }
