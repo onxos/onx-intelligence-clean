@@ -7,5 +7,6 @@
   "test_db_id": "",
   "restore_evidence_key": "",
   "confirm_teardown": "",
-  "test_db_plan": "basic_256mb"
+  "test_db_plan": "basic_256mb",
+  "nonce": "probe-20260727T1635Z"
 }
