@@ -1,0 +1,90 @@
+name: iu-p0-6-probe
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+    steps:
+      - name: read-only Render ground truth (IU-P0-6)
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.error
+          KEY = os.environ["RENDER_API_KEY"]
+          def get(path):
+              req = urllib.request.Request("https://api.render.com/v1"+path,
+                  headers={"Authorization":"Bearer "+KEY,"Accept":"application/json"})
+              try:
+                  return json.loads(urllib.request.urlopen(req, timeout=60).read())
+              except urllib.error.HTTPError as e:
+                  return {"__http_error": e.code, "__body": e.read().decode()[:300]}
+
+          print("=== SERVICES ===")
+          for s in get("/services?limit=100") or []:
+              if isinstance(s, str): continue
+              svc = s.get("service", s)
+              print(svc.get("id"), "|", svc.get("type"), "|", svc.get("name"),
+                    "| repo:", (svc.get("repo") or "").split("/")[-1],
+                    "| branch:", svc.get("branch"), "| region:", svc.get("region"),
+                    "| suspended:", svc.get("suspended"))
+
+          print("\n=== POSTGRES INSTANCES ===")
+          pgs = get("/postgres?limit=50")
+          for p in pgs or []:
+              if isinstance(p, str): continue
+              db = p.get("postgres", p)
+              print(db.get("id"), "|", db.get("name"), "| ver:", db.get("version"),
+                    "| status:", db.get("status"), "| plan:", db.get("plan"),
+                    "| region:", db.get("region"), "| owner:", db.get("owner",{}).get("id") if isinstance(db.get("owner"),dict) else db.get("ownerId"))
+
+          print("\n=== TARGET DB DETAIL ===")
+          for dbid in ["dpg-d96t4pkvikkc73d76okg-a","dpg-d98upmu7r5hc73afti50-a"]:
+              d = get("/postgres/"+dbid)
+              db = d.get("postgres", d) if isinstance(d, dict) else d
+              print(dbid, "->", json.dumps({k:v for k,v in db.items() if k in
+                    ("id","name","version","status","plan","region","databaseName","databaseUser","createdAt","highAvailabilityEnabled","ownerId","diskSizeGB","role")}, default=str))
+              ci = get("/postgres/"+dbid+"/connection-info")
+              if isinstance(ci, dict) and "__http_error" not in ci:
+                  ics = ci.get("internalConnectionString") or ""
+                  ecs = ci.get("externalConnectionString") or ""
+                  # NEVER print values; shape only
+                  host = ics.split("@")[-1].split("/")[0] if "@" in ics else "?"
+                  print("   conn-info keys:", sorted(ci.keys()), "| internal host:", host, "| internal len:", len(ics), "| external present:", bool(ecs))
+              else:
+                  print("   conn-info:", ci)
+
+          print("\n=== CRON JOBS OF INTEREST ===")
+          for cid in ["crn-d9drfi3bc2fs73enoos0","crn-d9ibkdnlk1mc73cqimhg"]:
+              s = get("/services/"+cid)
+              svc = s.get("service", s) if isinstance(s, dict) else s
+              print("---", cid, svc.get("name"), "| repo:", svc.get("repo"), "| branch:", svc.get("branch"),
+                    "| rootDir:", svc.get("rootDir"), "| autoDeploy:", svc.get("autoDeploy"))
+              sd = svc.get("serviceDetails", {}) or {}
+              print("   details:", json.dumps({k:v for k,v in sd.items() if k!="envVars"}, default=str)[:900])
+              ev = get("/services/"+cid+"/env-vars?limit=100")
+              keys = sorted([e.get("envVar",{}).get("key") for e in (ev or []) if isinstance(e, dict)])
+              print("   ENV KEYS:", keys)
+              ds = get("/services/"+cid+"/deploys?limit=3")
+              for d in ds or []:
+                  if isinstance(d, str): continue
+                  dep = d.get("deploy", d)
+                  print("   deploy:", dep.get("id"), dep.get("status"), dep.get("createdAt"))
+
+          print("\n=== VIDEO WORKER S3 ENV (KEY NAMES ONLY) ===")
+          for srv in ["srv-d9hl4ot8nd3s73d97440","srv-d98v103eo5us73fqim60"]:
+              ev = get("/services/"+srv+"/env-vars?limit=100")
+              if isinstance(ev, dict) and "__http_error" in ev:
+                  print(srv, ev); continue
+              ks = sorted([e.get("envVar",{}).get("key") for e in (ev or []) if isinstance(e, dict)])
+              print(srv, "->", [k for k in ks if k and ("S3" in k or "AWS" in k or "R2" in k)])
+
+          print("\n=== CRON RUN-TRIGGER ENDPOINT DISCOVERY (GET only) ===")
+          for path in ["/cron-jobs?limit=20","/cron-jobs/crn-d9ibkdnlk1mc73cqimhg","/cron-jobs/crn-d9ibkdnlk1mc73cqimhg/runs?limit=3","/jobs?limit=5","/services/crn-d9ibkdnlk1mc73cqimhg/jobs?limit=3"]:
+              r = get(path)
+              print(path, "->", json.dumps(r, default=str)[:400])
+
+          print("\n=== ALL POSTGRES OWNERS / REGIONS for restore target planning ===")
+          o = get("/owners?limit=10")
+          print(json.dumps(o, default=str)[:600])
+          PY
