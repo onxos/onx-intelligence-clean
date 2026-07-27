@@ -69,6 +69,14 @@ function violations(source, flow) {
     "workflow passes isolation evidence to runtime",
   );
   require(
+    !flow.includes('"ONX_OP": "restore-verify"'),
+    "workflow never persists restore mode on the scheduled cron",
+  );
+  require(
+    flow.includes('"ONX_OP=restore-verify node scripts/onx-pg-ops.mjs"'),
+    "restore mode is scoped to the isolated one-off job command",
+  );
+  require(
     flow.includes("src_id not in (PLAT, MKTG)"),
     "workflow restricts restore source to approved databases",
   );
