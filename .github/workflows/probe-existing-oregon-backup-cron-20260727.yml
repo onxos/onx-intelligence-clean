@@ -1,0 +1,127 @@
+name: Probe existing Oregon backup cron
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-existing-oregon-backup-cron-20260727.yml"
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch-and-monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Dispatch probe once and monitor
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_MAIN_SHA: e1a28a9963e857685aa79c7bc276d7bc7c67aa04
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import datetime as dt
+          import json
+          import os
+          import time
+          import urllib.error
+          import urllib.request
+
+          repo = 'onxos/onx-intelligence-clean'
+          workflow = 'iu-p0-6-pg-backup.yml'
+          expected_sha = os.environ['EXPECTED_MAIN_SHA']
+          api = f'https://api.github.com/repos/{repo}'
+          headers = {
+              'Authorization': f'Bearer {os.environ["GH_TOKEN"]}',
+              'Accept': 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+              'User-Agent': 'onx-existing-oregon-backup-probe',
+          }
+
+          def decode(raw):
+              if not raw:
+                  return None
+              try:
+                  return json.loads(raw)
+              except json.JSONDecodeError:
+                  return {'redacted_error': 'NON_JSON_RESPONSE'}
+
+          def request(method, url, body=None):
+              req = urllib.request.Request(
+                  url,
+                  data=json.dumps(body).encode() if body is not None else None,
+                  headers=headers,
+                  method=method,
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as response:
+                      return response.status, decode(response.read())
+              except urllib.error.HTTPError as error:
+                  return error.code, decode(error.read())
+
+          def require(status, expected, label, payload=None):
+              if status != expected:
+                  raise SystemExit(f'{label}_HTTP_{status}:{json.dumps(payload, sort_keys=True)[:500]}')
+
+          status, main = request('GET', f'{api}/branches/main')
+          require(status, 200, 'MAIN_READ', main)
+          if main['commit']['sha'] != expected_sha:
+              raise SystemExit(f'MAIN_SHA_MISMATCH:{main["commit"]["sha"]}')
+
+          status, before = request(
+              'GET',
+              f'{api}/actions/workflows/{workflow}/runs?event=workflow_dispatch&branch=main&status=in_progress&per_page=100',
+          )
+          require(status, 200, 'ACTIVE_SCAN', before)
+          active = before.get('workflow_runs', [])
+          if active:
+              raise SystemExit('ACTIVE_BACKUP_WORKFLOW_REFUSE_PARALLEL:' + ','.join(str(run['id']) for run in active))
+
+          started = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+          status, payload = request(
+              'POST',
+              f'{api}/actions/workflows/{workflow}/dispatches',
+              {'ref': 'main', 'inputs': {'mode': 'probe', 'cron_id': 'crn-d9jm22qd0e5s7391l29g'}},
+          )
+          require(status, 204, 'DISPATCH', payload)
+          print('PROBE_DISPATCH_HTTP=204')
+
+          target = None
+          for _ in range(120):
+              status, payload = request(
+                  'GET',
+                  f'{api}/actions/workflows/{workflow}/runs?event=workflow_dispatch&branch=main&per_page=50',
+              )
+              require(status, 200, 'TARGET_SCAN', payload)
+              matches = []
+              for run in payload.get('workflow_runs', []):
+                  created = dt.datetime.fromisoformat(run['created_at'].replace('Z', '+00:00'))
+                  if created >= started and run.get('head_sha') == expected_sha:
+                      matches.append(run)
+              if len(matches) > 1:
+                  raise SystemExit('DUPLICATE_PROBE_RUNS:' + ','.join(str(run['id']) for run in matches))
+              if matches:
+                  target = matches[0]
+                  break
+              time.sleep(3)
+          if target is None:
+              raise SystemExit('PROBE_RUN_NOT_FOUND_NO_REDISPATCH')
+
+          run_id = target['id']
+          print(f'TARGET_PROBE_RUN_ID={run_id}')
+          for index in range(300):
+              status, run = request('GET', f'{api}/actions/runs/{run_id}')
+              require(status, 200, 'TARGET_READ', run)
+              if index % 6 == 0 or run['status'] == 'completed':
+                  print(f'TARGET_PROBE_STATUS={run["status"]}:{run.get("conclusion")}')
+              if run['status'] == 'completed':
+                  if run.get('conclusion') != 'success':
+                      raise SystemExit(f'TARGET_PROBE_FAILED:{run.get("conclusion")}')
+                  print('TARGET_PROBE_VERDICT=PASS')
+                  raise SystemExit(0)
+              time.sleep(5)
+          raise SystemExit('TARGET_PROBE_TIMEOUT')
+          PY
