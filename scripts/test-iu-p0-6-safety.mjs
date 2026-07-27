@@ -77,6 +77,14 @@ function violations(source, flow) {
     "restore mode is scoped to the isolated one-off job command",
   );
   require(
+    flow.includes("group: iu-p0-6-${{ inputs.cron_id || 'frankfurt-default' }}"),
+    "workflow serializes operations per Render cron",
+  );
+  require(
+    flow.includes("cancel-in-progress: false"),
+    "workflow never interrupts an in-flight backup or restore",
+  );
+  require(
     flow.includes("src_id not in (PLAT, MKTG)"),
     "workflow restricts restore source to approved databases",
   );
@@ -214,4 +222,4 @@ for (const [mutatedOps, mutatedWorkflow, label] of mutations) {
   assert.notDeepEqual(violations(mutatedOps, mutatedWorkflow), [], label);
 }
 
-console.log(`IU-P0-6 safety contract: PASS (${34 + mutations.length} checks)`);
+console.log(`IU-P0-6 safety contract: PASS (${38 + mutations.length} checks)`);
