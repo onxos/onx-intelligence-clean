@@ -578,8 +578,11 @@ jobs:
                   plat_url, mktg_url = internal_url(PLAT), internal_url(MKTG)
                   prod_hosts = ",".join(sorted({plat_url.split("@",1)[1].split("/",1)[0].split(":")[0],
                                                 mktg_url.split("@",1)[1].split("/",1)[0].split(":")[0]}))
+                  # Never persist restore mode on the shared cron. A scheduled
+                  # invocation must remain a backup even if this Actions runner
+                  # disappears before it can perform cleanup. The one-off job
+                  # receives ONX_OP in its start command below.
                   for k, v in {
-                      "ONX_OP": "restore-verify",
                       "ONX_RUN_ID": RUNID,
                       "ONX_RESTORE_TARGET_URL": test_url,
                       "ONX_RESTORE_TARGET_DB_ID": test_id,
@@ -600,8 +603,13 @@ jobs:
               # ---- trigger ONE one-off run on the cron's current image ------
               # A one-off job inherits the service's env at container start, so
               # no redeploy is needed to pick up the values just written.
+              job_command = (
+                  "ONX_OP=restore-verify node scripts/onx-pg-ops.mjs"
+                  if MODE == "restore"
+                  else "node scripts/onx-pg-ops.mjs"
+              )
               jr = api("POST", f"/services/{CRON}/jobs",
-                       {"startCommand": "node scripts/onx-pg-ops.mjs"})
+                       {"startCommand": job_command})
               if err(jr):
                   raise SystemExit(f"could not trigger a run: {jr}")
               job = unwrap(jr, "job")
