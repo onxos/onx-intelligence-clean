@@ -433,7 +433,7 @@ jobs:
               job_status = None
               deadline = time.time() + 1500
               while time.time() < deadline and not done:
-                  for e in logs(CRON, kind="app", limit=200):
+                  for e in logs(job_id, kind="app", limit=300) + logs(CRON, kind="app", limit=100):
                       msg = (e.get("message") or "").rstrip()
                       k = (e.get("timestamp"), msg[:120])
                       if k in seen or not msg: continue
@@ -451,7 +451,7 @@ jobs:
                       # repeatedly rather than declaring NOT PROVEN prematurely.
                       for attempt in range(12):
                           time.sleep(20)
-                          for e in logs(CRON, kind="app", limit=300):
+                          for e in logs(job_id, kind="app", limit=400) + logs(CRON, kind="app", limit=100):
                               msg = (e.get("message") or "").rstrip()
                               k = (e.get("timestamp"), msg[:120])
                               if k in seen or not msg: continue
