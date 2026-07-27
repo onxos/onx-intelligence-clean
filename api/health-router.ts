@@ -3,7 +3,6 @@
 // System status, dependencies, readiness, liveness probes
 // ============================================================
 import { z } from "zod";
-import { Pool } from "pg";
 import { createRouter, publicQuery } from "./middleware";
 import { getBridgeState } from "./bridge-guard";
 import { countEvents } from "./lib/platform-inbox-store";
@@ -21,6 +20,7 @@ import {
   PUBLIC_INSIGHTS_MAX,
 } from "./lib/insights-port";
 import { getInsightAckCounters } from "./lib/insight-ack";
+import { probeDatabaseReadiness } from "./lib/database-readiness";
 
 // --- Component Health ---
 // STE-01 W2 honesty contract: every component check below is computed
@@ -34,58 +34,40 @@ export interface ComponentHealth {
   message: string;
 }
 
-let healthPool: Pool | null = null;
-
-function getHealthPool(connectionString: string): Pool {
-  if (!healthPool) {
-    const isExternalHost = connectionString.includes("render.com");
-    healthPool = new Pool({
-      connectionString,
-      max: 2,
-      connectionTimeoutMillis: 3000,
-      ...(isExternalHost ? { ssl: { rejectUnauthorized: false } } : {}),
-    });
-  }
-  return healthPool;
-}
-
 function truncate(message: string, max = 160): string {
   return message.length > max ? `${message.slice(0, max)}…` : message;
 }
 
 // Live DB ping: real SELECT 1 round-trip against the production Postgres.
 async function checkDatabase(): Promise<ComponentHealth> {
-  const started = Date.now();
-  const url = process.env.DATABASE_URL ?? "";
-  if (!/^postgres/i.test(url)) {
+  const result = await probeDatabaseReadiness();
+  if (result.state === "NOT_CONFIGURED" || result.state === "INVALID_CONFIGURATION") {
     return {
       name: "Database",
       status: "UNAVAILABLE",
-      latency: 0,
-      lastCheck: new Date(),
-      message: url
+      latency: result.latencyMs,
+      lastCheck: new Date(result.checkedAt),
+      message: result.state === "INVALID_CONFIGURATION"
         ? "DATABASE_URL is not a postgres URL — live stores (pg) are unreachable"
         : "DATABASE_URL not set — live ping skipped",
     };
   }
-  try {
-    await getHealthPool(url).query("SELECT 1");
+  if (result.ready) {
     return {
       name: "Database",
       status: "HEALTHY",
-      latency: Date.now() - started,
-      lastCheck: new Date(),
+      latency: result.latencyMs,
+      lastCheck: new Date(result.checkedAt),
       message: "Postgres ping OK (SELECT 1)",
     };
-  } catch (error) {
-    return {
-      name: "Database",
-      status: "UNHEALTHY",
-      latency: Date.now() - started,
-      lastCheck: new Date(),
-      message: truncate(`Postgres ping failed: ${(error as Error).message}`),
-    };
   }
+  return {
+    name: "Database",
+    status: "UNHEALTHY",
+    latency: result.latencyMs,
+    lastCheck: new Date(result.checkedAt),
+    message: truncate("Postgres ping failed"),
+  };
 }
 
 function checkRuntime(): ComponentHealth {
@@ -192,6 +174,10 @@ export const healthRouter = createRouter({
     timestamp: new Date().toISOString(),
     pid: process.pid,
   })),
+
+  // HT-01b: strict DB-backed readiness. Unlike ping/live, this can only be
+  // READY after a real SELECT 1 round trip against DATABASE_URL.
+  dbReady: publicQuery.query(() => probeDatabaseReadiness()),
 
   // HT-02: ready — Kubernetes readiness probe.
   // UNAVAILABLE (resource not configured) does not block readiness;
