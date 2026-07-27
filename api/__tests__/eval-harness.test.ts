@@ -60,6 +60,16 @@ describe("STE-K-06 golden evaluation harness", () => {
     expect(r.counts.retrievalHits).toBe(retr.filter((c) => c.retrievalHit).length);
   });
 
+  it("explicitly bootstraps its DEMO fixture and holds the frozen 1.0×3 ratchet", () => {
+    // Production disables the templated seed by default. The evaluator must
+    // opt into its own fixture explicitly; otherwise all retrieval cases
+    // become empty-corpus refusals (the regression this test prevents).
+    expect(shared.intentAccuracy).toBe(1);
+    expect(shared.refusalHonesty).toBe(1);
+    expect(shared.retrievalHitAtK).toBe(1);
+    expect(shared.counts.retrievalHits).toBe(shared.counts.retrievalCases);
+  });
+
   it("floor gate: passes at measured floors, fails below, advises above", () => {
     const r = shared;
     const atFloor: EvalFloors = {
