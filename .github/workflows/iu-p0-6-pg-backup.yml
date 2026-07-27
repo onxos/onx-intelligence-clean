@@ -170,6 +170,26 @@ jobs:
                   print(p, "->", json.dumps(api("GET", p, quiet=True), default=str)[:350])
               raise SystemExit(0)
 
+          # ================= LOGS =========================================
+          # Read-only. Render's log index lags a finished job by tens of
+          # seconds, so evidence for a run that already succeeded is fetched
+          # here rather than by re-running the backup.
+          if MODE == "logs":
+              want = os.environ.get("OBJECT_KEY", "").strip()  # reused as a filter
+              print("recent app logs for", CRON, ("filter=" + want) if want else "(unfiltered)")
+              out = logs(CRON, kind="app", limit=400)
+              print("entries:", len(out))
+              for e in out:
+                  msg = (e.get("message") or "").rstrip()
+                  if not msg: continue
+                  if want and want not in msg: continue
+                  print(f"{e.get('timestamp')} {msg[:1500]}")
+              print("\n=== RECENT JOBS ===")
+              for jj in api("GET", f"/services/{CRON}/jobs?limit=5") or []:
+                  j = unwrap(jj, "job")
+                  print(j.get("id"), j.get("status"), j.get("startCommand"), j.get("startedAt"), j.get("finishedAt"))
+              raise SystemExit(0)
+
           # ================= PROVISION OREGON ==============================
           # The marketing database lives in oregon; a Render internal hostname
           # is only reachable from the same region. Rather than open the
@@ -410,16 +430,21 @@ jobs:
                   job_status = j.get("status", job_status)
                   if job_status in ("succeeded", "failed", "canceled"):
                       print("JOB_STATUS", job_status, "finishedAt", j.get("finishedAt"))
-                      # one more log sweep so the tail is not lost
-                      time.sleep(10)
-                      for e in logs(CRON, kind="app", limit=200):
-                          msg = (e.get("message") or "").rstrip()
-                          k = (e.get("timestamp"), msg[:120])
-                          if k in seen or not msg: continue
-                          seen.add(k)
-                          print("APP:", msg[:900])
-                          if marker in msg:
-                              result_line = msg[msg.index(marker):]
+                      # Render's log index lags the job by tens of seconds. Sweep
+                      # repeatedly rather than declaring NOT PROVEN prematurely.
+                      for attempt in range(12):
+                          time.sleep(20)
+                          for e in logs(CRON, kind="app", limit=300):
+                              msg = (e.get("message") or "").rstrip()
+                              k = (e.get("timestamp"), msg[:120])
+                              if k in seen or not msg: continue
+                              seen.add(k)
+                              print("APP:", msg[:900])
+                              if marker in msg:
+                                  result_line = msg[msg.index(marker):]
+                          if result_line:
+                              print(f"result marker found after {(attempt+1)*20}s of post-job log sweeping")
+                              break
                       done = True
                   if not done:
                       time.sleep(15)
