@@ -490,30 +490,6 @@ export type EvidenceRecord = typeof evidenceRegistry.$inferSelect;
 export type InsertEvidenceRecord = typeof evidenceRegistry.$inferInsert;
 
 // ============================================================
-// CONSCIOUSNESS CYCLES — Scheduler execution log
-// ============================================================
-export const consciousnessCycles = mysqlTable("consciousness_cycles", {
-  id: serial("id").primaryKey(),
-  rhythmId: varchar("rhythmId", { length: 50 }).notNull(),
-  rhythmName: varchar("rhythmName", { length: 100 }).notNull(),
-  cycleNumber: int("cycleNumber").default(1).notNull(),
-  status: mysqlEnum("status", ["RUNNING", "COMPLETED", "FAILED", "SKIPPED"]).default("RUNNING").notNull(),
-  actionsExecuted: text("actionsExecuted"), // JSON array
-  metricsSnapshot: text("metricsSnapshot"), // JSON
-  healthScore: decimal("healthScore", { precision: 4, scale: 2 }),
-  anomaliesDetected: int("anomaliesDetected").default(0).notNull(),
-  startedAt: timestamp("startedAt").defaultNow().notNull(),
-  completedAt: timestamp("completedAt"),
-  durationMs: int("durationMs"),
-}, (table) => [
-  index("cc_rhythm_idx").on(table.rhythmId),
-  index("cc_status_idx").on(table.status),
-  index("cc_started_idx").on(table.startedAt),
-]);
-
-export type ConsciousnessCycle = typeof consciousnessCycles.$inferSelect;
-
-// ============================================================
 // VOICE SESSIONS — Arabic STT/TTS records
 // ============================================================
 export const voiceSessions = mysqlTable("voice_sessions", {
