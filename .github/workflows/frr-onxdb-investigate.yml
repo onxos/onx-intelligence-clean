@@ -1,0 +1,85 @@
+name: FRR onx-db investigate (read-only)
+
+# ONX-FRR-2026-001 — the 4th, internet-open, unknown-owner database "onx-db"
+# (dpg-d86s3uog4nts73b9j4sg-a). Before any close we must know WHO consumes it and
+# via WHICH host, so a close cannot silently break an unknown service.
+# STRICTLY READ-ONLY (HTTP GET). No secret value printed — only which service key
+# references the DB host, classified internal/external.
+
+on:
+  push:
+    branches:
+      - claude/render-audit-review-n90nx0
+    paths:
+      - .github/workflows/frr-onxdb-investigate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  investigate:
+    runs-on: ubuntu-latest
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+    steps:
+      - name: Find every service that references onx-db, and the host class
+        run: |
+          node --input-type=module <<'NODE'
+          const KEY = process.env.RENDER_API_KEY;
+          const H = { Accept: "application/json", Authorization: `Bearer ${KEY}` };
+          const api = async (p) => {
+            const r = await fetch("https://api.render.com/v1" + p, { headers: H, signal: AbortSignal.timeout(30000) });
+            let j = null; try { j = await r.json(); } catch {}
+            return { ok: r.ok, status: r.status, j };
+          };
+          const unwrap = (v, k) => (v && typeof v === "object" ? v[k] ?? v : v);
+
+          const DB_ID = "dpg-d86s3uog4nts73b9j4sg-a"; // onx-db (unknown)
+
+          // 1. onx-db self: state, region, allow-list, host tokens (never full string)
+          const db = unwrap((await api(`/postgres/${DB_ID}`)).j, "postgres");
+          const allow = (db?.ipAllowList ?? []).map((a) => a.cidrBlock || a);
+          console.log("=".repeat(64));
+          console.log("onx-db INVESTIGATE — read-only");
+          console.log("=".repeat(64));
+          console.log(`name/id     : ${db?.name ?? "?"} / ${DB_ID}`);
+          console.log(`region      : ${db?.region ?? "?"}   status: ${db?.status ?? "?"}`);
+          console.log(`ipAllowList : ${JSON.stringify(allow)}${allow.includes("0.0.0.0/0") ? "  <-- OPEN TO INTERNET" : ""}`);
+          console.log(`created     : ${db?.createdAt ?? "?"}`);
+          const ci = await api(`/postgres/${DB_ID}/connection-info`);
+          // host token = the dbname/host id used inside connection strings, for matching
+          const extHost = (ci.j?.externalConnectionString || "").replace(/^.*@/, "").replace(/[/:].*$/, "");
+          const intHost = (ci.j?.internalConnectionString || "").replace(/^.*@/, "").replace(/[/:].*$/, "");
+          const dbName = (ci.j?.externalConnectionString || ci.j?.internalConnectionString || "").replace(/^.*\//, "").replace(/\?.*$/, "");
+          console.log(`match tokens: extHost~${extHost ? extHost.slice(0,18) : "?"}  intHost~${intHost ? intHost.slice(0,18) : "?"}  dbName~${dbName || "?"}`);
+
+          // 2. scan all services' env-vars for any reference to onx-db (by id/host/dbname)
+          const needles = [DB_ID, extHost, intHost].filter((s) => s && s.length > 6);
+          const svcRes = await api(`/services?limit=100`);
+          const services = Array.isArray(svcRes.j) ? svcRes.j.map((s) => unwrap(s, "service")) : [];
+          console.log(`\nscanning ${services.length} services for references to onx-db...\n`);
+          let consumers = 0;
+          for (const s of services) {
+            const ev = await api(`/services/${s.id}/env-vars`);
+            const rows = Array.isArray(ev.j) ? ev.j.map((e) => unwrap(e, "envVar")) : [];
+            for (const row of rows) {
+              const val = row?.value ?? "";
+              if (needles.some((n) => val.includes(n))) {
+                const usesExternal = /\.render\.com/.test(val.replace(/^[^@]*@?/, ""));
+                console.log(`  CONSUMER: service="${s.name}" (${s.id})  env="${row.key}"  host=${usesExternal ? "EXTERNAL" : "INTERNAL"}`);
+                consumers++;
+              }
+            }
+          }
+          console.log("\n" + "=".repeat(64));
+          if (consumers === 0) {
+            console.log("NO CONSUMER FOUND — onx-db appears ORPHANED.");
+            console.log("=> Safe to close (empty allow-list) with near-zero risk; deletion is a founder call.");
+          } else {
+            console.log(`${consumers} consumer reference(s) found (see above).`);
+            console.log("=> If all consumers use INTERNAL host: safe to empty allow-list directly.");
+            console.log("   If any uses EXTERNAL host: switch it to internal first (as done for onx_intelligence).");
+          }
+          console.log("READ-ONLY COMPLETE — no mutation performed");
+          NODE
