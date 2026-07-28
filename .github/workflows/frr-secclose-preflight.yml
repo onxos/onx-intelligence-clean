@@ -1,0 +1,93 @@
+name: FRR security-close preflight (read-only)
+
+# ONX-FRR-2026-001 — zero-risk preflight for safely closing the internet-open
+# onx_intelligence DB (A/B). Reads ONLY (HTTP GET). Determines whether the
+# internal-host switch + allow-list close can be done WITHOUT risk of leaving
+# production broken:
+#   1. Does an internal connection string exist? (needed for the switch)
+#   2. Does the service currently use the external host? (why a naive close cuts it)
+#   3. Does the service have a health-check path? (so an unhealthy deploy will NOT
+#      replace the live one — i.e. the switch is safely reversible)
+#   4. Current ipAllowList of onx_intelligence (the exposure) + siblings for contrast.
+# No secret value is ever printed — only classifications. NO MUTATION.
+
+on:
+  push:
+    branches:
+      - claude/render-audit-review-n90nx0
+    paths:
+      - .github/workflows/frr-secclose-preflight.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+    steps:
+      - name: Assess rollback-safety of the security close
+        run: |
+          node --input-type=module <<'NODE'
+          const KEY = process.env.RENDER_API_KEY;
+          const H = { Accept: "application/json", Authorization: `Bearer ${KEY}` };
+          const api = async (p) => {
+            const r = await fetch("https://api.render.com/v1" + p, { headers: H, signal: AbortSignal.timeout(30000) });
+            let j = null; try { j = await r.json(); } catch {}
+            return { ok: r.ok, status: r.status, j };
+          };
+          const unwrap = (v, k) => (v && typeof v === "object" ? v[k] ?? v : v);
+
+          const SERVICE_ID = "srv-d8vkfs5aeets73d5gkcg"; // onx-intelligence-clean
+          const DB_ID = "dpg-d8tns09kh4rs73fhkdlg-a";     // onx_intelligence
+
+          console.log("=".repeat(64));
+          console.log("SECURITY-CLOSE PREFLIGHT — read-only, no mutation");
+          console.log("=".repeat(64));
+
+          // 1. internal connection string availability
+          const ci = await api(`/postgres/${DB_ID}/connection-info`);
+          const hasInternal = !ci.ok ? "UNKNOWN(GET " + ci.status + ")"
+            : Boolean(ci.j?.internalConnectionString || ci.j?.internalConnectionUrl);
+          const hasExternalStr = !ci.ok ? "UNKNOWN" : Boolean(ci.j?.externalConnectionString);
+          console.log(`\n[1] internal connection string available : ${hasInternal}`);
+          console.log(`    external connection string available : ${hasExternalStr}`);
+
+          // 2. which host does the service currently use?
+          const envRes = await api(`/services/${SERVICE_ID}/env-vars`);
+          const rows = Array.isArray(envRes.j) ? envRes.j.map((e) => unwrap(e, "envVar")) : [];
+          const dbUrl = rows.find((e) => e.key === "DATABASE_URL")?.value ?? "";
+          const usesExternal = /\.render\.com/.test(dbUrl.replace(/^[^@]*@?/, ""));
+          console.log(`\n[2] service DATABASE_URL host class       : ${dbUrl ? (usesExternal ? "EXTERNAL" : "INTERNAL") : "NOT FOUND"}`);
+
+          // 3. health-check path => deploy-safety (unhealthy deploy won't replace live)
+          const svc = unwrap((await api(`/services/${SERVICE_ID}`)).j, "service");
+          const details = svc?.serviceDetails ?? {};
+          const healthPath = details.healthCheckPath ?? svc?.healthCheckPath ?? "";
+          console.log(`\n[3] health-check path configured         : ${healthPath ? JSON.stringify(healthPath) : "(none)"}`);
+          console.log(`    => deploy-safety: ${healthPath
+            ? "SAFE — a failed health check blocks the new deploy from going live (switch is reversible)"
+            : "CAUTION — no health-check path; an unhealthy deploy could still go live"}`);
+
+          // 4. current exposure + sibling contrast
+          console.log("\n[4] IP allow-lists:");
+          for (const [name, id] of [
+            ["onx_intelligence", DB_ID],
+            ["onx-platform-db", "dpg-d96t4pkvikkc73d76okg-a"],
+            ["onx-marketing-db", "dpg-d98upmu7r5hc73afti50-a"],
+          ]) {
+            const d = unwrap((await api(`/postgres/${id}`)).j, "postgres");
+            const allow = Array.isArray(d?.ipAllowList) ? d.ipAllowList.map((a) => a.cidrBlock || a) : [];
+            const open = allow.includes("0.0.0.0/0");
+            console.log(`    ${name.padEnd(18)} [${allow.join(", ") || "empty=internal-only"}]${open ? "  <-- OPEN TO INTERNET" : ""}`);
+          }
+
+          console.log("\n" + "=".repeat(64));
+          console.log("VERDICT — safe to auto-execute the close IF:");
+          console.log("  [1] internal string = true  AND  [3] health-check = configured.");
+          console.log("Then: switch DATABASE_URL->internal, redeploy, verify 200, empty allow-list.");
+          console.log("If [3] is (none), do NOT auto-switch — surface to founder first.");
+          console.log("READ-ONLY COMPLETE — no mutation performed");
+          NODE
