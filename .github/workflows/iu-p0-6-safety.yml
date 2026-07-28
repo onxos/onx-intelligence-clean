@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - "scripts/onx-pg-ops.mjs"
+      - "scripts/iu_p0_6_evidence_collector.py"
+      - "scripts/test-iu-p0-6-evidence-collector.py"
       - "scripts/test-iu-p0-6-safety.mjs"
       - ".github/workflows/iu-p0-6-pg-backup.yml"
       - ".github/workflows/iu-p0-6-safety.yml"
@@ -11,6 +13,8 @@ on:
     branches: [main]
     paths:
       - "scripts/onx-pg-ops.mjs"
+      - "scripts/iu_p0_6_evidence_collector.py"
+      - "scripts/test-iu-p0-6-evidence-collector.py"
       - "scripts/test-iu-p0-6-safety.mjs"
       - ".github/workflows/iu-p0-6-pg-backup.yml"
       - ".github/workflows/iu-p0-6-safety.yml"
@@ -28,3 +32,5 @@ jobs:
         run: node --check scripts/onx-pg-ops.mjs
       - name: Safety contract and negative mutations
         run: node scripts/test-iu-p0-6-safety.mjs
+      - name: Evidence timing and optional payload tests
+        run: python3 scripts/test-iu-p0-6-evidence-collector.py
