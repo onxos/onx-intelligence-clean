@@ -19,6 +19,7 @@ import { runReflectionTick } from "./lib/reflection-cycle";
 import { runMindTick, recordMindTickCronFailure } from "./lib/mind-tick";
 import { maybeRecordTruthSnapshot } from "./lib/truth-snapshot-cron";
 import { hydratePersistedIurgGraph } from "./iuc-router";
+import { ensureIntelligenceObjectSchema } from "./lib/intelligence-object-schema";
 
 // Optional error tracking: active only when SENTRY_DSN is configured.
 if (process.env.SENTRY_DSN) {
@@ -166,6 +167,13 @@ if (env.isProduction) {
     // the perception adapter — its perc-* ingests upsert by id over the
     // hydrated nodes, so the sequence is idempotent and chain-safe.
     // Both steps are non-fatal by design.
+    // GAP-001 (ONX-FRR-2026-001): provision the intelligence-object tables in
+    // Postgres before anything reads them. Non-fatal and idempotent.
+    ensureIntelligenceObjectSchema()
+      .then(({ ok }) =>
+        process.stderr.write(`[boot] intelligence-object schema ensured: ${ok}\n`),
+      )
+      .catch(() => {});
     hydratePersistedIurgGraph()
       .then(({ loaded }) => {
         process.stderr.write(`[boot] IURG hydration loaded ${loaded} persisted objects\n`);
