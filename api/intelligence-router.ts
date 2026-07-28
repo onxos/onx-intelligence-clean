@@ -198,7 +198,7 @@ export const intelligenceRouter = createRouter({
         trustScore: input.amanahScore.toFixed(2),
         shadowStatus,
         customAttributes: JSON.stringify({ sourceLayer: input.sourceLayer }),
-      }).returning();
+      }).$returningId();
 
       const objectDbId = obj.id;
 
@@ -793,7 +793,7 @@ export const intelligenceRouter = createRouter({
           trustScore: (obs.amanahScore || 0.70).toFixed(2),
           shadowStatus: "NOT_SHADOW",
           customAttributes: JSON.stringify({ sourceLayer: "L5_REALITY" }),
-        }).returning();
+        }).$returningId();
         createdIds.push(objectId);
 
         // Record provenance
@@ -834,7 +834,7 @@ export const intelligenceRouter = createRouter({
           trustScore: "0.75",
           shadowStatus: "NOT_SHADOW",
           customAttributes: JSON.stringify({ patternKeywords: keywords, observationCount: input.observations.length }),
-        }).returning();
+        }).$returningId();
         patternObjectId = patternId;
 
         // Link observations to pattern
@@ -1470,7 +1470,7 @@ export const intelligenceRouter = createRouter({
         privacyLevel: "INSTITUTIONAL",
         trustScore: avgTrust.toFixed(2),
         customAttributes: JSON.stringify({ synthesisMethod: input.synthesisMethod, lineage: lineageIds, weights: inputObjects.map(o => o.weight) }),
-      }).returning();
+      }).$returningId();
 
       for (const src of inputObjects) {
         await db.insert(objectRelationships).values({
@@ -1746,7 +1746,7 @@ export const intelligenceRouter = createRouter({
         trustScore: input.confidenceScore.toFixed(2),
         shadowStatus: isShadow ? "SHADOW" : "NOT_SHADOW",
         customAttributes: JSON.stringify({ externalSource: input.externalSource, validationMethod: input.validationMethod }),
-      }).returning();
+      }).$returningId();
 
       const allObjects = await db.select().from(intelligenceObjects);
       const externalObjects = allObjects.filter(o => o.objectType === "EXTERNAL_INTELLIGENCE" || o.shadowStatus === "SHADOW");
@@ -2384,7 +2384,7 @@ export const intelligenceRouter = createRouter({
         semanticSummary: input.content,
         privacyLevel: "INSTITUTIONAL",
         trustScore: input.confidence.toFixed(2),
-      }).returning();
+      }).$returningId();
 
       // Step 2: PROMOTE to PATTERN
       await db.update(intelligenceObjects).set({ lifecycleState: "PATTERN", understandingRung: 0 }).where(eq(intelligenceObjects.id, signal.id));
@@ -2414,7 +2414,7 @@ export const intelligenceRouter = createRouter({
         operation: "CREDIT",
         balance: "35.0000",
         reason: `CM-01 Capital Formation: Signal ${signalId} -> WISDOM capital`,
-      }).returning();
+      }).$returningId();
 
       await recordGovernance("FIC_VALIDATION", signal.id, "PASSED",
         `CM-01 Capital Formation: ${signalId} -> CAPITALIZED | Capital: 35.0000 WISDOM | Pipeline: 6 stages`, "D13");
@@ -2463,7 +2463,7 @@ export const intelligenceRouter = createRouter({
           capitalCategory: cycle === input.cycles ? "FLOURISHING" : "WISDOM",
           capitalValue: (cycle * 10).toFixed(4),
           understandingRung: 5,
-        }).returning();
+        }).$returningId();
 
         const amount = cycle * 10;
         cumulativeCapital += amount;

@@ -219,8 +219,7 @@ export async function saveIurgObject(obj: IurgObjectInput): Promise<{ id: string
     hashChain: stableHash([id, obj.type, obj.rank ?? 1, obj.verification ?? "UNVERIFIED", obj.ageDays ?? 0, obj.context ?? 1, obj.yield ?? 1]),
   };
 
-  await db.insert(iurgObjects).values(payload).onConflictDoUpdate({
-    target: iurgObjects.id,
+  await db.insert(iurgObjects).values(payload).onDuplicateKeyUpdate({
     set: {
       type: payload.type,
       rank: payload.rank,
