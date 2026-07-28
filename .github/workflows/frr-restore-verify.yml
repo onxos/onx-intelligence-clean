@@ -1,0 +1,63 @@
+name: FRR restore verify (read-only, one-shot)
+
+# ONX-FRR-2026-001 — confirms the restore of the last successful deploy landed:
+# reads the latest production deploy of onx-intelligence-clean (status + commit)
+# and hits the public health endpoints. STRICTLY READ-ONLY (HTTP GET). No
+# mutation, no secret value printed. Lives on the feature branch only — never
+# merged to main, so it does not pollute the restored tree.
+
+on:
+  push:
+    branches:
+      - claude/render-audit-review-n90nx0
+    paths:
+      - .github/workflows/frr-restore-verify.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      BASE: https://onx-intelligence-clean.onrender.com
+    steps:
+      - name: Read latest deploy status and probe public health
+        run: |
+          node --input-type=module <<'NODE'
+          const KEY = process.env.RENDER_API_KEY;
+          const BASE = process.env.BASE;
+          const H = { Accept: "application/json", Authorization: `Bearer ${KEY}` };
+          const api = async (p) => {
+            const r = await fetch("https://api.render.com/v1" + p, { headers: H, signal: AbortSignal.timeout(30000) });
+            let j = null; try { j = await r.json(); } catch {}
+            return { ok: r.ok, status: r.status, j };
+          };
+          const unwrap = (v, k) => (v && typeof v === "object" ? v[k] ?? v : v);
+          const SERVICE_ID = "srv-d8vkfs5aeets73d5gkcg"; // onx-intelligence-clean
+
+          console.log("=== onx-intelligence-clean — latest deploys ===");
+          const dep = await api(`/services/${SERVICE_ID}/deploys?limit=5`);
+          const rows = Array.isArray(dep.j) ? dep.j.map((d) => unwrap(d, "deploy")) : [];
+          for (const d of rows) {
+            const commit = (typeof d.commit === "string" ? d.commit : d.commit?.id ?? "").slice(0, 8);
+            const msg = (d.commit?.message ?? "").split("\n")[0].slice(0, 56);
+            console.log(`  ${String(d.status).padEnd(16)} ${d.finishedAt ?? d.createdAt ?? ""}  ${commit}  ${msg}`);
+          }
+
+          console.log("\n=== public health (read-only GET) ===");
+          const probe = async (label, path) => {
+            let status = "000", head = "";
+            try {
+              const r = await fetch(BASE + path, { signal: AbortSignal.timeout(30000) });
+              status = String(r.status);
+              head = (await r.text()).slice(0, 200).replace(/\s+/g, " ");
+            } catch (e) { head = String(e).slice(0, 120); }
+            console.log(`  ${label.padEnd(18)} HTTP ${status}  ${head}`);
+          };
+          await probe("health.ping", "/api/trpc/health.ping");
+          await probe("health.dbReady", "/api/trpc/health.dbReady");
+          console.log("\nREAD-ONLY COMPLETE");
+          NODE
