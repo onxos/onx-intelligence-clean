@@ -71,6 +71,11 @@ jobs:
             ? "SAFE — a failed health check blocks the new deploy from going live (switch is reversible)"
             : "CAUTION — no health-check path; an unhealthy deploy could still go live"}`);
 
+          // 3b. service outbound IPs — can we restrict to these (near-zero-risk close)?
+          const oip = details.outboundIPs ?? svc?.outboundIPs ?? details.outboundIps ?? [];
+          console.log(`\n[3b] service outbound IPs (dedicated egress) : ${Array.isArray(oip) && oip.length ? oip.join(", ") : "(not reported by API)"}`);
+          console.log(`     service region                          : ${details.region ?? svc?.region ?? "?"}`);
+
           // 4. current exposure + sibling contrast
           console.log("\n[4] IP allow-lists:");
           for (const [name, id] of [
