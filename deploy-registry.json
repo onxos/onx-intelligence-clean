@@ -8,7 +8,15 @@
     {
       "name": "onx-intelligence-clean",
       "systemId": "intelligence",
-      "renderServiceId": "srv-d8vkfs5aeets73d5gkcg"
+      "renderServiceId": "srv-d8vkfs5aeets73d5gkcg",
+      "release": {
+        "branch": "main",
+        "rootDir": ".",
+        "preDeployCommand": null,
+        "healthPath": "/api/trpc/health.dbReady",
+        "healthExpect": "http-200",
+        "repository": "onxos/onx-intelligence-clean"
+      }
     },
     {
       "name": "onx-intelligence-staging",
@@ -17,7 +25,8 @@
     },
     {
       "name": "onx-scheduler",
-      "systemId": "intelligence-scheduler"
+      "systemId": "intelligence-scheduler",
+      "note": "Release contract PENDING: the ratified live inventory records no renderServiceId for this worker — it may not be provisioned. Ratify the ID (read-only inventory run) before adding a release contract."
     },
     {
       "name": "onx-pg-backup",
@@ -39,5 +48,8 @@
       "defect": "DUPLICATE of red-d8tnvv9o3t8c73brdke0 with a TRAILING SPACE in the name. Do not reference by name anywhere; scheduled for founder-approved decommission."
     }
   ],
-  "knownDeviations": []
+  "knownDeviations": [],
+  "requiredCiWorkflows": [
+    "ONX CI Gate"
+  ]
 }
