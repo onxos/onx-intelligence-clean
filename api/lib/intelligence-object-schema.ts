@@ -141,20 +141,6 @@ CREATE TABLE IF NOT EXISTS "clinical_sessions" (
 	"updatedAt" timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT "clinical_sessions_sessionId_unique" UNIQUE("sessionId")
 );
-CREATE TABLE IF NOT EXISTS "consciousness_cycles" (
-	"id" serial PRIMARY KEY NOT NULL,
-	"rhythmId" varchar(50) NOT NULL,
-	"rhythmName" varchar(100) NOT NULL,
-	"cycleNumber" integer DEFAULT 1 NOT NULL,
-	"status" text DEFAULT 'RUNNING' NOT NULL,
-	"actionsExecuted" text,
-	"metricsSnapshot" text,
-	"healthScore" numeric(4, 2),
-	"anomaliesDetected" integer DEFAULT 0 NOT NULL,
-	"startedAt" timestamp DEFAULT now() NOT NULL,
-	"completedAt" timestamp,
-	"durationMs" integer
-);
 CREATE TABLE IF NOT EXISTS "continuity_log" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"layer" text NOT NULL,
@@ -458,9 +444,6 @@ CREATE INDEX IF NOT EXISTS "capital_records_cap_cat_idx" ON "capital_records" US
 CREATE INDEX IF NOT EXISTS "clinical_sessions_cs_patient_idx" ON "clinical_sessions" USING btree ("patientId");
 CREATE INDEX IF NOT EXISTS "clinical_sessions_cs_status_idx" ON "clinical_sessions" USING btree ("status");
 CREATE INDEX IF NOT EXISTS "clinical_sessions_cs_severity_idx" ON "clinical_sessions" USING btree ("severity");
-CREATE INDEX IF NOT EXISTS "consciousness_cycles_cc_rhythm_idx" ON "consciousness_cycles" USING btree ("rhythmId");
-CREATE INDEX IF NOT EXISTS "consciousness_cycles_cc_status_idx" ON "consciousness_cycles" USING btree ("status");
-CREATE INDEX IF NOT EXISTS "consciousness_cycles_cc_started_idx" ON "consciousness_cycles" USING btree ("startedAt");
 CREATE INDEX IF NOT EXISTS "continuity_log_cont_layer_idx" ON "continuity_log" USING btree ("layer");
 CREATE INDEX IF NOT EXISTS "continuity_log_cont_entity_idx" ON "continuity_log" USING btree ("entityId");
 CREATE INDEX IF NOT EXISTS "continuity_log_cont_hash_idx" ON "continuity_log" USING btree ("hash");

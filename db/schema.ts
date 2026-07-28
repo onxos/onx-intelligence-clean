@@ -317,29 +317,11 @@ export const evidenceRegistry = pgTable("evidence_registry", {
 export type EvidenceRecord = typeof evidenceRegistry.$inferSelect;
 export type InsertEvidenceRecord = typeof evidenceRegistry.$inferInsert;
 
-// ============================================================
-// CONSCIOUSNESS CYCLES — Scheduler execution log
-// ============================================================
-export const consciousnessCycles = pgTable("consciousness_cycles", {
-  id: serial("id").primaryKey(),
-  rhythmId: varchar("rhythmId", { length: 50 }).notNull(),
-  rhythmName: varchar("rhythmName", { length: 100 }).notNull(),
-  cycleNumber: integer("cycleNumber").default(1).notNull(),
-  status: text("status").$type<"RUNNING" | "COMPLETED" | "FAILED" | "SKIPPED">().default("RUNNING").notNull(),
-  actionsExecuted: text("actionsExecuted"), // JSON array
-  metricsSnapshot: text("metricsSnapshot"), // JSON
-  healthScore: numeric("healthScore", { precision: 4, scale: 2 }),
-  anomaliesDetected: integer("anomaliesDetected").default(0).notNull(),
-  startedAt: timestamp("startedAt").defaultNow().notNull(),
-  completedAt: timestamp("completedAt"),
-  durationMs: integer("durationMs"),
-}, (table) => [
-  index("consciousness_cycles_cc_rhythm_idx").on(table.rhythmId),
-  index("consciousness_cycles_cc_status_idx").on(table.status),
-  index("consciousness_cycles_cc_started_idx").on(table.startedAt),
-]);
+// NOTE (ONX-FRR-2026-001): a dead drizzle scheduler-cycle table was removed
+// here. Scheduler execution cycles are persisted by
+// api/lib/scheduler-cycle-store.ts via raw pg; the drizzle declaration had no
+// live consumers and carried a charter-forbidden label, so it was deleted.
 
-export type ConsciousnessCycle = typeof consciousnessCycles.$inferSelect;
 
 // ============================================================
 // VOICE SESSIONS — Arabic STT/TTS records
