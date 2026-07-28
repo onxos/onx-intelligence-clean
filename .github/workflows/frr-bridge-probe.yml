@@ -1,0 +1,71 @@
+name: FRR bridge probe (read-only)
+
+# ONX-FRR-2026-001 Phase 2 — proves the marketing -> intelligence event bridge
+# (D4/D5) at runtime. STRICTLY READ-ONLY: public HTTP GET only, no secrets, no
+# mutation. Reads the intelligence receiver's live inbox counters and bridge
+# gate state, and checks whether the /perception/records receiver route is
+# mounted at all.
+#
+# Companion static finding (from code + the read-only Render inventory): the
+# marketing exporter platform-bridge.service.ts gates on ONX_CORE_URL +
+# ONX_CORE_API_KEY, but the live onx-marketing-api provisions ONX_INTELLIGENCE_URL
+# + ONX_BRIDGE_KEY instead — a name mismatch that makes the exporter a permanent
+# no-op, so outbox rows stay PENDING and never reach the inbox this probe reads.
+
+on:
+  push:
+    branches:
+      - claude/render-audit-review-n90nx0
+    paths:
+      - .github/workflows/frr-bridge-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Probe the platform-event inbox and bridge gate (read-only)
+    runs-on: ubuntu-latest
+    env:
+      INTEL: https://onx-intelligence-clean.onrender.com
+    steps:
+      - name: Read live bridge/inbox surface
+        run: |
+          set +e
+          probe () {
+            local label="$1"; local base="$2"; local path="$3"; local method="${4:-GET}"
+            local status head
+            status="$(curl -s -m 30 -o /tmp/body -w '%{http_code}' -X "$method" "$base$path")"
+            head="$(head -c 300 /tmp/body | tr '\n' ' ')"
+            echo "── $label"
+            echo "   $method $path"
+            echo "   HTTP $status"
+            echo "   body: $head"
+            echo
+          }
+
+          echo "=============================================================="
+          echo "FRR BRIDGE PROBE — receiver = $INTEL"
+          echo "read-only; public GET only; no secrets; no mutations"
+          echo "=============================================================="
+          echo
+
+          echo "### intelligence receiver — live inbox + bridge state ###"
+          probe "health.platformEvents (inbox count)" "$INTEL" "/api/trpc/health.platformEvents"
+          probe "health.bridge (gate state)"          "$INTEL" "/api/trpc/health.bridge"
+          probe "health.perceptionAdapter (feed)"     "$INTEL" "/api/trpc/health.perceptionAdapter"
+
+          echo "### receiver route existence (GET a POST-only route) ###"
+          echo "   404 = route absent · 405/401/400 = route mounted (auth/method gated)"
+          probe "POST target /perception/records"     "$INTEL" "/perception/records"
+
+          echo "=============================================================="
+          echo "Interpretation:"
+          echo "  A live inbox count that is 0 or flat, plus the static ONX_CORE_URL"
+          echo "  vs ONX_INTELLIGENCE_URL env mismatch, means marketing events are"
+          echo "  queued in the outbox and never delivered — the D4/D5 link is dead"
+          echo "  in production. Fix = align the exporter's env keys to the"
+          echo "  provisioned ONX_INTELLIGENCE_URL / ONX_BRIDGE_KEY (or set"
+          echo "  ONX_CORE_URL / ONX_CORE_API_KEY on onx-marketing-api)."
+          echo "=============================================================="
