@@ -129,21 +129,23 @@ const TOOLS: ToolDef[] = [
       const limit = Math.min(8, Number(a.limit) || 4);
       const domain = a.domain ? String(a.domain) : undefined;
       const query = String(a.query);
-      // 2026-08-17: bridge to the marketing DB corpus first (the real data).
-      try {
-        const r = (await bridgeCall("corpus-search", { query, limit })) as Record<string, unknown>;
-        if (r && r.success && Array.isArray(r.data) && (r.data as unknown[]).length > 0) {
-          return (r.data as Array<Record<string, unknown>>).map((x) => ({
-            id: x.id, title: x.title, excerpt: x.excerpt, similarity: x.score,
-          }));
-        }
-      } catch { /* fall through to local */ }
       let res = await semanticSearchCorpus(query, limit, domain);
       // Cross-language fallback: the corpus is mostly Latin-script — expand
       // common Arabic veterinary terms and retry once when the first pass misses.
       if (res.results.length === 0) {
         const expanded = expandArabicAliases(query);
         if (expanded !== query) res = await semanticSearchCorpus(expanded, limit, domain);
+      }
+      if (res.results.length === 0) {
+        // Bridge fallback: marketing DB corpus (lexical) when the local store misses.
+        try {
+          const r = (await bridgeCall("corpus-search", { query, limit })) as Record<string, unknown>;
+          if (r && r.success && Array.isArray(r.data)) {
+            return (r.data as Array<Record<string, unknown>>).map((x) => ({
+              id: x.id, title: x.title, excerpt: x.excerpt, similarity: x.score,
+            }));
+          }
+        } catch { /* return empty */ }
       }
       return res.results.map((r) => ({
         id: r.id, title: r.title, excerpt: String(r.body).slice(0, 400), similarity: r.similarity,
@@ -157,10 +159,15 @@ const TOOLS: ToolDef[] = [
     execute: async () => {
       // 2026-08-17: the corpus lives in the MARKETING database; read it through
       // the platform bridge (cross-region external PG is blocked on Render).
+      // Corpus lives in the staging DB (CORPUS_DATABASE_URL) — local pg first.
+      try {
+        const local = await corpusRealCounts();
+        if (local && local.total > 0) return local;
+      } catch { /* fall through to bridge */ }
       try {
         const r = (await bridgeCall("corpus-stats", {})) as Record<string, unknown>;
         if (r && r.success) return r.data;
-      } catch { /* fall through to local */ }
+      } catch { /* ignore */ }
       return corpusRealCounts();
     },
   },
