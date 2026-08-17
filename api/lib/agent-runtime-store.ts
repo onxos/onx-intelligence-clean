@@ -100,17 +100,17 @@ const AGENT_ROSTER: Array<{ id: string; name: string; layer: string }> = [{"id":
 export async function ensureAgentRegistry(): Promise<void> {
   await ensureAgentSchema();
   const p = getPool();
-  await p.query(\`
+  await p.query(`
     CREATE TABLE IF NOT EXISTS agents (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       status TEXT DEFAULT 'ACTIVE',
       model TEXT,
       layer TEXT,
-      "created_at" TIMESTAMPTZ DEFAULT now());\`);
+      "created_at" TIMESTAMPTZ DEFAULT now());`);
   for (const a of AGENT_ROSTER) {
     await p.query(
-      \`INSERT INTO agents (id, name, status, model, layer) VALUES ($1,$2,'ACTIVE','kimi-k2.7-code',$3) ON CONFLICT (id) DO NOTHING\`,
+      `INSERT INTO agents (id, name, status, model, layer) VALUES ($1,$2,'ACTIVE','kimi-k2.7-code',$3) ON CONFLICT (id) DO NOTHING`,
       [a.id, a.name, a.layer]);
   }
 }
