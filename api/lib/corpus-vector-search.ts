@@ -14,9 +14,9 @@ let openai: OpenAI | null = null;
 
 function getPool(): Pool {
   if (!pool) {
-    const connectionString = process.env.DATABASE_URL ?? "";
+    const connectionString = (process.env.CORPUS_DATABASE_URL || process.env.DATABASE_URL) ?? "";
     if (!connectionString.startsWith("postgres")) {
-      throw new Error("CORPUS_VECTOR_NOT_CONFIGURED: DATABASE_URL is not postgres");
+      throw new Error("CORPUS_VECTOR_NOT_CONFIGURED: CORPUS_DATABASE_URL/DATABASE_URL is not postgres");
     }
     const isExternalHost = connectionString.includes("render.com");
     pool = new Pool({
