@@ -199,10 +199,17 @@ export async function reembedCorpusBatch(
 }
 
 /** عدّاد صادق للواجهة: provenance-valid فقط */
-export async function corpusRealCounts(): Promise<{ total: number; embedded: number; model: string }> {
-  await ensureVectorSchema();
-  const res = await getPool().query(
-    `SELECT count(*)::int AS total, count(embedding)::int AS embedded FROM onx_knowledge_corpus`,
+export async function corpusRealCounts(): Promise<{ total: number; embedded: number | null; model: string; note?: string }> {
+  // 2026-08-16 fix: the live table may lack the embedding column (partial
+  // sync) — never 500 the commander's stats tool because of it.
+  const col = await getPool().query(
+    `SELECT 1 FROM information_schema.columns WHERE table_name = 'onx_knowledge_corpus' AND column_name = 'embedding'`,
   );
-  return { total: res.rows[0].total, embedded: res.rows[0].embedded, model: EMBED_MODEL };
+  const res = await getPool().query(`SELECT count(*)::int AS total FROM onx_knowledge_corpus`);
+  if (col.rows.length === 0) {
+    return { total: res.rows[0].total, embedded: null, model: EMBED_MODEL, note: "embedding column absent on this database — lexical search only" };
+  }
+  await ensureVectorSchema();
+  const emb = await getPool().query(`SELECT count(embedding)::int AS embedded FROM onx_knowledge_corpus`);
+  return { total: res.rows[0].total, embedded: emb.rows[0].embedded, model: EMBED_MODEL };
 }
