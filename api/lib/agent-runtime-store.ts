@@ -93,8 +93,30 @@ export async function completeTask(taskId: string, result: unknown, ok = true): 
 }
 
 /** Liveness view: registry agents joined with their latest heartbeat. */
-export async function agentLiveness(): Promise<unknown> {
+
+// --- Agent registry (AGENTS_CATALOG.md roster: L1-L5, 22 agents) ----------
+const AGENT_ROSTER: Array<{ id: string; name: string; layer: string }> = [{"id": "ag-01", "name": "TaskClassifier", "layer": "L1"}, {"id": "ag-02", "name": "ExecutionPlanner", "layer": "L1"}, {"id": "ag-03", "name": "RiskAssessor", "layer": "L1"}, {"id": "ag-04", "name": "ActionRouter", "layer": "L1"}, {"id": "ag-05", "name": "ResultAggregator", "layer": "L1"}, {"id": "ag-06", "name": "FeedbackLearner", "layer": "L1"}, {"id": "ag-07", "name": "RealityHarvester", "layer": "L2"}, {"id": "ag-08", "name": "SignalNormalizer", "layer": "L2"}, {"id": "ag-09", "name": "KnowledgeExtractor", "layer": "L2"}, {"id": "ag-10", "name": "OntologyMapper", "layer": "L2"}, {"id": "ag-11", "name": "TruthVerifier", "layer": "L2"}, {"id": "ag-12", "name": "ReasoningEngine", "layer": "L2"}, {"id": "ag-13", "name": "SignalScanner", "layer": "L3"}, {"id": "ag-14", "name": "IntentPredictor", "layer": "L3"}, {"id": "ag-15", "name": "JourneyWeaver", "layer": "L3"}, {"id": "ag-16", "name": "DemandForecaster", "layer": "L3"}, {"id": "ag-17", "name": "BudgetGuardian", "layer": "L3"}, {"id": "ag-18", "name": "CircuitBreaker", "layer": "L3"}, {"id": "ag-19", "name": "AnomalyDetector", "layer": "L4"}, {"id": "ag-20", "name": "FailoverOrchestrator", "layer": "L4"}, {"id": "ag-21", "name": "ChannelManager", "layer": "L5"}, {"id": "ag-22", "name": "CommunityBuilder", "layer": "L5"}];
+
+export async function ensureAgentRegistry(): Promise<void> {
   await ensureAgentSchema();
+  const p = getPool();
+  await p.query(\`
+    CREATE TABLE IF NOT EXISTS agents (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      status TEXT DEFAULT 'ACTIVE',
+      model TEXT,
+      layer TEXT,
+      "created_at" TIMESTAMPTZ DEFAULT now());\`);
+  for (const a of AGENT_ROSTER) {
+    await p.query(
+      \`INSERT INTO agents (id, name, status, model, layer) VALUES ($1,$2,'ACTIVE','kimi-k2.7-code',$3) ON CONFLICT (id) DO NOTHING\`,
+      [a.id, a.name, a.layer]);
+  }
+}
+
+export async function agentLiveness(): Promise<unknown> {
+  await ensureAgentRegistry();
   const p = getPool();
   const { rows: registry } = await p.query(
     `SELECT id, name, status, model FROM agents ORDER BY created_at ASC`);
@@ -168,6 +190,7 @@ export async function agentTick(rhythm: string, maxTasks = 2): Promise<{ agentsB
     const p = getPool();
     let agentsBeat = 0;
     try {
+      await ensureAgentRegistry();
       const { rows } = await p.query(`SELECT id FROM agents WHERE status='ACTIVE'`);
       for (const a of rows) {
         await beat(a.id as string, rhythm, 0);
