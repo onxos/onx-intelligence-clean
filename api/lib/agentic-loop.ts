@@ -437,7 +437,10 @@ export async function runAgenticLoop(goal: string, maxSteps = 8, history: Conver
 
   // Knowledge sovereignty: a learned answer is never purchased twice.
   // Multi-turn conversations skip the cache — context changes meaning.
-  const cached = history.length === 0 ? await recallAnswer(goal) : null;
+  // Execution intents must never be served from cache (2026-08-17 incident: a
+  // transient DB failure answer was cached as stable and re-served for an hour).
+  const EXEC_INTENT = /(أكّد|أكد|نفّذ|نفذ|أوقف|اوقف|استأنف|اقترح|أعد المحاولة|propose|confirm|execute|cancel|redeploy|pa-[0-9])/i;
+  const cached = (history.length === 0 && !EXEC_INTENT.test(goal)) ? await recallAnswer(goal) : null;
   if (cached) {
     void recordUsage({
       provider: "onx-cache", model: "onx-knowledge-store", kind: "chat",
@@ -548,7 +551,7 @@ export async function runAgenticLoop(goal: string, maxSteps = 8, history: Conver
   if (status === "completed" && answer && history.length === 0) {
     // Volatile answers (grounded in live-state tools) expire in minutes;
     // knowledge answers live for a week (D17: never serve stale truth as fresh).
-    const VOLATILE_TOOLS = new Set(["agents_liveness", "task_queue_stats", "corpus_stats", "provider_capital", "marketing_ops"]);
+    const VOLATILE_TOOLS = new Set(["agents_liveness", "task_queue_stats", "corpus_stats", "provider_capital", "marketing_ops", "propose_action", "confirm_action", "cancel_action", "pending_actions"]);
     const usedVolatile = steps.some((s) => s.kind === "tool_call" && s.tool && VOLATILE_TOOLS.has(s.tool));
     // 2026-08-17: never cache answers built on tool errors (a transient failure
     // cached as "stable" was served for an hour on 2026-08-17).
