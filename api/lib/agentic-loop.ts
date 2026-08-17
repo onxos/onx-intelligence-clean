@@ -39,6 +39,16 @@ async function ensureSchema(): Promise<void> {
   if (schemaReady) return;
   const p = getPool();
   await p.query(`
+    CREATE TABLE IF NOT EXISTS onx_pending_actions (
+      id TEXT PRIMARY KEY,
+      action TEXT NOT NULL,
+      params JSONB NOT NULL DEFAULT '{}',
+      reason TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      result JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
     CREATE TABLE IF NOT EXISTS onx_agentic_runs (
       id TEXT PRIMARY KEY,
       goal TEXT NOT NULL,
@@ -92,6 +102,8 @@ function expandArabicAliases(query: string): string {
   }
   return out;
 }
+
+let currentUserText = "";
 
 interface ToolDef {
   name: string;
@@ -153,7 +165,7 @@ const TOOLS: ToolDef[] = [
     parameters: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["list_video_jobs", "retry_video_job", "content_today", "trigger_daily_run"] },
+        action: { type: "string", enum: ["list_video_jobs", "retry_video_job", "content_today", "trigger_daily_run", "list_campaigns"] },
         jobId: { type: "string", description: "required for retry_video_job" },
       },
       required: ["action"],
@@ -166,7 +178,7 @@ const TOOLS: ToolDef[] = [
       const action = String(args.action ?? "");
       const pathMap: Record<string, string> = {
         list_video_jobs: "video-jobs", retry_video_job: "video-retry",
-        content_today: "content-today", trigger_daily_run: "daily-run",
+        content_today: "content-today", trigger_daily_run: "daily-run", list_campaigns: "campaigns-list",
       };
       const path = pathMap[action];
       if (!path) return { error: `unknown action ${action}` };
@@ -223,7 +235,163 @@ const TOOLS: ToolDef[] = [
       return { taskId: id, status: "queued" };
     },
   },
+  {
+    name: "propose_action",
+    description: "Propose a MUTATING platform action (campaign pause/resume, video production/retry, daily run, server redeploy). NEVER executes — stores the action PENDING and returns an id. After calling this, ask the founder to confirm by replying with the action id (e.g. أكّد pa-...). Execution only happens via confirm_action.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: { type: "string", description: "one of: campaign_pause, campaign_resume, video_produce, video_retry, daily_run, ops_redeploy" },
+        params: { type: "object", description: "action parameters per catalog" },
+        reason: { type: "string", description: "short Arabic reason shown to the founder" },
+      },
+      required: ["action"],
+    },
+    execute: async (a) => {
+      const action = String(a.action ?? "");
+      const meta = ACTION_CATALOG[action];
+      if (!meta) return { error: `unknown action; catalog: ${Object.keys(ACTION_CATALOG).join(", ")}` };
+      const id = `pa-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const p = getPool();
+      await p.query(
+        `INSERT INTO onx_pending_actions (id, action, params, reason) VALUES ($1,$2,$3,$4)`,
+        [id, action, JSON.stringify(a.params ?? {}), a.reason ? String(a.reason).slice(0, 500) : null],
+      );
+      return { actionId: id, action, description: meta.description, costly: Boolean(meta.costly), status: "pending", next: `اعرض على المؤسس — للتنفيذ يرد بـ: أكّد ${id}` };
+    },
+  },
+  {
+    name: "confirm_action",
+    description: "Execute a previously proposed PENDING action — ONLY when the founder's latest message explicitly names the action id (أكّد pa-...). The tool refuses otherwise.",
+    parameters: {
+      type: "object",
+      properties: { actionId: { type: "string", description: "pending action id (pa-...)" } },
+      required: ["actionId"],
+    },
+    execute: async (a) => {
+      const id = String(a.actionId ?? "");
+      if (!/^pa-[0-9]+-[a-z0-9]+$/.test(id)) return { error: "invalid action id" };
+      if (!currentUserText.includes(id)) {
+        return { error: "REFUSED: the founder has not confirmed this action id in the current message. Ask for confirmation first." };
+      }
+      const p = getPool();
+      const r = await p.query(`SELECT * FROM onx_pending_actions WHERE id = $1`, [id]);
+      const row = r.rows[0];
+      if (!row) return { error: "action not found" };
+      if (row.status !== "pending") return { error: `action already ${row.status}` };
+      const result = await executeAction(row.action, row.params ?? {});
+      const failed = Boolean((result as Record<string, unknown>)?.error);
+      await p.query(`UPDATE onx_pending_actions SET status = $2, result = $3, updated_at = now() WHERE id = $1`,
+        [id, failed ? "failed" : "executed", JSON.stringify(result)]);
+      recordGovernanceDecision({
+        auditId: `action-${id}`, path: `agentic.action.${row.action}`,
+        userId: "founder-confirmed", role: "founder",
+        amanahScore: failed ? 0.5 : 1, passed: !failed,
+        level: failed ? "YELLOW" : "GREEN", shadowTrusted: true,
+      });
+      return { actionId: id, action: row.action, status: failed ? "failed" : "executed", result };
+    },
+  },
+  {
+    name: "cancel_action",
+    description: "Cancel a PENDING action when the founder declines it.",
+    parameters: {
+      type: "object",
+      properties: { actionId: { type: "string" } },
+      required: ["actionId"],
+    },
+    execute: async (a) => {
+      const id = String(a.actionId ?? "");
+      const p = getPool();
+      const r = await p.query(`UPDATE onx_pending_actions SET status = 'cancelled', updated_at = now() WHERE id = $1 AND status = 'pending' RETURNING id`, [id]);
+      return r.rows[0] ? { actionId: id, status: "cancelled" } : { error: "not found or not pending" };
+    },
+  },
+  {
+    name: "pending_actions",
+    description: "List actions awaiting founder confirmation.",
+    parameters: { type: "object", properties: {} },
+    execute: async () => {
+      const p = getPool();
+      const r = await p.query(`SELECT id, action, params, reason, created_at FROM onx_pending_actions WHERE status = 'pending' ORDER BY created_at DESC LIMIT 10`);
+      return r.rows;
+    },
+  },
 ];
+
+
+// ---------- action kernel (founder directive 2026-08-16) ----------
+// The brain may ACT on the whole platform — marketing, video, server ops —
+// but every mutating action follows a strict two-phase protocol:
+//   1. propose_action  → stored PENDING in onx_pending_actions, never executed
+//   2. founder replies in chat explicitly naming the action id (أكّد pa-...)
+//   3. confirm_action  → executes, governance-logged, result persisted
+// confirm_action REFUSES unless the current user message literally contains
+// the pending action id — the founder's word is the only key.
+
+const MKT_API = () => (process.env.ONX_MARKETING_API_URL ?? "https://onx-marketing-api.onrender.com").replace(/\/$/, "");
+const RENDER_SERVICES: Record<string, string> = {
+  "onx-marketing-api": "srv-d98v103eo5us73fqim60",
+  "onx-marketing-web": "srv-d98v18m7r5hc73agbl90",
+  "onx-video-worker": "srv-d9hl4ot8nd3s73d97440",
+  "onx-intelligence-clean": "srv-d8vkfs5aeets73d5gkcg",
+};
+
+export const ACTION_CATALOG: Record<string, { description: string; params: string[]; costly?: boolean }> = {
+  campaign_pause: { description: "إيقاف حملة (PAUSED)", params: ["campaignId"] },
+  campaign_resume: { description: "استئناف حملة (ACTIVE) — قد يستأنف إنتاج محتوى مدفوع", params: ["campaignId"], costly: true },
+  video_produce: { description: "توليد فيديو من موجز (~$5 من رصيد Google)", params: ["brief", "language?", "format?", "brandName?"], costly: true },
+  video_retry: { description: "إعادة محاولة مهمة فيديو فاشلة", params: ["jobId"], costly: true },
+  daily_run: { description: "تشغيل الجولة اليومية لمحرك المحتوى فوراً", params: [], costly: true },
+  ops_redeploy: { description: "إعادة نشر خدمة Render (نفس الشيفرة الحية)", params: ["service"] },
+};
+
+async function bridgeCall(path: string, extra: Record<string, unknown>): Promise<unknown> {
+  const bridgeKey = process.env.ONX_BRIDGE_KEY ?? process.env.BRIDGE_SHARED_SECRET ?? "";
+  const businessId = process.env.ONX_BUSINESS_ID ?? "";
+  if (!bridgeKey || !businessId) return { error: "bridge not configured (ONX_BRIDGE_KEY / ONX_BUSINESS_ID missing)" };
+  const res = await fetch(`${MKT_API()}/api/v1/internal/bridge/${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ bridgeKey, businessId, ...extra }),
+  });
+  return { status: res.status, ...(await res.json() as Record<string, unknown>) };
+}
+
+async function executeAction(action: string, params: Record<string, unknown>): Promise<unknown> {
+  switch (action) {
+    case "campaign_pause":
+    case "campaign_resume": {
+      if (!params.campaignId) return { error: "campaignId required" };
+      return bridgeCall("campaign-set-status", { campaignId: params.campaignId, status: action === "campaign_pause" ? "PAUSED" : "ACTIVE" });
+    }
+    case "video_produce": {
+      if (!params.brief) return { error: "brief required" };
+      return bridgeCall("video-produce", { brief: params.brief, language: params.language ?? "ar", format: params.format ?? "landscape", brandName: params.brandName });
+    }
+    case "video_retry": {
+      if (!params.jobId) return { error: "jobId required" };
+      return bridgeCall("video-retry", { jobId: params.jobId });
+    }
+    case "daily_run":
+      return bridgeCall("daily-run", {});
+    case "ops_redeploy": {
+      const sid = RENDER_SERVICES[String(params.service ?? "")];
+      if (!sid) return { error: `unknown service; allowed: ${Object.keys(RENDER_SERVICES).join(", ")}` };
+      const key = process.env.RENDER_API_KEY ?? "";
+      if (!key) return { error: "RENDER_API_KEY not configured on intelligence service" };
+      const res = await fetch(`https://api.render.com/v1/services/${sid}/deploys`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ clearCache: "do_not_clear" }),
+      });
+      const d = (await res.json()) as Record<string, unknown>;
+      return { status: res.status, deployId: d.id, deployStatus: d.status };
+    }
+    default:
+      return { error: `unknown action ${action}; catalog: ${Object.keys(ACTION_CATALOG).join(", ")}` };
+  }
+}
 
 // ---------- engine ----------
 function providerConfig(): { apiKey: string; baseURL?: string; model: string; provider: string } {
@@ -248,11 +416,18 @@ You have REAL tools backed by live production data. Rules:
 - If tools return nothing relevant, say so honestly instead of guessing.
 - Answer in the user's language (Arabic default).
 - Be concise: synthesize, don't dump raw tool output.
-- When a follow-up action would help, you may delegate_task to the workforce.`;
+- When a follow-up action would help, you may delegate_task to the workforce.
+EXECUTION PROTOCOL (founder directive 2026-08-16 — highest priority):
+- You can ACT on the whole platform: campaigns (list/pause/resume), video (produce/retry), content daily-run, and Render server redeploys.
+- Any action that CHANGES anything MUST go through propose_action first — never execute directly.
+- After proposing, end your answer asking the founder to confirm by replying «أكّد <actionId>».
+- Only when the founder's message names the action id, call confirm_action with that id.
+- State the cost honestly for costly actions (video ≈ $5, daily-run/campaign resume may resume Google spend).`;
 
 export interface ConversationTurn { role: "user" | "assistant"; content: string }
 
 export async function runAgenticLoop(goal: string, maxSteps = 8, history: ConversationTurn[] = []): Promise<AgenticRun> {
+  currentUserText = goal;
   const started = Date.now();
   const id = `ar-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const cfg = providerConfig();
