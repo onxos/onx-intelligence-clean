@@ -129,6 +129,15 @@ const TOOLS: ToolDef[] = [
       const limit = Math.min(8, Number(a.limit) || 4);
       const domain = a.domain ? String(a.domain) : undefined;
       const query = String(a.query);
+      // 2026-08-17: bridge to the marketing DB corpus first (the real data).
+      try {
+        const r = (await bridgeCall("corpus-search", { query, limit })) as Record<string, unknown>;
+        if (r && r.success && Array.isArray(r.data) && (r.data as unknown[]).length > 0) {
+          return (r.data as Array<Record<string, unknown>>).map((x) => ({
+            id: x.id, title: x.title, excerpt: x.excerpt, similarity: x.score,
+          }));
+        }
+      } catch { /* fall through to local */ }
       let res = await semanticSearchCorpus(query, limit, domain);
       // Cross-language fallback: the corpus is mostly Latin-script — expand
       // common Arabic veterinary terms and retry once when the first pass misses.
@@ -145,7 +154,15 @@ const TOOLS: ToolDef[] = [
     name: "corpus_stats",
     description: "Live counts of the knowledge corpus (total records, embedded, by domain).",
     parameters: { type: "object", properties: {} },
-    execute: async () => corpusRealCounts(),
+    execute: async () => {
+      // 2026-08-17: the corpus lives in the MARKETING database; read it through
+      // the platform bridge (cross-region external PG is blocked on Render).
+      try {
+        const r = (await bridgeCall("corpus-stats", {})) as Record<string, unknown>;
+        if (r && r.success) return r.data;
+      } catch { /* fall through to local */ }
+      return corpusRealCounts();
+    },
   },
   {
     name: "agents_liveness",
