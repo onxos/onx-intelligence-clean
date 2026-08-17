@@ -145,6 +145,13 @@ if (env.isProduction) {
       } catch (err) {
         logger.error("reflection_cycle.tick_failed", { fatal: false, error: String(err) });
       }
+      // Agent workforce tick: 22 registered agents beat + claim queued tasks.
+      try {
+        const { agentTick } = await import("./lib/agent-runtime-store");
+        await agentTick("pulse", 3);
+      } catch (err) {
+        logger.error("agent_runtime.tick_failed", { fatal: false, error: String(err) });
+      }
       // G6: living mind cycle — inbox → B5 contradictions → B7 proposals.
       // runMindTick never throws by design; a catch here is itself a
       // countable failure: structured error + cronFailures metric +
