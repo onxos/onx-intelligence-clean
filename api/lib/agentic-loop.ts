@@ -550,7 +550,11 @@ export async function runAgenticLoop(goal: string, maxSteps = 8, history: Conver
     // knowledge answers live for a week (D17: never serve stale truth as fresh).
     const VOLATILE_TOOLS = new Set(["agents_liveness", "task_queue_stats", "corpus_stats", "provider_capital", "marketing_ops"]);
     const usedVolatile = steps.some((s) => s.kind === "tool_call" && s.tool && VOLATILE_TOOLS.has(s.tool));
-    void learnAnswer(goal, answer, cfg.model, usedVolatile ? "volatile" : "stable");
+    // 2026-08-17: never cache answers built on tool errors (a transient failure
+    // cached as "stable" was served for an hour on 2026-08-17).
+    const sawToolError = steps.some((s) => s.kind === "tool_call" && (s.resultSummary ?? "").startsWith("ERROR"));
+    const sawToolError2 = steps.some((s) => s.kind === "tool_call" && (s.resultSummary ?? "").includes("\"error\":"));
+    if (!sawToolError && !sawToolError2) void learnAnswer(goal, answer, cfg.model, usedVolatile ? "volatile" : "stable");
   }
 
   const run: AgenticRun = {
