@@ -32,7 +32,9 @@ export const agenticLoopRouter = createRouter({
   cacheClear: protectedQuery.mutation(async () => clearCache()),
 
   capabilities: protectedQuery.query(async () => ({
-    tools: ["corpus_search", "corpus_stats", "agents_liveness", "task_queue_stats", "delegate_task"],
+    tools: ["corpus_search", "corpus_stats", "agents_liveness", "task_queue_stats", "marketing_ops", "provider_capital", "delegate_task", "propose_action", "confirm_action", "cancel_action", "pending_actions"],
+    actions: ["campaign_pause", "campaign_resume", "video_produce", "video_retry", "daily_run", "ops_redeploy"],
+    executionModel: "propose-then-founder-confirm",,
     providerConfigured: Boolean(process.env.OPENAI_API_KEY || (process.env.AGENTIC_API_KEY && process.env.AGENTIC_BASE_URL)),
     model: process.env.AGENTIC_MODEL || "gpt-4o-mini",
     customProvider: Boolean(process.env.AGENTIC_BASE_URL),
