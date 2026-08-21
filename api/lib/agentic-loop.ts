@@ -307,7 +307,7 @@ const TOOLS: ToolDef[] = [
     parameters: {
       type: "object",
       properties: {
-        action: { type: "string", description: "one of: campaign_pause, campaign_resume, campaign_create, video_produce, video_retry, daily_run, creative_create, publication_create, publication_publish, scheduled_post_create, ops_redeploy" },
+        action: { type: "string", description: "one of: campaign_pause, campaign_resume, campaign_create, video_produce, video_retry, daily_run, creative_create, publication_create, publication_publish, scheduled_post_create, ops_redeploy, record_create, record_update" },
         params: { type: "object", description: "action parameters per catalog" },
         reason: { type: "string", description: "short Arabic reason shown to the founder" },
       },
@@ -317,6 +317,18 @@ const TOOLS: ToolDef[] = [
       const action = String(a.action ?? "");
       const meta = ACTION_CATALOG[action];
       if (!meta) return { error: `unknown action; catalog: ${Object.keys(ACTION_CATALOG).join(", ")}` };
+      // 2026-08-21: propose-time validation — a proposal missing required
+      // params is rejected NOW (not after founder confirmation), forcing the
+      // brain to fix it before the founder ever sees it.
+      const supplied = (a.params as Record<string, unknown>) ?? {};
+      const flat = { ...supplied, ...((supplied.fields as Record<string, unknown>) ?? {}) };
+      const missing = meta.params.filter((k) => !k.endsWith("?")).filter((k) => {
+        const v = flat[k];
+        return v === undefined || v === null || String(v).trim() === "";
+      });
+      if (missing.length) {
+        return { error: `PROPOSAL REJECTED — missing required params: ${missing.join(", ")}. Re-propose ${action} with ALL of them filled (for record_create/record_update put domain fields inside params.fields or flat).` };
+      }
       const id = `pa-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
       const p = getPool();
       await p.query(
