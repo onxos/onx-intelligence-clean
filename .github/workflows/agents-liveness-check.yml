@@ -23,7 +23,7 @@ jobs:
           })().catch(e => { console.error('PROBE_ERR', e.message); process.exit(1); });
           """
           b64=base64.b64encode(js.encode()).decode()
-          cmd=f"echo {b64} | base64 -d > /app/_p.js && cd /app && node /app/_p.js; RC=$?; rm -f /app/_p.js; exit $RC"
+          cmd=f"echo {b64} | base64 -d > /tmp/_p.js && NODE_PATH=/app/node_modules node /tmp/_p.js; RC=$?; rm -f /tmp/_p.js; exit $RC"
           r=urllib.request.Request("https://api.render.com/v1/services/srv-d8vkfs5aeets73d5gkcg/jobs",
               data=json.dumps({"startCommand":cmd}).encode(), headers=H, method="POST")
           job=json.load(urllib.request.urlopen(r,timeout=60))
