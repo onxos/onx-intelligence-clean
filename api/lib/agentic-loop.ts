@@ -189,8 +189,11 @@ const TOOLS: ToolDef[] = [
     parameters: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["list_video_jobs", "retry_video_job", "content_today", "trigger_daily_run", "list_campaigns"] },
+        action: { type: "string", enum: ["list_video_jobs", "retry_video_job", "content_today", "trigger_daily_run", "list_campaigns", "overview", "brain_list"] },
         jobId: { type: "string", description: "required for retry_video_job" },
+        model: { type: "string", description: "for brain_list: campaigns|creatives|publications|leads|segments|audiences|offers|budgets|scheduled_posts|plans|tasks|goals|brands|products|services|avatars|reports|social_accounts|contacts" },
+        status: { type: "string", description: "optional status filter for list actions" },
+        limit: { type: "number", description: "max rows (default 20, max 50)" },
       },
       required: ["action"],
     },
@@ -203,6 +206,7 @@ const TOOLS: ToolDef[] = [
       const pathMap: Record<string, string> = {
         list_video_jobs: "video-jobs", retry_video_job: "video-retry",
         content_today: "content-today", trigger_daily_run: "daily-run", list_campaigns: "campaigns-list",
+        overview: "brain-overview", brain_list: "brain-list",
       };
       const path = pathMap[action];
       if (!path) return { error: `unknown action ${action}` };
@@ -212,7 +216,13 @@ const TOOLS: ToolDef[] = [
         const res = await fetch(`${mktUrl}/api/v1/internal/bridge/${path}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ bridgeKey, businessId, ...(args.jobId ? { jobId: args.jobId } : {}) }),
+          body: JSON.stringify({
+            bridgeKey, businessId,
+            ...(args.jobId ? { jobId: args.jobId } : {}),
+            ...(args.model ? { model: args.model } : {}),
+            ...(args.status ? { status: args.status } : {}),
+            ...(args.limit ? { limit: args.limit } : {}),
+          }),
         });
         const data = (await res.json()) as Record<string, unknown>;
         if (MUTATING.has(action)) {
@@ -265,7 +275,7 @@ const TOOLS: ToolDef[] = [
     parameters: {
       type: "object",
       properties: {
-        action: { type: "string", description: "one of: campaign_pause, campaign_resume, video_produce, video_retry, daily_run, ops_redeploy" },
+        action: { type: "string", description: "one of: campaign_pause, campaign_resume, campaign_create, video_produce, video_retry, daily_run, creative_create, publication_create, publication_publish, scheduled_post_create, ops_redeploy" },
         params: { type: "object", description: "action parameters per catalog" },
         reason: { type: "string", description: "short Arabic reason shown to the founder" },
       },
@@ -368,6 +378,11 @@ export const ACTION_CATALOG: Record<string, { description: string; params: strin
   video_retry: { description: "إعادة محاولة مهمة فيديو فاشلة", params: ["jobId"], costly: true },
   daily_run: { description: "تشغيل الجولة اليومية لمحرك المحتوى فوراً", params: [], costly: true },
   ops_redeploy: { description: "إعادة نشر خدمة Render (نفس الشيفرة الحية)", params: ["service"] },
+  campaign_create: { description: "إنشاء حملة جديدة كمسودة موقوفة (PAUSED — لا صرف)", params: ["name", "description?", "type?", "objective?"] },
+  creative_create: { description: "إنشاء محتوى إبداعي نصي (معتمد تلقائياً عند autoApprove)", params: ["content", "campaignId?", "autoApprove?"] },
+  publication_create: { description: "إنشاء منشور (مسودة) لمحتوى على منصة", params: ["creativeId", "platform"] },
+  publication_publish: { description: "نشر منشور عبر قناة المنصة الحقيقية — يفشل بصراحة بلا مفاتيح", params: ["publicationId"], costly: true },
+  scheduled_post_create: { description: "جدولة منشور اجتماعي لوقت مستقبلي", params: ["channel", "content", "scheduledAt"] },
 };
 
 async function bridgeCall(path: string, extra: Record<string, unknown>): Promise<unknown> {
@@ -399,6 +414,26 @@ async function executeAction(action: string, params: Record<string, unknown>): P
     }
     case "daily_run":
       return bridgeCall("daily-run", {});
+    case "campaign_create": {
+      if (!params.name) return { error: "name required" };
+      return bridgeCall("campaign-create", { name: params.name, description: params.description, type: params.type, objective: params.objective });
+    }
+    case "creative_create": {
+      if (!params.content) return { error: "content required" };
+      return bridgeCall("creative-create", { content: params.content, campaignId: params.campaignId, autoApprove: params.autoApprove !== false });
+    }
+    case "publication_create": {
+      if (!params.creativeId || !params.platform) return { error: "creativeId and platform required" };
+      return bridgeCall("publication-create", { creativeId: params.creativeId, platform: params.platform });
+    }
+    case "publication_publish": {
+      if (!params.publicationId) return { error: "publicationId required" };
+      return bridgeCall("publication-publish", { publicationId: params.publicationId });
+    }
+    case "scheduled_post_create": {
+      if (!params.channel || !params.content || !params.scheduledAt) return { error: "channel, content, scheduledAt required" };
+      return bridgeCall("scheduled-post-create", { channel: params.channel, content: params.content, scheduledAt: params.scheduledAt });
+    }
     case "ops_redeploy": {
       const sid = RENDER_SERVICES[String(params.service ?? "")];
       if (!sid) return { error: `unknown service; allowed: ${Object.keys(RENDER_SERVICES).join(", ")}` };
@@ -442,7 +477,9 @@ You have REAL tools backed by live production data. Rules:
 - Be concise: synthesize, don't dump raw tool output.
 - When a follow-up action would help, you may delegate_task to the workforce.
 EXECUTION PROTOCOL (founder directive 2026-08-16 — highest priority):
-- You can ACT on the whole platform: campaigns (list/pause/resume), video (produce/retry), content daily-run, and Render server redeploys.
+- You can ACT on the whole platform: campaigns (list/create/pause/resume), creatives (create), publications (create/publish via REAL platform APIs), scheduled posts (create), video (produce/retry), content daily-run, and Render server redeploys.
+- ORCHESTRATION (founder directive 2026-08-21 — one command, full execution): for any broad goal (e.g. "أطلق حملة كاملة"), DO NOT ask the founder to do steps himself. Plan the whole chain yourself, ground each step with reads, create every artifact in order (campaign → creative → publication/scheduled post), batch the mutating steps into propose_action calls, and present ONE numbered plan with all action ids so the founder confirms once. After confirmation, execute every confirmed action with confirm_action and report the full outcome per step.
+- Start broad goals with marketing_ops overview + brain_list to ground yourself in the real current state before planning.
 - Any action that CHANGES anything MUST go through propose_action first — never execute directly.
 - ALWAYS resolve real entity IDs with read tools BEFORE proposing: use marketing_ops list_campaigns to get campaignId, list_video_jobs to get jobId. Never propose with names or guessed ids.
 - When the founder's message confirms an action id, call confirm_action with EXACTLY that id — never propose a replacement.
@@ -452,7 +489,7 @@ EXECUTION PROTOCOL (founder directive 2026-08-16 — highest priority):
 
 export interface ConversationTurn { role: "user" | "assistant"; content: string }
 
-export async function runAgenticLoop(goal: string, maxSteps = 8, history: ConversationTurn[] = []): Promise<AgenticRun> {
+export async function runAgenticLoop(goal: string, maxSteps = 24, history: ConversationTurn[] = []): Promise<AgenticRun> {
   currentUserText = goal;
   const started = Date.now();
   const id = `ar-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
