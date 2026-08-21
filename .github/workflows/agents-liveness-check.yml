@@ -4,39 +4,23 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - name: Launch agents-table probe job on intelligence service
+      - name: Bridge call to agentRuntime.status (key fetched server-to-server, never logged)
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
         run: |
           python3 - <<'PY'
-          import base64, json, os, time, urllib.request
-          KEY=os.environ["RENDER_API_KEY"]; H={"Authorization":"Bearer "+KEY,"Content-Type":"application/json"}
-          js = r"""
-          const { Client } = require('pg');
-          (async () => {
-            const c = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
-            await c.connect();
-            const a = await c.query("SELECT count(*)::int AS total, count(*) FILTER (WHERE status='ACTIVE')::int AS active, max(last_beat_at) AS last_beat FROM agents");
-            console.log('AGENTS:', JSON.stringify(a.rows[0]));
-            try { const t = await c.query("SELECT status, count(*)::int n FROM agent_tasks GROUP BY status"); console.log('TASKS:', JSON.stringify(t.rows)); } catch(e){ console.log('TASKS: n/a', e.message); }
-            await c.end(); process.exit(0);
-          })().catch(e => { console.error('PROBE_ERR', e.message); process.exit(1); });
-          """
-          b64=base64.b64encode(js.encode()).decode()
-          cmd=f"echo {b64} | base64 -d > /tmp/_p.js && NODE_PATH=/app/node_modules node /tmp/_p.js; RC=$?; rm -f /tmp/_p.js; exit $RC"
-          r=urllib.request.Request("https://api.render.com/v1/services/srv-d8vkfs5aeets73d5gkcg/jobs",
-              data=json.dumps({"startCommand":cmd}).encode(), headers=H, method="POST")
-          job=json.load(urllib.request.urlopen(r,timeout=60))
-          print("job:", job["id"])
-          time.sleep(50)
-          s=json.load(urllib.request.urlopen(urllib.request.Request(f"https://api.render.com/v1/services/srv-d8vkfs5aeets73d5gkcg/jobs/{job['id']}",headers=H),timeout=60))
-          print("status:", s.get("status"))
-          svc=json.load(urllib.request.urlopen(urllib.request.Request("https://api.render.com/v1/services/srv-d8vkfs5aeets73d5gkcg",headers=H),timeout=60))
-          oid=svc.get("ownerId") or svc.get("service",{}).get("ownerId")
-          import datetime, urllib.parse
-          end=datetime.datetime.now(datetime.timezone.utc); start=end-datetime.timedelta(minutes=10)
-          q=urllib.parse.urlencode({"ownerId":oid,"resource":job["id"],"startTime":start.strftime("%Y-%m-%dT%H:%M:%SZ"),"endTime":end.strftime("%Y-%m-%dT%H:%M:%SZ"),"limit":"50","direction":"backward"})
-          d=json.load(urllib.request.urlopen(urllib.request.Request(f"https://api.render.com/v1/logs?{q}",headers=H),timeout=90))
-          logs=d.get("logs") or []
-          for l in reversed(logs): print(l.get("timestamp","")[:19], (l.get("message") or "")[:250])
+          import json, os, urllib.request
+          KEY=os.environ["RENDER_API_KEY"]; H={"Authorization":"Bearer "+KEY}
+          env=json.load(urllib.request.urlopen(urllib.request.Request("https://api.render.com/v1/services/srv-d98v103eo5us73fqim60/env-vars?limit=50",headers=H),timeout=60))
+          sec=[e["envVar"]["value"] for e in env if e["envVar"]["key"]=="BRIDGE_SHARED_SECRET"][0]
+          req=urllib.request.Request("https://onx-intelligence-clean.onrender.com/api/trpc/agentRuntime.status?batch=1&input=%7B%7D",
+              headers={"x-onx-bridge-key": sec})
+          d=json.load(urllib.request.urlopen(req,timeout=60))
+          j=d[0].get("result",{}).get("data",{}).get("json",{})
+          print("KEYS:", sorted(j.keys()) if isinstance(j,dict) else type(j))
+          print("LIVENESS:", json.dumps(j)[:800])
+          req2=urllib.request.Request("https://onx-intelligence-clean.onrender.com/api/trpc/agentRuntime.tasks?batch=1&input=%7B%7D",
+              headers={"x-onx-bridge-key": sec})
+          d2=json.load(urllib.request.urlopen(req2,timeout=60))
+          print("TASKS:", json.dumps(d2[0].get("result",{}).get("data",{}).get("json",{}))[:500])
           PY
