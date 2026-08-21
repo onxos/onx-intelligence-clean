@@ -307,7 +307,7 @@ const TOOLS: ToolDef[] = [
     parameters: {
       type: "object",
       properties: {
-        action: { type: "string", description: "one of: campaign_pause, campaign_resume, campaign_create, video_produce, video_retry, daily_run, creative_create, publication_create, publication_publish, scheduled_post_create, ops_redeploy, record_create, record_update" },
+        action: { type: "string", description: "one of: campaign_pause, campaign_resume, campaign_create, video_produce, video_retry, daily_run, creative_create, publication_create, publication_publish, scheduled_post_create, ops_redeploy, record_create, record_update, engine_run" },
         params: { type: "object", description: "action parameters per catalog" },
         reason: { type: "string", description: "short Arabic reason shown to the founder" },
       },
