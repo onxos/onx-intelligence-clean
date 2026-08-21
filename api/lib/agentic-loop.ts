@@ -460,18 +460,22 @@ async function executeAction(action: string, params: Record<string, unknown>): P
     }
     case "daily_run":
       return bridgeCall("daily-run", {});
-    case "record_create": {
-      if (!params.model) return { error: "model required" };
-      // tolerate flat params: anything besides model/fields becomes a field
-      const { model: _m, fields: f0, ...rest } = params;
-      const fields = { ...rest, ...((f0 as Record<string, unknown>) ?? {}) };
-      return bridgeCall("brain-create", { model: params.model, fields });
-    }
+    case "record_create":
     case "record_update": {
-      if (!params.model || !params.id) return { error: "model and id required" };
-      const { model: _m2, id: _i, fields: f1, ...rest2 } = params;
-      const fields = { ...rest2, ...((f1 as Record<string, unknown>) ?? {}) };
-      return bridgeCall("brain-update", { model: params.model, id: params.id, fields });
+      if (!params.model) return { error: "model required" };
+      // 2026-08-21: normalize LLM variance — plural model names ("offers" →
+      // "offer", "categories" → "category" style) and fields arriving as
+      // `fields`, `data`, or flat keys all collapse into one fields object.
+      let model = String(params.model).toLowerCase();
+      if (model.endsWith("ies")) model = model.slice(0, -3) + "y";
+      else if (model.endsWith("s") && !model.endsWith("ss")) model = model.slice(0, -1);
+      const { model: _m, id: _i, fields: f0, data: d0, ...rest } = params;
+      const fields = { ...rest, ...((d0 as Record<string, unknown>) ?? {}), ...((f0 as Record<string, unknown>) ?? {}) };
+      if (action === "record_create") {
+        return bridgeCall("brain-create", { model, fields });
+      }
+      if (!params.id) return { error: "id required" };
+      return bridgeCall("brain-update", { model, id: params.id, fields });
     }
     case "campaign_create": {
       if (!params.name) return { error: "name required" };
