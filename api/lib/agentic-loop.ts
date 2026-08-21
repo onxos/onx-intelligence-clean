@@ -223,7 +223,7 @@ const TOOLS: ToolDef[] = [
       properties: {
         action: { type: "string", enum: ["list_video_jobs", "retry_video_job", "content_today", "trigger_daily_run", "list_campaigns", "overview", "brain_list"] },
         jobId: { type: "string", description: "required for retry_video_job" },
-        model: { type: "string", description: "for brain_list: campaigns|creatives|publications|leads|segments|audiences|offers|budgets|scheduled_posts|plans|tasks|goals|brands|products|services|avatars|reports|social_accounts|contacts" },
+        model: { type: "string", description: "for brain_list: any of the 152 business-scoped models — the keys returned by overview (campaigns, creatives, kpi_values, intel signals, experiments, agents, approvals, ...)" },
         status: { type: "string", description: "optional status filter for list actions" },
         limit: { type: "number", description: "max rows (default 20, max 50)" },
       },
@@ -411,6 +411,8 @@ export const ACTION_CATALOG: Record<string, { description: string; params: strin
   daily_run: { description: "تشغيل الجولة اليومية لمحرك المحتوى فوراً", params: [], costly: true },
   ops_redeploy: { description: "إعادة نشر خدمة Render (نفس الشيفرة الحية)", params: ["service"] },
   campaign_create: { description: "إنشاء حملة جديدة كمسودة موقوفة (PAUSED — لا صرف)", params: ["name", "description?", "type?", "objective?"] },
+  record_create: { description: "إنشاء سجل في أي مجال: offer|audience|avatar|lead|goal|plan|task|budget|product|service|contact|report|asset|experiment|content_brief|brand|automation_rule — الحقول داخل fields", params: ["model", "fields"] },
+  record_update: { description: "تحديث سجل قائم (campaigns|leads|tasks|goals|approvals|scheduled_posts|publications|offers|automation_rules — الحقول المسموحة فقط)", params: ["model", "id", "fields"] },
   creative_create: { description: "إنشاء محتوى إبداعي نصي (معتمد تلقائياً عند autoApprove)", params: ["content", "campaignId?", "autoApprove?"] },
   publication_create: { description: "إنشاء منشور (مسودة) لمحتوى على منصة", params: ["creativeId", "platform"] },
   publication_publish: { description: "نشر منشور عبر قناة المنصة الحقيقية — يفشل بصراحة بلا مفاتيح", params: ["publicationId"], costly: true },
@@ -446,6 +448,14 @@ async function executeAction(action: string, params: Record<string, unknown>): P
     }
     case "daily_run":
       return bridgeCall("daily-run", {});
+    case "record_create": {
+      if (!params.model) return { error: "model required" };
+      return bridgeCall("brain-create", { model: params.model, fields: (params.fields as Record<string, unknown>) ?? {} });
+    }
+    case "record_update": {
+      if (!params.model || !params.id) return { error: "model and id required" };
+      return bridgeCall("brain-update", { model: params.model, id: params.id, fields: (params.fields as Record<string, unknown>) ?? {} });
+    }
     case "campaign_create": {
       if (!params.name) return { error: "name required" };
       return bridgeCall("campaign-create", { name: params.name, description: params.description, type: params.type, objective: params.objective });
@@ -510,8 +520,8 @@ You have REAL tools backed by live production data. Rules:
 - When a follow-up action would help, you may delegate_task to the workforce.
 EXECUTION PROTOCOL (founder directive 2026-08-16 — highest priority):
 - You can ACT on the whole platform: campaigns (list/create/pause/resume), creatives (create), publications (create/publish via REAL platform APIs), scheduled posts (create), video (produce/retry), content daily-run, and Render server redeploys.
-- ORCHESTRATION (founder directive 2026-08-21 — one command, full execution): for any broad goal (e.g. "أطلق حملة كاملة"), DO NOT ask the founder to do steps himself. Plan the whole chain yourself, ground each step with reads, create every artifact in order (campaign → creative → publication/scheduled post), batch the mutating steps into propose_action calls, and present ONE numbered plan with all action ids so the founder confirms once. After confirmation, execute every confirmed action with confirm_action and report the full outcome per step.
-- Start broad goals with marketing_ops overview + brain_list to ground yourself in the real current state before planning.
+- ORCHESTRATION (founder directive 2026-08-21 — one command, full execution): for any broad goal (e.g. "أطلق حملة كاملة"), DO NOT ask the founder to do steps himself. Plan the whole chain yourself, ground each step with reads, create every artifact in order (campaign → creative → publication/scheduled post; any other domain via record_create/record_update — offers, audiences, avatars, leads, goals, plans, tasks, budgets, products, services, contacts, reports, assets, experiments, briefs, brands, automation rules), batch the mutating steps into propose_action calls, and present ONE numbered plan with all action ids so the founder confirms once. After confirmation, execute every confirmed action with confirm_action and report the full outcome per step.
+- Start broad goals with marketing_ops overview + brain_list to ground yourself in the real current state before planning. brain_list can read ANY of the 152 business data models (campaigns, creatives, kpi_values, kpi_insights, experiments, intel signals, agents, approvals, alerts, memory, ...) — read whatever the goal needs.
 - Any action that CHANGES anything MUST go through propose_action first — never execute directly.
 - ALWAYS resolve real entity IDs with read tools BEFORE proposing: use marketing_ops list_campaigns to get campaignId, list_video_jobs to get jobId. Never propose with names or guessed ids.
 - When the founder's message confirms an action id, call confirm_action with EXACTLY that id — never propose a replacement.
