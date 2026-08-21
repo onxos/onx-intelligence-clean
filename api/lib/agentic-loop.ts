@@ -85,6 +85,38 @@ export interface AgenticRun {
   durationMs: number;
 }
 
+// ---------- run lifecycle (2026-08-21: async one-command orchestration) ----------
+/** Persist the run at START so long orchestrations are visible in institutional
+ *  memory even while still executing; the end of the loop updates the row. */
+async function insertAgenticRunStart(id: string, goal: string, model: string, provider: string): Promise<void> {
+  try {
+    const p = getPool();
+    await p.query(
+      `INSERT INTO onx_agentic_runs (id, goal, status, answer, model, provider, steps, tool_calls, duration_ms)
+       VALUES ($1,$2,'running','',$3,$4,'[]',0,0) ON CONFLICT (id) DO NOTHING`,
+      [id, goal, model, provider],
+    );
+  } catch { /* persistence must never break the loop */ }
+}
+
+async function updateAgenticRunRow(run: AgenticRun): Promise<void> {
+  try {
+    const p = getPool();
+    await p.query(
+      `UPDATE onx_agentic_runs SET status=$2, answer=$3, model=$4, provider=$5, steps=$6, tool_calls=$7, duration_ms=$8 WHERE id=$1`,
+      [run.id, run.status, run.answer, run.model, run.provider, JSON.stringify(run.steps), run.toolCalls, run.durationMs],
+    );
+  } catch { /* persistence must never break the loop */ }
+}
+
+/** Fire-and-persist: start the loop in the background, return the run id
+ *  immediately. The caller polls agentic.get / agentic.list for the outcome. */
+export function startAgenticRun(goal: string, maxSteps = 24, history: ConversationTurn[] = []): { id: string; status: "running" } {
+  const id = `ar-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  void runAgenticLoop(goal, maxSteps, history, id).catch(() => { /* failure is captured in the run row */ });
+  return { id, status: "running" };
+}
+
 // ---------- tools ----------
 /** Common Arabic→Latin veterinary/brand aliases for cross-language retrieval. */
 const ARABIC_ALIASES: Record<string, string> = {
@@ -489,11 +521,12 @@ EXECUTION PROTOCOL (founder directive 2026-08-16 — highest priority):
 
 export interface ConversationTurn { role: "user" | "assistant"; content: string }
 
-export async function runAgenticLoop(goal: string, maxSteps = 24, history: ConversationTurn[] = []): Promise<AgenticRun> {
+export async function runAgenticLoop(goal: string, maxSteps = 24, history: ConversationTurn[] = [], presetId?: string): Promise<AgenticRun> {
   currentUserText = goal;
   const started = Date.now();
-  const id = `ar-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const id = presetId ?? `ar-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const cfg = providerConfig();
+  await insertAgenticRunStart(id, goal, cfg.model, cfg.provider);
   const steps: AgenticStep[] = [];
 
   // Knowledge sovereignty: a learned answer is never purchased twice.
@@ -509,17 +542,21 @@ export async function runAgenticLoop(goal: string, maxSteps = 24, history: Conve
       latencyMs: Date.now() - started, success: true,
       purpose: `agentic-loop:cache-hit:${cached.match}${cached.similarity ? `:${cached.similarity}` : ""}:${id}`,
     });
-    return {
+    const crun: AgenticRun = {
       id, goal, status: "completed",
       answer: cached.answer,
       model: "onx-knowledge-store", provider: "cache",
       steps: [{ step: 1, kind: "final" }], toolCalls: 0,
       durationMs: Date.now() - started,
     };
+    await updateAgenticRunRow(crun);
+    return crun;
   }
 
   if (!cfg.apiKey) {
-    return { id, goal, status: "failed", answer: "AGENTIC provider not configured (OPENAI_API_KEY or AGENTIC_API_KEY+AGENTIC_BASE_URL missing)", model: cfg.model, provider: cfg.provider, steps, toolCalls: 0, durationMs: Date.now() - started };
+    const frun: AgenticRun = { id, goal, status: "failed", answer: "AGENTIC provider not configured (OPENAI_API_KEY or AGENTIC_API_KEY+AGENTIC_BASE_URL missing)", model: cfg.model, provider: cfg.provider, steps, toolCalls: 0, durationMs: Date.now() - started };
+    await updateAgenticRunRow(frun);
+    return frun;
   }
 
   const { default: OpenAI } = await import("openai");
@@ -626,15 +663,8 @@ export async function runAgenticLoop(goal: string, maxSteps = 24, history: Conve
     steps, toolCalls, durationMs: Date.now() - started,
   };
 
-  // persist + governance (fire-and-forget discipline)
-  try {
-    const p = getPool();
-    await p.query(
-      `INSERT INTO onx_agentic_runs (id, goal, status, answer, model, provider, steps, tool_calls, duration_ms)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [run.id, run.goal, run.status, run.answer, run.model, run.provider, JSON.stringify(run.steps), run.toolCalls, run.durationMs],
-    );
-  } catch { /* persistence must never break the loop */ }
+  // persist + governance (fire-and-forget discipline); row was inserted at start
+  await updateAgenticRunRow(run);
   recordGovernanceDecision({
     auditId: `agentic-${run.id}`, path: "agentic.run",
     userId: "agentic-loop", role: "system",
