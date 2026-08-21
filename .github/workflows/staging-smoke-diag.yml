@@ -1,0 +1,21 @@
+name: staging-smoke-diag
+on: workflow_dispatch
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          KEY=os.environ["RENDER_API_KEY"]; H={"Authorization":"Bearer "+KEY}
+          env=json.load(urllib.request.urlopen(urllib.request.Request("https://api.render.com/v1/services/srv-d98v103eo5us73fqim60/env-vars?limit=50",headers=H),timeout=60))
+          sec=[e["envVar"]["value"] for e in env if e["envVar"]["key"]=="BRIDGE_SHARED_SECRET"][0]
+          req=urllib.request.Request("https://onx-intelligence-staging.onrender.com/api/trpc/corpusQuery.realCounts?batch=1&input=%7B%7D",headers={"x-onx-bridge-key":sec})
+          try:
+              d=json.load(urllib.request.urlopen(req,timeout=60)); print("RESULT:", json.dumps(d)[:400])
+          except Exception as e:
+              print("ERR", e)
+              if hasattr(e,'read'): print(e.read()[:300])
+          PY
