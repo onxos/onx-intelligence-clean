@@ -450,11 +450,16 @@ async function executeAction(action: string, params: Record<string, unknown>): P
       return bridgeCall("daily-run", {});
     case "record_create": {
       if (!params.model) return { error: "model required" };
-      return bridgeCall("brain-create", { model: params.model, fields: (params.fields as Record<string, unknown>) ?? {} });
+      // tolerate flat params: anything besides model/fields becomes a field
+      const { model: _m, fields: f0, ...rest } = params;
+      const fields = { ...rest, ...((f0 as Record<string, unknown>) ?? {}) };
+      return bridgeCall("brain-create", { model: params.model, fields });
     }
     case "record_update": {
       if (!params.model || !params.id) return { error: "model and id required" };
-      return bridgeCall("brain-update", { model: params.model, id: params.id, fields: (params.fields as Record<string, unknown>) ?? {} });
+      const { model: _m2, id: _i, fields: f1, ...rest2 } = params;
+      const fields = { ...rest2, ...((f1 as Record<string, unknown>) ?? {}) };
+      return bridgeCall("brain-update", { model: params.model, id: params.id, fields });
     }
     case "campaign_create": {
       if (!params.name) return { error: "name required" };
