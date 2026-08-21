@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { createRouter, protectedQuery } from "./middleware";
-import { runAgenticLoop, listAgenticRuns, getAgenticRun } from "./lib/agentic-loop";
+import { runAgenticLoop, startAgenticRun, listAgenticRuns, getAgenticRun } from "./lib/agentic-loop";
 import { cacheStats, clearCache } from "./lib/answer-cache";
 
 /**
@@ -12,10 +12,21 @@ export const agenticLoopRouter = createRouter({
   run: protectedQuery
     .input(z.object({
       goal: z.string().min(3).max(4000),
-      maxSteps: z.number().min(1).max(12).default(8),
+      maxSteps: z.number().min(1).max(24).default(12),
       history: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(4000) })).max(16).default([]),
     }))
     .mutation(async ({ input }) => runAgenticLoop(input.goal, input.maxSteps, input.history)),
+
+  /** One-command orchestration: start the brain in the background, return the
+   *  run id instantly; the run row is persisted immediately (status running)
+   *  and updated on completion. Poll agentic.get for the outcome. */
+  start: protectedQuery
+    .input(z.object({
+      goal: z.string().min(3).max(4000),
+      maxSteps: z.number().min(1).max(24).default(12),
+      history: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(4000) })).max(16).default([]),
+    }))
+    .mutation(async ({ input }) => startAgenticRun(input.goal, input.maxSteps, input.history)),
 
   list: protectedQuery
     .input(z.object({ limit: z.number().min(1).max(100).default(20) }))
@@ -33,8 +44,8 @@ export const agenticLoopRouter = createRouter({
 
   capabilities: protectedQuery.query(async () => ({
     tools: ["corpus_search", "corpus_stats", "agents_liveness", "task_queue_stats", "marketing_ops", "provider_capital", "delegate_task", "propose_action", "confirm_action", "cancel_action", "pending_actions"],
-    actions: ["campaign_pause", "campaign_resume", "video_produce", "video_retry", "daily_run", "ops_redeploy"],
-    executionModel: "propose-then-founder-confirm",
+    actions: ["campaign_pause", "campaign_resume", "video_produce", "video_retry", "daily_run", "ops_redeploy", "campaign_create", "creative_create", "publication_create", "publication_publish", "scheduled_post_create"],
+    executionModel: "propose-then-founder-confirm; async start via agentic.start + poll agentic.get",
     providerConfigured: Boolean(process.env.OPENAI_API_KEY || (process.env.AGENTIC_API_KEY && process.env.AGENTIC_BASE_URL)),
     model: process.env.AGENTIC_MODEL || "gpt-4o-mini",
     customProvider: Boolean(process.env.AGENTIC_BASE_URL),
