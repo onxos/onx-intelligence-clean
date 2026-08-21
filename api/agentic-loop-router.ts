@@ -44,7 +44,7 @@ export const agenticLoopRouter = createRouter({
 
   capabilities: protectedQuery.query(async () => ({
     tools: ["corpus_search", "corpus_stats", "agents_liveness", "task_queue_stats", "marketing_ops", "provider_capital", "delegate_task", "propose_action", "confirm_action", "cancel_action", "pending_actions"],
-    actions: ["campaign_pause", "campaign_resume", "video_produce", "video_retry", "daily_run", "ops_redeploy", "campaign_create", "creative_create", "publication_create", "publication_publish", "scheduled_post_create"],
+    actions: ["campaign_pause", "campaign_resume", "video_produce", "video_retry", "daily_run", "ops_redeploy", "campaign_create", "creative_create", "publication_create", "publication_publish", "scheduled_post_create", "record_create", "record_update"],
     executionModel: "propose-then-founder-confirm; async start via agentic.start + poll agentic.get",
     providerConfigured: Boolean(process.env.OPENAI_API_KEY || (process.env.AGENTIC_API_KEY && process.env.AGENTIC_BASE_URL)),
     model: process.env.AGENTIC_MODEL || "gpt-4o-mini",
