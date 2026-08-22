@@ -577,7 +577,11 @@ export async function runAgenticLoop(goal: string, maxSteps = 24, history: Conve
   // Execution intents must never be served from cache (2026-08-17 incident: a
   // transient DB failure answer was cached as stable and re-served for an hour).
   const EXEC_INTENT = /(أكّد|أكد|نفّذ|نفذ|أوقف|اوقف|استأنف|اقترح|أعد المحاولة|propose|confirm|execute|cancel|redeploy|pa-[0-9])/i;
-  const cached = (history.length === 0 && !EXEC_INTENT.test(goal)) ? await recallAnswer(goal) : null;
+  // 2026-08-22: live-data sweep/read intents must never be cache-served —
+  // semantically similar enumerations over DIFFERENT model lists collided at
+  // cosine>0.88 and got served the first chunk's answer (found by live sweep).
+  const READ_SWEEP_INTENT = /(brain_list|كل نموذج|كل النماذج|مسح|اقرأ كل|model=N|limit=1)/i;
+  const cached = (history.length === 0 && !EXEC_INTENT.test(goal) && !READ_SWEEP_INTENT.test(goal)) ? await recallAnswer(goal) : null;
   if (cached) {
     void recordUsage({
       provider: "onx-cache", model: "onx-knowledge-store", kind: "chat",
@@ -698,7 +702,7 @@ export async function runAgenticLoop(goal: string, maxSteps = 24, history: Conve
     // cached as "stable" was served for an hour on 2026-08-17).
     const sawToolError = steps.some((s) => s.kind === "tool_call" && (s.resultSummary ?? "").startsWith("ERROR"));
     const sawToolError2 = steps.some((s) => s.kind === "tool_call" && (s.resultSummary ?? "").includes("\"error\":"));
-    if (!sawToolError && !sawToolError2) void learnAnswer(goal, answer, cfg.model, usedVolatile ? "volatile" : "stable");
+    if (!sawToolError && !sawToolError2 && !/(brain_list|كل نموذج|مسح|model=N)/i.test(goal)) void learnAnswer(goal, answer, cfg.model, usedVolatile ? "volatile" : "stable");
   }
 
   const run: AgenticRun = {
