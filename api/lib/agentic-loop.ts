@@ -472,8 +472,15 @@ async function executeAction(action: string, params: Record<string, unknown>): P
       // "offer", "categories" → "category" style) and fields arriving as
       // `fields`, `data`, or flat keys all collapse into one fields object.
       let model = String(params.model).toLowerCase();
-      if (model.endsWith("ies")) model = model.slice(0, -3) + "y";
-      else if (model.endsWith("s") && !model.endsWith("ss")) model = model.slice(0, -1);
+      if (action === "record_create") {
+        // brain-create keys are SINGULAR (offer, audience, ...); tolerate plurals
+        if (model.endsWith("ies")) model = model.slice(0, -3) + "y";
+        else if (model.endsWith("s") && !model.endsWith("ss")) model = model.slice(0, -1);
+      } else {
+        // brain-update keys are PLURAL (campaigns, leads, ...); tolerate singular
+        const SING2PLUR: Record<string, string> = { campaign: "campaigns", lead: "leads", task: "tasks", goal: "goals", approval: "approvals", scheduled_post: "scheduled_posts", publication: "publications", offer: "offers", automation_rule: "automation_rules" };
+        model = SING2PLUR[model] ?? model;
+      }
       const { model: _m, id: _i, fields: f0, data: d0, ...rest } = params;
       const fields = { ...rest, ...((d0 as Record<string, unknown>) ?? {}), ...((f0 as Record<string, unknown>) ?? {}) };
       if (action === "record_create") {
